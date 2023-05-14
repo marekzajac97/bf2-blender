@@ -69,7 +69,7 @@ class SceneManipulator:
         baf.frame_num = fend - fstart + 1
         for bone_idx, node in enumerate(nodes):
             if node.name in bones_to_export:
-                baf.add_bone(bone_idx)
+                baf[bone_idx] = list()
         
         # for each frame...
         for frame_idx in range(fstart, fend + 1):
@@ -102,7 +102,7 @@ class SceneManipulator:
         
                 self._convert_bf2_pos_rot(pos, rot)
                 frame = BF2KeyFrame(pos=pos, rot=rot)
-                baf.bones[bone_idx][frame_idx] = frame
+                baf.bones[bone_idx].append(frame)
         
         # revert to frame before export
         self.scene.frame_set(saved_frame)
