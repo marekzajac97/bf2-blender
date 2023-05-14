@@ -69,7 +69,7 @@ class SceneManipulator:
         baf.frame_num = fend - fstart + 1
         for bone_idx, node in enumerate(nodes):
             if node.name in bones_to_export:
-                baf[bone_idx] = list()
+                baf.bones[bone_idx] = list()
         
         # for each frame...
         for frame_idx in range(fstart, fend + 1):
