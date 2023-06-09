@@ -25,13 +25,11 @@ class SceneManipulator:
         self.scene = scene
     
     def _convert_bf2_pos_rot(self, pos, rot):
-        pos = pos
         z = pos.z
         y = pos.y
         pos.z = y
         pos.y = z
         
-        rot = rot
         z = rot.z
         y = rot.y
         rot.z = y
@@ -70,10 +68,12 @@ class SceneManipulator:
         for bone_idx, node in enumerate(nodes):
             if node.name in bones_to_export:
                 baf.bones[bone_idx] = list()
-        
+
         # for each frame...
         for frame_idx in range(fstart, fend + 1):
             self.scene.frame_set(frame_idx)
+            bpy.context.view_layer.update()
+
             # for each bone...
             for bone_idx, node in enumerate(nodes):
 
@@ -81,25 +81,15 @@ class SceneManipulator:
                     continue
                 
                 pose_bone = rig.pose.bones[node.name]
-
-                # for each bone, get 'rest' pose matrix in armature space
-                node_to_rest_matrix = dict()
-                for rest_bone in armature.bones:
-                    node_to_rest_matrix[rest_bone.name] = rest_bone.matrix_local @ _get_bone_rot(rest_bone).inverted()
-                
-                # to armature space
-                matrix = pose_bone.bone.matrix_local @ pose_bone.matrix_basis
-
-                # from armature space parent space
+ 
+                # convert to parent space and fix rotations
                 parent_matrix = Matrix.Identity(4)
-                if pose_bone.bone.parent:
-                    parent_matrix = node_to_rest_matrix[pose_bone.bone.parent.name]
-                matrix = parent_matrix.inverted() @ matrix
+                if pose_bone.parent:
+                    parent_matrix = pose_bone.parent.matrix @ _get_bone_rot(pose_bone.parent.bone).inverted()
+                matrix = parent_matrix.inverted() @ pose_bone.matrix
+                matrix @= _get_bone_rot(pose_bone.bone).inverted()
 
-                # matrix at this frame (parent space)
-                matrix = matrix @ _get_bone_rot(pose_bone.bone).inverted()
                 pos, rot, _ = matrix.decompose()
-        
                 self._convert_bf2_pos_rot(pos, rot)
                 frame = BF2KeyFrame(pos=pos, rot=rot)
                 baf.bones[bone_idx].append(frame)
@@ -161,6 +151,12 @@ class SceneManipulator:
         for node in nodes:
             self._convert_bf2_pos_rot(node.pos, node.rot)
         
+        # get 'rest' pose matrix in armature space
+        node_to_rest_matrix = dict()
+        for n in nodes:
+            rest_bone = armature.bones[n.name]
+            node_to_rest_matrix[rest_bone.name] = rest_bone.matrix_local @ _get_bone_rot(rest_bone).inverted()
+
         # for each frame...
         for frame_idx in range(baf.frame_num):
             # for each bone...
@@ -168,17 +164,12 @@ class SceneManipulator:
                 frame = frames[frame_idx]
                 pos = frame.pos.copy()
                 rot = frame.rot.copy()
-                self._convert_bf2_pos_rot(pos, rot)                
+                self._convert_bf2_pos_rot(pos, rot)
                 node = nodes[bone_idx]
                 pose_bone = rig.pose.bones[node.name]
 
                 # bone transforms in .baf are in parent bone space
                 # bone transforms in blender are in parent and 'rest' pose space (wtf seriously)
-
-                # for each bone, get 'rest' pose matrix in armature space
-                node_to_rest_matrix = dict()
-                for rest_bone in armature.bones:
-                    node_to_rest_matrix[rest_bone.name] = rest_bone.matrix_local @ _get_bone_rot(rest_bone).inverted()
 
                 # matrix at this frame (parent space)
                 matrix = _to_matrix(pos, rot) @ _get_bone_rot(pose_bone.bone)
@@ -192,11 +183,9 @@ class SceneManipulator:
                 # back to rest bone space
                 pose_bone.matrix_basis = pose_bone.bone.matrix_local.inverted() @ matrix
 
-                for i in range(0, 3):
-                    pose_bone.keyframe_insert(data_path="location", frame=frame_idx, index=i)
-                for i in range(0, 4):
-                    pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx, index=i)
-        
+                pose_bone.keyframe_insert(data_path="location", frame=frame_idx)
+                pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
+
         bpy.ops.object.mode_set(mode='OBJECT')
     
     def _is_3p(self, skeleton):
@@ -402,6 +391,11 @@ class SceneManipulator:
     
         obj = bpy.data.objects.new(name, mesh)
         bpy.context.scene.collection.objects.link(obj)
+
+        # doesn't work :/
+        # bpy.context.view_layer.objects.active = obj
+        # bpy.ops.object.shade_smooth()
+
         return obj
     
     def _import_rig_bundled_mesh(self, mesh_obj, bf2_mesh, geom, lod):
