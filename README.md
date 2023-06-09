@@ -20,9 +20,5 @@ After installation, use `BF2` submenu in `File -> Import/Export`
 - When importing, make sure to set geom 1 in mesh import options for 3P animations.
 - When exporting, you can select/deselect bones for export in the export menu.
 
-#### Notes:
-- Skeleton needs to be loaded first! followed by the soldier/weapon/kitmesh/animation(s) (in any order)
-- Make sure to set geom 1 in mesh import options for 3P animations
-
 ## Credits
 - [rpoxo](https://github.com/rpoxo) for the [BF2 mesh file parser](https://github.com/rpoxo/bf2mesh) (MIT License)
