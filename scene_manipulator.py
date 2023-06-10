@@ -431,7 +431,10 @@ class SceneManipulator:
                     diffuse_tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
                     diffuse_tex_node.image = diffuse
                     material.node_tree.links.new(diffuse_tex_node.outputs[0], principled_BSDF.inputs[0]) # color -> base color
-                    material.node_tree.links.new(diffuse_tex_node.outputs[1], principled_BSDF.inputs[7]) # alpha -> specular   
+                    if bf2_mesh.isBundledMesh:
+                        material.node_tree.links.new(diffuse_tex_node.outputs[1], principled_BSDF.inputs[7]) # alpha -> specular
+                    else:
+                        principled_BSDF.inputs[7].default_value = 0 # set specular
                 except Exception:
                     pass
 
