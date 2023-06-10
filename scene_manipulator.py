@@ -1,7 +1,10 @@
 import bpy
+import bmesh
 from mathutils import Quaternion, Vector, Euler, Matrix
 import struct
 import math
+import os
+import numpy as np
 
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame
 from .bf2.bf2_skeleton import BF2Skeleton
@@ -304,97 +307,144 @@ class SceneManipulator:
         # add skeleton metadata to rig
         self._link_to_skeleton(rig, skeleton)
     
-    def _merge_meshes(self, out_mesh, mesh_list):
-        verts = list()
-        faces = list()
-        for mesh in mesh_list:
-            f_offset = len(verts)
-            for f in mesh.polygons:
-                faces.append(tuple([xyz + f_offset for xyz in f.vertices]))
-            
-            for v in mesh.vertices:
-                verts.append(v.co.copy())
-        out_mesh.from_pydata(verts, [], faces)
-    
-    def import_mesh(self, mesh_file, geom=0, lod=0, reload=False):
+    def import_mesh(self, mesh_file, geom=0, lod=0, mod_path='', reload=False):
         bf2_mesh = BF2Mesh(mesh_file)
 
-        mesh_obj = self._import_mesh_geometry(bf2_mesh.name, bf2_mesh, geom, lod, reload)
+        mesh_obj = self._import_mesh_geometry(bf2_mesh.name, bf2_mesh, geom, lod, mod_path, reload)
         
         if bf2_mesh.isSkinnedMesh:
             self._import_rig_skinned_mesh(mesh_obj, bf2_mesh, geom, lod)
         elif bf2_mesh.isBundledMesh:
             self._import_rig_bundled_mesh(mesh_obj, bf2_mesh, geom, lod)
-        
-    def _import_mesh_geometry(self, name, bf2_mesh, geom, lod, reload=False):
+    
+    def _roatate_uv(self, uv, angle):
+        uv = Vector(uv)
+        pivot = Vector((0.5, 0.5))
+        angle = math.radians(angle)
+        uv -= pivot
+        uv_len = uv.length
+        uv.normalize()
+        uv = Vector((uv.x * math.cos(angle) - uv.y * math.sin(angle),
+                     uv.x * math.sin(angle) + uv.y * math.cos(angle)))
+        uv *= uv_len
+        uv += pivot
+        return uv
+
+    def _import_mesh_geometry(self, name, bf2_mesh, geom, lod, mod_path, reload):
         if reload and name in bpy.data.objects:
             obj = bpy.data.objects[name]
             obj_mesh = obj.data
-            bpy.data.objects.remove(obj, do_unlink=True)            
+            bpy.data.objects.remove(obj, do_unlink=True)
             bpy.data.meshes.remove(obj_mesh, do_unlink=True)
         
-        mat_meshes = list()
-        
         bf2_lod = bf2_mesh.geoms[geom].lods[lod]
-        
-        for i, mat in enumerate(bf2_lod.materials):
-            verts = list()
-            for j in range(mat.vstart, mat.vstart + mat.vnum + 1):
-                vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
+
+        verts = list()
+        faces = list()
+
+        for mat in bf2_lod.materials:
+            f_offset = len(verts)
+            index_arr = bf2_mesh.index[mat.istart:mat.istart + mat.inum]
+            _faces = list()
+            for i in range(0, len(index_arr), 3):
+                v1 = index_arr[i + 0] + f_offset
+                v2 = index_arr[i + 1] + f_offset
+                v3 = index_arr[i + 2] + f_offset
+                _faces.append((v1, v2, v3))
+            faces.append(_faces)
+
+            for i in range(mat.vstart, mat.vstart + mat.vnum + 1):
+                vi = i * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
                 x = bf2_mesh.vertices[vi + 0]
                 y = bf2_mesh.vertices[vi + 1]
                 z = bf2_mesh.vertices[vi + 2]
                 verts.append((x, z, y))
 
-            index_arr = bf2_mesh.index[mat.istart:mat.istart + mat.inum]
-            faces = [tuple(index_arr[x:x+3]) for x in range(0, len(index_arr), 3)]           
+        bm = bmesh.new()
 
-            mesh_mat = bpy.data.meshes.new(f'{name}_mat{i}')
-            mesh_mat.from_pydata(verts, [], faces)
-            
-            mat_meshes.append(mesh_mat)
-        
-        # merge materials
-        mesh = bpy.data.meshes.new(name)        
-        self._merge_meshes(mesh, mat_meshes)
-        for m in mat_meshes:
-            bpy.data.meshes.remove(m, do_unlink=True)
+        for vert in verts:
+            bm.verts.new(vert)
+
+        bm.verts.ensure_lookup_table()
+
+        for material_index, _faces in enumerate(faces):
+            for face  in _faces:
+                face_verts = [bm.verts[i] for i in face]
+                bm_face = bm.faces.new(face_verts)
+                bm_face.material_index = material_index
+
+        mesh = bpy.data.meshes.new(name)
+        bm.to_mesh(mesh)
         
         # load normals, UVs
         normal_off = bf2_mesh.get_normal_offset()
-        vert_norm = list()
+        vertex_normals = list()
         
         uv_off = bf2_mesh.get_textc_offset(0)
         vert_uv = list()
         for i, mat in enumerate(bf2_lod.materials):
             for j in range(mat.vstart, mat.vstart + mat.vnum + 1):
                 vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
-                x = -bf2_mesh.vertices[vi + normal_off + 0]
-                y = -bf2_mesh.vertices[vi + normal_off + 1]
-                z = -bf2_mesh.vertices[vi + normal_off + 2]
-                vert_norm.append((x, z, y))
+                x = bf2_mesh.vertices[vi + normal_off + 0]
+                y = bf2_mesh.vertices[vi + normal_off + 1]
+                z = bf2_mesh.vertices[vi + normal_off + 2]
+                vertex_normals.append((x, z, y))
                 
                 u = bf2_mesh.vertices[vi + uv_off + 0]
                 v = bf2_mesh.vertices[vi + uv_off + 1]
-                vert_uv.append((u, v))
+                vert_uv.append((v, u)) # this is no mistake
         
-        # apply nomrals
-        mesh.normals_split_custom_set([vert_norm[l.vertex_index] for l in mesh.loops])
+        # load normals
+        mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
+        mesh.normals_split_custom_set_from_vertices(vertex_normals)
         mesh.use_auto_smooth = True
+
+        bm.normal_update()
+        bm.free()
         
-        # apply UVs
-        uvtex = mesh.uv_layers.new(name='DefaultUV')            
+        # load UVs
+        uvlayer = mesh.uv_layers.new(name='DefaultUV')            
         for l in mesh.loops:
-            uvtex.data[l.index].uv = vert_uv[l.vertex_index]
-            
+            uv = self._roatate_uv(vert_uv[l.vertex_index], -90.0) # the only way it can display properly
+            uvlayer.data[l.index].uv = uv
+
         mesh.calc_tangents()
+
+        # textures / materials
+        if mod_path:
+            for i, bf2_mat in enumerate(bf2_lod.materials):
+                mat_name = f'{bf2_mesh.name}_material_{i}'
+                try:
+                    material = bpy.data.materials[mat_name]
+                    bpy.data.materials.remove(material, do_unlink=True)
+                except:
+                    pass
+                material = bpy.data.materials.new(mat_name)
+                mesh.materials.append(material)
+
+                material.use_nodes=True
+                principled_BSDF = material.node_tree.nodes.get('Principled BSDF')
+                principled_BSDF.inputs[9].default_value = 1 # set roughness
+
+                try:
+                    diffuse = bpy.data.images.load(os.path.join(mod_path, bf2_mat.maps[0].decode('ascii')))
+                    diffuse_tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
+                    diffuse_tex_node.image = diffuse
+                    material.node_tree.links.new(diffuse_tex_node.outputs[0], principled_BSDF.inputs[0]) # color -> base color
+                    material.node_tree.links.new(diffuse_tex_node.outputs[1], principled_BSDF.inputs[7]) # alpha -> specular   
+                except Exception:
+                    pass
+
+                try:
+                    normal_tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
+                    normal_tex_node.image = normal
+                    normal = bpy.data.images.load(os.path.join(mod_path, bf2_mat.maps[1].decode('ascii')))
+                    material.node_tree.links.new(normal_tex_node.outputs[0], principled_BSDF.inputs[22]) # color -> normal
+                except Exception:
+                    pass
     
         obj = bpy.data.objects.new(name, mesh)
         bpy.context.scene.collection.objects.link(obj)
-
-        # doesn't work :/
-        # bpy.context.view_layer.objects.active = obj
-        # bpy.ops.object.shade_smooth()
 
         return obj
     

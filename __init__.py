@@ -20,7 +20,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 bl_info = {
-    "name" : "bf2tools",
+    "name" : "BF2 Tools",
     "author" : "Marek Zajac",
     "description" : "",
     "blender" : (3, 0, 0),

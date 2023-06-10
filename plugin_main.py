@@ -68,8 +68,9 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         return super().invoke(context, _event)
 
     def execute(self, context):
+        mod_path = context.preferences.addons[__package__].preferences.mod_directory
         try:
-           self.sm.import_mesh(self.filepath, geom=self.geom, lod=self.lod)
+            self.sm.import_mesh(self.filepath, geom=self.geom, lod=self.lod, mod_path=mod_path)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
@@ -161,9 +162,26 @@ class EXPORT_MT_bf2_submenu(bpy.types.Menu):
 def menu_func_export(self, context):
     self.layout.menu(EXPORT_MT_bf2_submenu.bl_idname, text="BF2")
 
+
+# ----------------------------------------------------------
+
+class BF2AddonPreferences(bpy.types.AddonPreferences):
+    bl_idname = __package__
+
+    mod_directory: StringProperty (
+            name="BF2 mod directory",
+            subtype="DIR_PATH"
+        )
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.prop(self, 'mod_directory', expand=True)
+
 # ----------------------------------------------------------
 
 def register():
+    bpy.utils.register_class(BF2AddonPreferences)
     bpy.utils.register_class(BoneExportCollection)
 
     bpy.utils.register_class(IMPORT_OT_bf2_skeleton)
@@ -177,6 +195,7 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
 def unregister():
+    bpy.utils.unregister_class(BF2AddonPreferences)
     bpy.utils.unregister_class(BoneExportCollection)
 
     bpy.utils.unregister_class(IMPORT_OT_bf2_skeleton)

@@ -4,14 +4,14 @@ Probably like 15 years too late but anyway, here are some basic tools for import
 ## Features:
 - Animation (`.baf`) import/export
 - Skeleton (`.ske`) import only
-- BundledMesh/SkinnedMesh (`.bundledmesh, .skinnedmesh`) import geometry only (with skin weights)
+- BundledMesh/SkinnedMesh (`.bundledmesh, .skinnedmesh`) import only
 
 ## Installation
 - To download use [Download ZIP](https://github.com/marekzajac97/bf2-blender/archive/refs/heads/main.zip) option
 - To install see [Blender Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html)
 
 ## Usage
-After installation, use `BF2` submenu in `File -> Import/Export`
+After installation, setup your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (it's only required to load textures). Then you can use `BF2` submenu in `File -> Import/Export`
 
 #### Tips and general info:
 - When importing, the skeleton needs to be loaded first! followed by the soldier/weapon/kitmesh and animation loaded at the very end.
