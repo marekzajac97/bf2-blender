@@ -350,7 +350,7 @@ class SceneManipulator:
                 v1 = index_arr[i + 0] + f_offset
                 v2 = index_arr[i + 1] + f_offset
                 v3 = index_arr[i + 2] + f_offset
-                _faces.append((v1, v2, v3))
+                _faces.append((v3, v2, v1))
             faces.append(_faces)
 
             for i in range(mat.vstart, mat.vstart + mat.vnum + 1):
