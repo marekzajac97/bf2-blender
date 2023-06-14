@@ -90,7 +90,7 @@ def read_matrix4(fo):
     
 
 def write_long(fo, value):
-    fmt = 'l'
+    fmt = 'i'
     fo.write(struct.Struct(fmt).pack(value))
 
 def write_short(fo, value):
@@ -122,5 +122,5 @@ def write_matrix4(fo, value):
 def write_string(fo, value):
     lenght = len(value)
     fmt = '{}s'.format(lenght)
-    fo.write(struct.Struct('l').pack(lenght))
+    write_long(fo, lenght)
     fo.write(struct.Struct(fmt).pack(value))

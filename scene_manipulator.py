@@ -39,13 +39,31 @@ class SceneManipulator:
         rot.y = z
         rot.invert()
     
-    def get_bone_list_for_export(self):
+    def get_bones_for_export(self):
         ske_data = self._find_active_skeleton()
         if not ske_data:
-            return []
+            return dict()
         else:
-            _, skeleton = ske_data
-            return [n.name for n in skeleton.node_list()]
+            rig, skeleton = ske_data
+
+            inc_mesh_bones = set()
+            for obj in bpy.data.objects:
+                for mod in obj.modifiers:
+                    if mod.type == 'ARMATURE' and mod.object == rig:
+                        vertex_group_id_to_name = dict()
+                        for vg in obj.vertex_groups:
+                            vertex_group_id_to_name[vg.index] = vg.name
+                        for v in obj.data.vertices:
+                            if len(v.groups) > 0:
+                                inc_mesh_bones.add(vertex_group_id_to_name[v.groups[0].group])
+
+            inc_bones = dict()
+            for i, node in enumerate(skeleton.node_list()):
+                if i in self._ske_weapon_part_ids(skeleton) and node.name not in inc_mesh_bones:
+                    inc_bones[node.name] = False # mesh bone not part of the animated weapon
+                else:
+                    inc_bones[node.name] = True
+            return inc_bones
     
     def export_animation(self, baf_file, bones_to_export=None, fstart=None, fend=None):
         
@@ -53,7 +71,6 @@ class SceneManipulator:
             raise RuntimeError("No active skeleton found!")
             
         rig, skeleton = self._find_active_skeleton()
-        armature = rig.data
         
         fstart = self.scene.frame_start if fstart is None else fstart
         fend = self.scene.frame_end if fend is None else fend
@@ -459,10 +476,6 @@ class SceneManipulator:
         rig, skeleton = self._find_active_skeleton()
 
         bf2_lod = bf2_mesh.geoms[geom].lods[lod]
-
-        bone_id_to_name = dict()
-        for bone_id, bone_name in enumerate(skeleton.node_list()):
-            bone_id_to_name[bone_id] = bone_name
         
         off = bf2_mesh.get_wight_offset()
         

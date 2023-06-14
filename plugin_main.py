@@ -124,15 +124,16 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
         self.sm = SceneManipulator(bpy.context.scene)
 
         try:
-           bones = self.sm.get_bone_list_for_export()
+            bones = self.sm.get_bones_for_export()
         except Exception as e:
-            bones = []
+            print(e)
+            bones = dict()
 
         self.bones_for_export.clear()
-        for bone_name in bones:
+        for bone_name, inc in bones.items():
             item = self.bones_for_export.add()
             item.name = bone_name
-            item.included = True
+            item.included = inc
 
         return super().invoke(context, _event)
 
