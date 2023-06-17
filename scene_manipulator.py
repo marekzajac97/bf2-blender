@@ -456,9 +456,9 @@ class SceneManipulator:
                     pass
 
                 try:
+                    normal = bpy.data.images.load(os.path.join(mod_path, bf2_mat.maps[1].decode('ascii')))
                     normal_tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
                     normal_tex_node.image = normal
-                    normal = bpy.data.images.load(os.path.join(mod_path, bf2_mat.maps[1].decode('ascii')))
                     material.node_tree.links.new(normal_tex_node.outputs[0], principled_BSDF.inputs[22]) # color -> normal
                 except Exception:
                     pass
