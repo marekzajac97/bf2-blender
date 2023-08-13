@@ -44,6 +44,18 @@ class SceneManipulator:
     def _link_to_skeleton(rig_obj, skeleton):
         rig_obj.data['bf2_skeleton'] = skeleton.to_dict()
     
+    def _find_animated_weapon_object(self):
+        ske_data = self._find_active_skeleton()
+        if not ske_data:
+            return None
+        else:
+            rig, _ = ske_data
+            for obj in bpy.data.objects:
+                for mod in obj.modifiers:
+                    if mod.type == 'ARMATURE' and mod.object == rig:
+                        return obj
+        return None
+    
     def get_bones_for_export(self):
         ske_data = self._find_active_skeleton()
         if not ske_data:
@@ -52,15 +64,14 @@ class SceneManipulator:
             rig, skeleton = ske_data
 
             inc_mesh_bones = set()
-            for obj in bpy.data.objects:
-                for mod in obj.modifiers:
-                    if mod.type == 'ARMATURE' and mod.object == rig:
-                        vertex_group_id_to_name = dict()
-                        for vg in obj.vertex_groups:
-                            vertex_group_id_to_name[vg.index] = vg.name
-                        for v in obj.data.vertices:
-                            if len(v.groups) > 0:
-                                inc_mesh_bones.add(vertex_group_id_to_name[v.groups[0].group])
+            obj = self._find_animated_weapon_object()
+            if obj:
+                vertex_group_id_to_name = dict()
+                for vg in obj.vertex_groups:
+                    vertex_group_id_to_name[vg.index] = vg.name
+                for v in obj.data.vertices:
+                    if len(v.groups) > 0:
+                        inc_mesh_bones.add(vertex_group_id_to_name[v.groups[0].group])
 
             inc_bones = dict()
             for i, node in enumerate(skeleton.node_list()):
@@ -138,7 +149,7 @@ class SceneManipulator:
             # create camera
             camera_data = bpy.data.cameras.new(name=cam_name)
             camera_data.lens_unit = 'FOV'
-            camera_data.angle = math.radians(90)
+            camera_data.angle = math.radians(73.8)
             camera_object = bpy.data.objects.new(cam_name, camera_data)
             self.scene.collection.objects.link(camera_object)
             
@@ -579,6 +590,10 @@ class SceneManipulator:
         modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
         modifier.object = rig
 
+    # ##############################################################
+    # ################## Controllers setup #########################
+    # ##############################################################
+
     @staticmethod
     def _create_ctrl_bone_from(armature, bone_name):
         b = armature.edit_bones[bone_name]
@@ -664,6 +679,40 @@ class SceneManipulator:
         bm.free()
         return basic_sphere
     
+    def _calc_weapon_mesh_contoller_pos(self):
+        bone_to_pos = dict()
+        obj = self._find_animated_weapon_object()
+        if obj:
+            bone_to_vertices = dict()
+            vertex_group_id_to_name = dict()
+            for vg in obj.vertex_groups:
+                vertex_group_id_to_name[vg.index] = vg.name
+                bone_to_vertices[vg.name] = list()
+            for v in obj.data.vertices:
+                if len(v.groups) == 0:
+                    continue
+                bone_name = vertex_group_id_to_name[v.groups[0].group]
+                bone_to_vertices[bone_name].append(v.co)
+
+            # calculate center of bounding boxes for each bone
+            for bone, vertices in bone_to_vertices.items():
+                # TODO replace with center of volume
+                x_co = [v.x for v in vertices]
+                y_co = [v.y for v in vertices]
+                z_co = [v.z for v in vertices]
+                x_max = max(x_co)
+                x_min = min(x_co)
+                y_max = max(y_co)
+                y_min = min(y_co)
+                z_max = max(z_co)
+                z_min = min(z_co)
+                x_pos = x_min + (x_max - x_min) / 2
+                y_pos = y_min + (y_max - y_min) / 2
+                z_pos = z_min + (z_max - z_min) / 2
+                bone_to_pos[bone] = Vector((x_pos, y_pos, z_pos))
+
+        return bone_to_pos
+    
     def setup_controllers(self):
         if not self._find_active_skeleton():
             return # ignore if skeleton not loaded
@@ -730,6 +779,14 @@ class SceneManipulator:
         self._create_ctrl_bone(armature, 'L_elbow', L_elbow_CTRL_pos)
         self._create_ctrl_bone(armature, 'R_elbow', R_elbow_CTRL_pos)
 
+        # meshX controllers setup
+        meshbone_to_pos = self._calc_weapon_mesh_contoller_pos()
+
+        for mesh_bone, pos in meshbone_to_pos.items():
+            pos = Vector((0, 0, 0)) # FIXME
+            print(mesh_bone, pos)
+            self._create_ctrl_bone(armature, mesh_bone, pos)
+
         bpy.ops.object.mode_set(mode='POSE')
 
         L_wrist_CTRL = rig.pose.bones['L_wrist.CTRL']
@@ -758,14 +815,22 @@ class SceneManipulator:
         R_arm_CTRL.custom_shape = cube_shape
         R_arm_CTRL.custom_shape_scale_xyz = SHAPE_SCALE / R_arm_CTRL.length
 
+        ZERO_VEC = Vector((0, 0, 0))
         bone_to_ctrl = {
-            'L_wrist': (L_wrist_CTRL, 0),
-            'R_wrist': (R_wrist_CTRL, 0),
-            'L_arm': (L_arm_CTRL, 0),
-            'R_arm': (R_arm_CTRL, 0),
-            'L_elbowMiddleJoint': (L_elbow_CTRL, POLE_OFFSET),
-            'R_elbowJoint': (R_elbow_CTRL, -POLE_OFFSET)
+            'L_wrist': (L_wrist_CTRL, ZERO_VEC),
+            'R_wrist': (R_wrist_CTRL, ZERO_VEC),
+            'L_arm': (L_arm_CTRL, ZERO_VEC),
+            'R_arm': (R_arm_CTRL, ZERO_VEC),
+            'L_elbowMiddleJoint': (L_elbow_CTRL, Vector((POLE_OFFSET, 0, 0))),
+            'R_elbowJoint': (R_elbow_CTRL, Vector((-POLE_OFFSET, 0, 0))),
         }
+
+        mesh_bones = meshbone_to_pos.keys()
+        for mesh_bone in mesh_bones:
+            mesh_bone_ctrl = rig.pose.bones[mesh_bone + '.CTRL']
+            mesh_bone_offset = meshbone_to_pos[mesh_bone]
+            mesh_bone_offset = ZERO_VEC # FIXME
+            bone_to_ctrl[mesh_bone] = (mesh_bone_ctrl, mesh_bone_offset)
 
         # apply loaded animation for controllers
         saved_frame = self.scene.frame_current
@@ -775,9 +840,9 @@ class SceneManipulator:
             for source_name, (target, offset) in bone_to_ctrl.items():
                 source = rig.pose.bones[source_name]
 
-                target_pos = Vector((1, 0, 0))
+                target_pos = offset.normalized()
                 target_pos.rotate(source.matrix)
-                target_pos *= offset
+                target_pos *= offset.length
                 target_pos += source.matrix.translation
 
                 m = source.matrix.copy()
@@ -786,9 +851,23 @@ class SceneManipulator:
 
                 target.keyframe_insert(data_path="location", frame=frame_idx)
                 target.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
+                
+                # delete all keyframes for orignal mesh bones
+                # or the CHILD_OF constraint will mess everything up
+                if source_name.startswith('mesh'):
+                    source.keyframe_delete(data_path="location", frame=frame_idx)
+                    source.keyframe_delete(data_path="rotation_quaternion", frame=frame_idx)
+
         self.scene.frame_set(saved_frame)
 
         # Constraints setup
+
+        # meshX bones controllers
+        for mesh_bone in mesh_bones:
+            child_of = rig.pose.bones[mesh_bone].constraints.new(type='CHILD_OF')
+            child_of.target = rig
+            child_of.subtarget = mesh_bone + '.CTRL'
+            child_of.name = AUTO_SETUP + '_CHILD_OF_' + mesh_bone
 
         # wrist rotation
         cp_rot = rig.pose.bones['L_wrist'].constraints.new(type='COPY_ROTATION')
@@ -834,6 +913,7 @@ class SceneManipulator:
 
         # declutter viewport by changing bone display mode
         # and hiding all bones except controllers and finger bones
+        UNHIDE_BONE = ['Camerabone', 'L_collar', 'R_collar'] # exception list
         rig.show_in_front = True
         armature.display_type = 'WIRE'
         FINGER_PREFIXES = {'L_', 'R_'}
@@ -843,10 +923,11 @@ class SceneManipulator:
         print(finger_bones)
         for pose_bone in rig.pose.bones:
             bone = pose_bone.bone
-            if bone.name not in finger_bones and not _is_ctrl(bone):
+            if bone.name not in finger_bones and not _is_ctrl(bone) and bone.name not in UNHIDE_BONE:
                 bone.hide = True # hidden in Pose and Object modes
-        
+
         self._create_bone_group(rig, 'BF2_LEFT_HAND', 'L_', 3)
         self._create_bone_group(rig, 'BF2_RIGHT_HAND', 'R_', 4)
+        self._create_bone_group(rig, 'BF2_MESH_BONES', 'mesh', 5)
 
         bpy.ops.object.mode_set(mode='OBJECT')
