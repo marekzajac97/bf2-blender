@@ -31,6 +31,12 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
     bl_label = "Import animation"
     filter_glob = StringProperty(default="*.baf", options={'HIDDEN'})
 
+    setup_ctrls: BoolProperty(
+        name="Setup Controllers",
+        description="Create basic animation helper bones and setup IKs, (NOTE: enabling this may slightly alter the elbow orientation)",
+        default=False
+    )
+
     def invoke(self, context, _event):
         self.sm = SceneManipulator(bpy.context.scene)
         return super().invoke(context, _event)
@@ -38,6 +44,8 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         try:
            self.sm.import_animation(self.filepath)
+           if self.setup_ctrls:
+               self.sm.setup_controllers()
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
@@ -196,15 +204,15 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
 def unregister():
-    bpy.utils.unregister_class(BF2AddonPreferences)
-    bpy.utils.unregister_class(BoneExportCollection)
-
-    bpy.utils.unregister_class(IMPORT_OT_bf2_skeleton)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_mesh)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_animation)
-    bpy.utils.unregister_class(IMPORT_MT_bf2_submenu)
-    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
-
-    bpy.utils.unregister_class(EXPORT_OT_bf2_animation)
-    bpy.utils.unregister_class(EXPORT_MT_bf2_submenu)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
+    bpy.utils.unregister_class(EXPORT_MT_bf2_submenu)
+    bpy.utils.unregister_class(EXPORT_OT_bf2_animation)
+
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.utils.unregister_class(IMPORT_MT_bf2_submenu)
+    bpy.utils.unregister_class(IMPORT_OT_bf2_animation)
+    bpy.utils.unregister_class(IMPORT_OT_bf2_mesh)
+    bpy.utils.unregister_class(IMPORT_OT_bf2_skeleton)
+
+    bpy.utils.unregister_class(BoneExportCollection)
+    bpy.utils.unregister_class(BF2AddonPreferences)
