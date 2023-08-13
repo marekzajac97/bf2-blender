@@ -4,7 +4,6 @@ from mathutils import Vector, Matrix
 import struct
 import math
 import os
-import numpy as np
 
 from . import bl_info
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame
@@ -672,6 +671,8 @@ class SceneManipulator:
         bpy.context.view_layer.objects.active = rig
 
         AUTO_SETUP = 'bf2_auto_setup' # identifier for custom bones and constraints
+        def _is_ctrl(bone):
+            return AUTO_SETUP in bone and bone[AUTO_SETUP]
 
         # cleanup all previous setup
 
@@ -686,9 +687,9 @@ class SceneManipulator:
 
         # delete controler bones
         bpy.ops.object.mode_set(mode='EDIT')
-        for b in armature.edit_bones:
-            if AUTO_SETUP in b and b[AUTO_SETUP]:
-                armature.edit_bones.remove(b)
+        for bone in armature.edit_bones:
+            if _is_ctrl(bone):
+                armature.edit_bones.remove(bone)
 
         # New setup
 
@@ -818,5 +819,19 @@ class SceneManipulator:
         ik.pole_angle = math.radians(180)
         ik.chain_count = 4
         ik.name = AUTO_SETUP + '_IK_R_ullna'
+
+        # declutter viewport by changing bone display mode
+        # and hiding all bones except controllers and finger bones
+        rig.show_in_front = True
+        armature.display_type = 'WIRE'
+        FINGER_PREFIXES = {'L_', 'R_'}
+        FINGER_NAMES = {'pink,', 'index', 'point', 'ring', 'thumb'}
+        FINGER_SUFFIXES = {'_1', '_2', '_3'}
+        finger_bones = [p + n + s for p in FINGER_PREFIXES for n in FINGER_NAMES for s in FINGER_SUFFIXES]
+        print(finger_bones)
+        for pose_bone in rig.pose.bones:
+            bone = pose_bone.bone
+            if bone.name not in finger_bones and not _is_ctrl(bone):
+                bone.hide = True # hidden in Pose and Object modes
 
         bpy.ops.object.mode_set(mode='OBJECT')
