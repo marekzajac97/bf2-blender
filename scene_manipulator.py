@@ -614,6 +614,18 @@ class SceneManipulator:
         obj.hide_viewport = True
         obj.hide_render = True
         obj.hide_select = True
+    
+    @staticmethod
+    def _create_bone_group(rig, name, bone_prfx, theme_idx):
+        if name in rig.pose.bone_groups:
+            group = rig.pose.bone_groups[name]
+            rig.pose.bone_groups.remove(group)
+        group = rig.pose.bone_groups.new(name=name)
+        group.color_set = f'THEME{theme_idx:>02}'
+
+        for bone in rig.pose.bones:
+            if bone.name.startswith(bone_prfx):
+                bone.bone_group = group
 
     def _create_cube_shape(self, size=1):
         SHAPE_NAME = '_CubeBoneShape'
@@ -701,7 +713,7 @@ class SceneManipulator:
         self._create_ctrl_bone_from(armature, 'L_arm')
         self._create_ctrl_bone_from(armature, 'R_arm')
 
-        POLE_OFFSET = 0.4
+        POLE_OFFSET = 0.5
 
         L_elbowMiddleJoint = armature.edit_bones['L_elbowMiddleJoint']
         L_elbow_CTRL_pos = Vector((1, 0, 0))
@@ -833,5 +845,8 @@ class SceneManipulator:
             bone = pose_bone.bone
             if bone.name not in finger_bones and not _is_ctrl(bone):
                 bone.hide = True # hidden in Pose and Object modes
+        
+        self._create_bone_group(rig, 'BF2_LEFT_HAND', 'L_', 3)
+        self._create_bone_group(rig, 'BF2_RIGHT_HAND', 'R_', 4)
 
         bpy.ops.object.mode_set(mode='OBJECT')
