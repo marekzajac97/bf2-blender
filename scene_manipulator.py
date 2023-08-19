@@ -49,11 +49,16 @@ class SceneManipulator:
         ske_data = self._find_active_skeleton()
         if not ske_data:
             return None
-        else:
-            rig, _ = ske_data
-            for obj in bpy.data.objects:
-                for mod in obj.modifiers:
-                    if mod.type == 'ARMATURE' and mod.object == rig:
+
+        rig, _ = ske_data
+        for obj in bpy.data.objects:
+            if obj is rig:
+                continue
+            for mod in obj.modifiers:
+                if mod.type == 'ARMATURE' and mod.object == rig and 'mesh1' in obj.vertex_groups:
+                    # check if any vert belongs to the mesh1 group
+                    # (compatibility fix with older plugin version to filter out soldier meshes)
+                    if any([len(v.groups) and v.groups[0].group == obj.vertex_groups['mesh1'].index for v in obj.data.vertices]):
                         return obj
         return None
     
@@ -61,26 +66,26 @@ class SceneManipulator:
         ske_data = self._find_active_skeleton()
         if not ske_data:
             return dict()
-        else:
-            rig, skeleton = ske_data
 
-            inc_mesh_bones = set()
-            obj = self._find_animated_weapon_object()
-            if obj:
-                vertex_group_id_to_name = dict()
-                for vg in obj.vertex_groups:
-                    vertex_group_id_to_name[vg.index] = vg.name
-                for v in obj.data.vertices:
-                    if len(v.groups) > 0:
-                        inc_mesh_bones.add(vertex_group_id_to_name[v.groups[0].group])
+        _, skeleton = ske_data
 
-            inc_bones = dict()
-            for i, node in enumerate(skeleton.node_list()):
-                if i in self._ske_weapon_part_ids(skeleton) and node.name not in inc_mesh_bones:
-                    inc_bones[node.name] = False # mesh bone not part of the animated weapon
-                else:
-                    inc_bones[node.name] = True
-            return inc_bones
+        inc_mesh_bones = set()
+        obj = self._find_animated_weapon_object()
+        if obj:
+            vertex_group_id_to_name = dict()
+            for vg in obj.vertex_groups:
+                vertex_group_id_to_name[vg.index] = vg.name
+            for v in obj.data.vertices:
+                if len(v.groups) > 0:
+                    inc_mesh_bones.add(vertex_group_id_to_name[v.groups[0].group])
+
+        inc_bones = dict()
+        for i, node in enumerate(skeleton.node_list()):
+            if i in self._ske_weapon_part_ids(skeleton) and node.name not in inc_mesh_bones:
+                inc_bones[node.name] = False # mesh bone not part of the animated weapon
+            else:
+                inc_bones[node.name] = True
+        return inc_bones
     
     def export_animation(self, baf_file, bones_to_export=None, fstart=None, fend=None):
         
@@ -318,9 +323,7 @@ class SceneManipulator:
             for p in parents:
                 armature_space_matrix @= _to_matrix(p.pos, p.rot)
             
-            weapon_parts = self._ske_weapon_part_ids(skeleton)
-            
-            if i in weapon_parts:
+            if i in self._ske_weapon_part_ids(skeleton):
                 # have to keep all wepon parts in scene origin
                 # otherwise weapon parts may not map properly later
                 matrix = Matrix.Identity(4)
@@ -580,7 +583,10 @@ class SceneManipulator:
                 vert_weigths.append(weights)
 
         # create vertex group for each bone
+        mesh_bones = self._ske_weapon_part_ids(skeleton)
         for i, bone_obj in id_to_bone.items():
+            if i in mesh_bones:
+                continue
             mesh_obj.vertex_groups.new(name=bone_obj.name)
         
         # assign verticies to vertex groups and apply weights
