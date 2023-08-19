@@ -4,6 +4,7 @@ from mathutils import Vector, Matrix
 import struct
 import math
 import os
+import itertools
 
 from . import bl_info
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame
@@ -149,7 +150,7 @@ class SceneManipulator:
             # create camera
             camera_data = bpy.data.cameras.new(name=cam_name)
             camera_data.lens_unit = 'FOV'
-            camera_data.angle = math.radians(73.8)
+            camera_data.angle = math.radians(75)
             camera_object = bpy.data.objects.new(cam_name, camera_data)
             self.scene.collection.objects.link(camera_object)
             
@@ -385,7 +386,7 @@ class SceneManipulator:
                 _faces.append((v3, v2, v1))
             faces.append(_faces)
 
-            for i in range(mat.vstart, mat.vstart + mat.vnum + 1):
+            for i in range(mat.vstart, mat.vstart + mat.vnum):
                 vi = i * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
                 x = bf2_mesh.vertices[vi + 0]
                 y = bf2_mesh.vertices[vi + 1]
@@ -393,17 +394,24 @@ class SceneManipulator:
                 verts.append((x, z, y))
 
         bm = bmesh.new()
-
         for vert in verts:
             bm.verts.new(vert)
 
         bm.verts.ensure_lookup_table()
+        bm.verts.index_update()
 
         for material_index, _faces in enumerate(faces):
             for face  in _faces:
                 face_verts = [bm.verts[i] for i in face]
-                bm_face = bm.faces.new(face_verts)
-                bm_face.material_index = material_index
+                try:
+                    bm_face = bm.faces.new(face_verts)
+                    bm_face.material_index = material_index
+                except ValueError:
+                    pass
+                    # XXX: some meshes (e.g. vBF2 usrif_remington11-87)
+                    # produce "face already exists" error
+                    # even though vert indexes are unique
+                    # I don't know wtf is going on, so lets just ignore it
 
         mesh = bpy.data.meshes.new(name)
         bm.to_mesh(mesh)
@@ -415,7 +423,7 @@ class SceneManipulator:
         uv_off = bf2_mesh.get_textc_offset(0)
         vert_uv = list()
         for i, mat in enumerate(bf2_lod.materials):
-            for j in range(mat.vstart, mat.vstart + mat.vnum + 1):
+            for j in range(mat.vstart, mat.vstart + mat.vnum):
                 vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
                 x = bf2_mesh.vertices[vi + normal_off + 0]
                 y = bf2_mesh.vertices[vi + normal_off + 1]
@@ -497,7 +505,7 @@ class SceneManipulator:
         # find which part vertex bbelongs to
         vert_part_id = list()
         for mat in bf2_lod.materials:
-            for j in range(mat.vstart, mat.vstart + mat.vnum + 1):
+            for j in range(mat.vstart, mat.vstart + mat.vnum):
                 vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
                 _data_float = bf2_mesh.vertices[vi + off]
                 _data = tuple([b for b in struct.pack('f', _data_float)])
@@ -556,7 +564,7 @@ class SceneManipulator:
         vert_weigths = list()
         for i, mat in enumerate(bf2_lod.materials):
             rig_bones = rigs_bones[i]
-            for j in range(mat.vstart, mat.vstart + mat.vnum + 1):
+            for j in range(mat.vstart, mat.vstart + mat.vnum):
                 vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
                 WIEGHTS_OFFSET = 6
                 w = bf2_mesh.vertices[vi + WIEGHTS_OFFSET + 0]
@@ -594,24 +602,32 @@ class SceneManipulator:
     # ################## Controllers setup #########################
     # ##############################################################
 
-    @staticmethod
-    def _create_ctrl_bone_from(armature, bone_name):
-        b = armature.edit_bones[bone_name]
-        cb = armature.edit_bones.new(f'{bone_name}.CTRL')
+    AUTO_SETUP_ID = 'bf2_auto_setup' # identifier for custom bones and constraints
+
+    @classmethod
+    def _create_ctrl_bone_from(cls, armature, source_bone, name=''):
+        name = name if name else source_bone
+        b = armature.edit_bones[source_bone]
+        cb = armature.edit_bones.new(f'{name}.CTRL')
         cb.head = b.head
         cb.tail = b.tail
         cb.matrix = b.matrix
-        cb['bf2_auto_setup'] = True
+        cb[cls.AUTO_SETUP_ID] = source_bone
         return cb
 
-    @staticmethod
-    def _create_ctrl_bone(armature, bone_name, pos):
-        cb = armature.edit_bones.new(f'{bone_name}.CTRL')
+    @classmethod
+    def _create_ctrl_bone(cls, armature, source_bone, pos, name=''):
+        name = name if name else source_bone
+        cb = armature.edit_bones.new(f'{name}.CTRL')
         cb.head = pos
         cb.tail = pos
         cb.tail.z += 0.03
-        cb['bf2_auto_setup'] = True
+        cb[cls.AUTO_SETUP_ID] = source_bone
         return cb
+
+    @classmethod
+    def _is_ctrl_of(cls, bone):
+        return bone[cls.AUTO_SETUP_ID] if cls.AUTO_SETUP_ID in bone else None
 
     def _create_mesh_object(self, name):
         if name in bpy.data.objects:
@@ -704,13 +720,6 @@ class SceneManipulator:
 
         return bone_to_pos
 
-
-    AUTO_SETUP_ID = 'bf2_auto_setup' # identifier for custom bones and constraints
-
-    @classmethod
-    def _is_ctrl(cls, bone):
-        return cls.AUTO_SETUP_ID in bone and bone[cls.AUTO_SETUP_ID]
-
     def rollback_controllers(self):
         ske_data = self._find_active_skeleton()
         if not ske_data:
@@ -732,7 +741,7 @@ class SceneManipulator:
         # delete controller bones
         bpy.ops.object.mode_set(mode='EDIT')
         for bone in armature.edit_bones:
-            if self._is_ctrl(bone):
+            if self._is_ctrl_of(bone):
                 armature.edit_bones.remove(bone)
     
     def setup_controllers(self):
@@ -767,10 +776,10 @@ class SceneManipulator:
         ONES_VEC = Vector((1, 1, 1))
         ZERO_VEC = Vector((0, 0, 0))
 
-        self._create_ctrl_bone_from(armature, 'L_wrist')
-        self._create_ctrl_bone_from(armature, 'R_wrist')
-        self._create_ctrl_bone_from(armature, 'L_arm')
-        self._create_ctrl_bone_from(armature, 'R_arm')
+        self._create_ctrl_bone_from(armature, source_bone='L_wrist')
+        self._create_ctrl_bone_from(armature, source_bone='R_wrist')
+        self._create_ctrl_bone_from(armature, source_bone='L_arm')
+        self._create_ctrl_bone_from(armature, source_bone='R_arm')
 
         # Arms controllers
         POLE_OFFSET = 0.5
@@ -786,15 +795,15 @@ class SceneManipulator:
         R_elbow_CTRL_pos *= -POLE_OFFSET
         R_elbow_CTRL_pos += R_elbowJoint.head
 
-        self._create_ctrl_bone(armature, 'L_elbow', L_elbow_CTRL_pos)
-        self._create_ctrl_bone(armature, 'R_elbow', R_elbow_CTRL_pos)
+        self._create_ctrl_bone(armature, name='L_elbow', source_bone='L_elbowMiddleJoint', pos=L_elbow_CTRL_pos)
+        self._create_ctrl_bone(armature, name='R_elbow', source_bone='R_elbowJoint', pos=R_elbow_CTRL_pos)
 
         # meshX controllers
         meshbone_to_pos = self._calc_weapon_mesh_contoller_pos()
         mesh_bones = meshbone_to_pos.keys()
 
         for mesh_bone, pos in meshbone_to_pos.items():
-            self._create_ctrl_bone(armature, mesh_bone, pos)
+            self._create_ctrl_bone(armature, source_bone=mesh_bone, pos=pos)
 
         bpy.ops.object.mode_set(mode='POSE')
 
@@ -841,27 +850,28 @@ class SceneManipulator:
             mesh_bone_ctrl.custom_shape = cube_shape
             mesh_bone_ctrl.custom_shape_scale_xyz = (ONES_VEC / Camerabone.length) * MESH_BONE_CUBE_SCALE
 
-        # original bone to -> ctrl, ctrl_offset mapping
-        bone_to_ctrl = {
-            'L_wrist': (L_wrist_CTRL, ZERO_VEC),
-            'R_wrist': (R_wrist_CTRL, ZERO_VEC),
-            'L_arm': (L_arm_CTRL, ZERO_VEC),
-            'R_arm': (R_arm_CTRL, ZERO_VEC),
-            'L_elbowMiddleJoint': (L_elbow_CTRL, Vector((POLE_OFFSET, 0, 0))),
-            'R_elbowJoint': (R_elbow_CTRL, Vector((-POLE_OFFSET, 0, 0))),
-        }
+        # ctrl to offset mapping
+        ctrl_bone_to_offset = [
+            (L_wrist_CTRL, ZERO_VEC),
+            (R_wrist_CTRL, ZERO_VEC),
+            (L_arm_CTRL, ZERO_VEC),
+            (R_arm_CTRL, ZERO_VEC),
+            (L_elbow_CTRL, Vector((POLE_OFFSET, 0, 0))),
+            (R_elbow_CTRL, Vector((-POLE_OFFSET, 0, 0))),
+        ]
 
         for mesh_bone in mesh_bones:
             mesh_bone_ctrl = rig.pose.bones[mesh_bone + '.CTRL']
             mesh_bone_offset = meshbone_to_pos[mesh_bone]
-            bone_to_ctrl[mesh_bone] = (mesh_bone_ctrl, mesh_bone_offset)
+            ctrl_bone_to_offset.append((mesh_bone_ctrl, mesh_bone_offset))
 
         # apply loaded animation for controllers
         saved_frame = self.scene.frame_current
         for frame_idx in range(self.scene.frame_start, self.scene.frame_end + 1):
             self.scene.frame_set(frame_idx)
             bpy.context.view_layer.update()
-            for source_name, (target, offset) in bone_to_ctrl.items():
+            for (target, offset) in ctrl_bone_to_offset:
+                source_name = self._is_ctrl_of(target.bone)
                 source = rig.pose.bones[source_name]
 
                 target_pos = offset.normalized()
@@ -944,7 +954,7 @@ class SceneManipulator:
         finger_bones = [p + n + s for p in FINGER_PREFIXES for n in FINGER_NAMES for s in FINGER_SUFFIXES]
         for pose_bone in rig.pose.bones:
             bone = pose_bone.bone
-            if bone.name not in finger_bones and not self._is_ctrl(bone) and bone.name not in UNHIDE_BONE:
+            if bone.name not in finger_bones and not self._is_ctrl_of(bone) and bone.name not in UNHIDE_BONE:
                 bone.hide = True # hidden in Pose and Object modes
 
         self._create_bone_group(rig, 'BF2_LEFT_HAND', 'L_', 3)

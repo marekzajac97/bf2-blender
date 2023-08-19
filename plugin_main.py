@@ -14,7 +14,7 @@ class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImportHelper):
     filter_glob = StringProperty(default="*.ske", options={'HIDDEN'})
 
     def invoke(self, context, _event):
-        self.sm = SceneManipulator(bpy.context.scene)
+        self.sm = SceneManipulator(context.scene)
         return super().invoke(context, _event)
 
     def execute(self, context):
@@ -38,7 +38,7 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
     )
 
     def invoke(self, context, _event):
-        self.sm = SceneManipulator(bpy.context.scene)
+        self.sm = SceneManipulator(context.scene)
         return super().invoke(context, _event)
     
     def execute(self, context):
@@ -72,7 +72,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
     )
 
     def invoke(self, context, _event):
-        self.sm = SceneManipulator(bpy.context.scene)
+        self.sm = SceneManipulator(context.scene)
         return super().invoke(context, _event)
 
     def execute(self, context):
@@ -129,7 +129,7 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
             layout.prop(prop, "included", text=prop["name"])
 
     def invoke(self, context, _event):
-        self.sm = SceneManipulator(bpy.context.scene)
+        self.sm = SceneManipulator(context.scene)
 
         try:
             bones = self.sm.get_bones_for_export()
@@ -170,7 +170,6 @@ class EXPORT_MT_bf2_submenu(bpy.types.Menu):
 
 def menu_func_export(self, context):
     self.layout.menu(EXPORT_MT_bf2_submenu.bl_idname, text="BF2")
-
 
 # ----------------------------------------------------------
 
