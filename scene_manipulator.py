@@ -750,66 +750,79 @@ class SceneManipulator:
             if self._is_ctrl_of(bone):
                 armature.edit_bones.remove(bone)
     
-    def setup_controllers(self):
+    def setup_controllers(self, step=0):
         ske_data = self._find_active_skeleton()
         if not ske_data:
             return
         
         # cleanup previuous
-        self.rollback_controllers()
+        if step != 2:
+            self.rollback_controllers()
 
         rig, skeleton = ske_data
 
         if self._is_3p(skeleton):
-            self._setup_3p_controllers(rig)
+            self._setup_3p_controllers(rig, step)
         else:
-            self._setup_1p_controllers(rig)
+            self._setup_1p_controllers(rig, step)
     
-    def _setup_3p_controllers(self, rig):
+    def _setup_3p_controllers(self, rig, step):
         pass # TODO
 
-    def _setup_1p_controllers(self, rig):
+    def _setup_1p_controllers(self, rig, step):
         armature = rig.data
         bpy.context.view_layer.objects.active = rig
 
-        # Create new bones
-        bpy.ops.object.mode_set(mode='EDIT')
-
         # inverse matrix to treat bones pointing 'up' as having no rotation
         BONE_ROT_FIX = Matrix.Rotation(math.radians(-90), 4, 'X')
+
+        # offset of the elbow IK pole
+        POLE_OFFSET = 0.5
 
         # constatnts
         ONES_VEC = Vector((1, 1, 1))
         ZERO_VEC = Vector((0, 0, 0))
 
-        self._create_ctrl_bone_from(armature, source_bone='L_wrist')
-        self._create_ctrl_bone_from(armature, source_bone='R_wrist')
-        self._create_ctrl_bone_from(armature, source_bone='L_arm')
-        self._create_ctrl_bone_from(armature, source_bone='R_arm')
+        if step != 2:
+            # Create new bones
+            bpy.ops.object.mode_set(mode='EDIT')
 
-        # Arms controllers
-        POLE_OFFSET = 0.5
-        L_elbowMiddleJoint = armature.edit_bones['L_elbowMiddleJoint']
-        L_elbow_CTRL_pos = Vector((1, 0, 0))
-        L_elbow_CTRL_pos.rotate(L_elbowMiddleJoint.matrix @ BONE_ROT_FIX)
-        L_elbow_CTRL_pos *= POLE_OFFSET
-        L_elbow_CTRL_pos += L_elbowMiddleJoint.head
+            self._create_ctrl_bone_from(armature, source_bone='L_wrist')
+            self._create_ctrl_bone_from(armature, source_bone='R_wrist')
+            self._create_ctrl_bone_from(armature, source_bone='L_arm')
+            self._create_ctrl_bone_from(armature, source_bone='R_arm')
 
-        R_elbowJoint = armature.edit_bones['R_elbowJoint']
-        R_elbow_CTRL_pos = Vector((1, 0, 0))
-        R_elbow_CTRL_pos.rotate(R_elbowJoint.matrix @ BONE_ROT_FIX)
-        R_elbow_CTRL_pos *= -POLE_OFFSET
-        R_elbow_CTRL_pos += R_elbowJoint.head
+            # Arms controllers
+            L_elbowMiddleJoint = armature.edit_bones['L_elbowMiddleJoint']
+            L_elbow_CTRL_pos = Vector((1, 0, 0))
+            L_elbow_CTRL_pos.rotate(L_elbowMiddleJoint.matrix @ BONE_ROT_FIX)
+            L_elbow_CTRL_pos *= POLE_OFFSET
+            L_elbow_CTRL_pos += L_elbowMiddleJoint.head
 
-        self._create_ctrl_bone(armature, name='L_elbow', source_bone='L_elbowMiddleJoint', pos=L_elbow_CTRL_pos)
-        self._create_ctrl_bone(armature, name='R_elbow', source_bone='R_elbowJoint', pos=R_elbow_CTRL_pos)
+            R_elbowJoint = armature.edit_bones['R_elbowJoint']
+            R_elbow_CTRL_pos = Vector((1, 0, 0))
+            R_elbow_CTRL_pos.rotate(R_elbowJoint.matrix @ BONE_ROT_FIX)
+            R_elbow_CTRL_pos *= -POLE_OFFSET
+            R_elbow_CTRL_pos += R_elbowJoint.head
 
-        # meshX controllers
-        meshbone_to_pos = self._calc_weapon_mesh_contoller_pos()
-        mesh_bones = meshbone_to_pos.keys()
+            self._create_ctrl_bone(armature, name='L_elbow', source_bone='L_elbowMiddleJoint', pos=L_elbow_CTRL_pos)
+            self._create_ctrl_bone(armature, name='R_elbow', source_bone='R_elbowJoint', pos=R_elbow_CTRL_pos)
 
-        for mesh_bone, pos in meshbone_to_pos.items():
-            self._create_ctrl_bone(armature, source_bone=mesh_bone, pos=pos)
+            # meshX controllers
+            meshbone_to_pos = self._calc_weapon_mesh_contoller_pos()
+            mesh_bones = meshbone_to_pos.keys()
+
+            for mesh_bone, pos in meshbone_to_pos.items():
+                self._create_ctrl_bone(armature, source_bone=mesh_bone, pos=pos)
+        else:
+            mesh_bones = set()
+            obj = self._find_animated_weapon_object()
+            if obj:
+                for vg in obj.vertex_groups:
+                    mesh_bones.add(vg.name)    
+
+        if step == 1:
+            return
 
         bpy.ops.object.mode_set(mode='POSE')
 
@@ -868,7 +881,7 @@ class SceneManipulator:
 
         for mesh_bone in mesh_bones:
             mesh_bone_ctrl = rig.pose.bones[mesh_bone + '.CTRL']
-            mesh_bone_offset = meshbone_to_pos[mesh_bone]
+            mesh_bone_offset = mesh_bone_ctrl.bone.matrix_local.translation
             ctrl_bone_to_offset.append((mesh_bone_ctrl, mesh_bone_offset))
 
         # apply loaded animation for controllers
