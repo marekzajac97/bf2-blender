@@ -725,6 +725,14 @@ class SceneManipulator:
                 bone_to_pos[bone] = Vector(tuple(center))
 
         return bone_to_pos
+    
+    def get_active_mesh_bones(self):
+        mesh_bones = set()
+        obj = self._find_animated_weapon_object()
+        if obj:
+            for vg in obj.vertex_groups:
+                mesh_bones.add(vg.name)
+        return mesh_bones
 
     def rollback_controllers(self):
         ske_data = self._find_active_skeleton()
@@ -749,6 +757,9 @@ class SceneManipulator:
         for bone in armature.edit_bones:
             if self._is_ctrl_of(bone):
                 armature.edit_bones.remove(bone)
+
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.context.view_layer.update()
     
     def setup_controllers(self, step=0):
         ske_data = self._find_active_skeleton()
@@ -758,6 +769,9 @@ class SceneManipulator:
         # cleanup previuous
         if step != 2:
             self.rollback_controllers()
+            self.set_hide_all_mesh_bones_in_em(hide=True) # keep only CTRL bones visible
+        else:
+            self.remove_mesh_mask()
 
         rig, skeleton = ske_data
 
@@ -815,11 +829,7 @@ class SceneManipulator:
             for mesh_bone, pos in meshbone_to_pos.items():
                 self._create_ctrl_bone(armature, source_bone=mesh_bone, pos=pos)
         else:
-            mesh_bones = set()
-            obj = self._find_animated_weapon_object()
-            if obj:
-                for vg in obj.vertex_groups:
-                    mesh_bones.add(vg.name)    
+            mesh_bones = self.get_active_mesh_bones()
 
         if step == 1:
             return
@@ -984,3 +994,61 @@ class SceneManipulator:
         bpy.ops.object.mode_set(mode='OBJECT')
         self.scene.frame_set(saved_frame)
         bpy.context.view_layer.update()
+
+    def set_hide_all_mesh_bones_in_em(self, hide=True):
+        ske_data = self._find_active_skeleton()
+        if not ske_data:
+            return
+        rig, skeleton = ske_data
+        mesh_bone_ids = self._ske_weapon_part_ids(skeleton)
+        mesh_bones = set()
+        for i, node in enumerate(skeleton.node_list()):
+            if i in mesh_bone_ids:
+                mesh_bones.add(node.name)
+
+        armature = rig.data
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.object.mode_set(mode='EDIT')
+        for bone in armature.edit_bones:
+            if bone.name in mesh_bones:
+                bone.hide = hide
+
+    MASK_MOD_NAME = 'bf2_bone_mask'
+
+    def remove_mesh_mask(self):
+        obj = self._find_animated_weapon_object()
+        if not obj:
+            return
+        
+        for mod in obj.modifiers:
+            if mod.name == self.MASK_MOD_NAME:
+                obj.modifiers.remove(mod)
+                break
+
+    def toggle_mesh_mask_mesh_for_active_bone(self, context):        
+        ctrl_bone = context.active_bone
+
+        obj = self._find_animated_weapon_object()
+        if not obj:
+            return
+        
+        mask_mod = None
+        active_vg = None
+
+        for mod in obj.modifiers:
+            if mod.name == self.MASK_MOD_NAME:
+                mask_mod = mod
+                active_vg = mod.vertex_group
+                break
+        
+        if mask_mod is None:
+            mask_mod = obj.modifiers.new(self.MASK_MOD_NAME, 'MASK')
+
+        bone = self._is_ctrl_of(ctrl_bone)
+        if bone is None:
+            return
+
+        if bone and active_vg != bone:
+            mask_mod.vertex_group = bone
+        else:
+            mask_mod.vertex_group = ""

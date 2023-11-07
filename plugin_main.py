@@ -51,40 +51,58 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 
 
-class IMPORT_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
-    bl_idname = "bf2_import.anim_ctrl_setup_end"
-    bl_label = "Setup Controlers"
+def bf2_setup_started(context):
+    context.scene['bf2_is_setup'] = True
+    bpy.types.VIEW3D_MT_editor_menus.append(menu_func_view3d)
+
+
+def bf2_is_setup(context):
+    return 'bf2_is_setup' in context.scene and context.scene['bf2_is_setup']
+
+
+def bf2_setup_finished(context):
+    if 'bf2_is_setup' in context.scene:
+        del context.scene['bf2_is_setup']
+    bpy.types.VIEW3D_MT_editor_menus.remove(menu_func_view3d)
+
+
+class IMPORT_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
+    bl_idname = "bf2_import.anim_ctrl_setup_mask"
+    bl_label = "Toggle masking weapon mesh that corresponds to the active bone"
 
     def execute(self, context):
         try:
-            self.sm.setup_controllers(step=2)
+            self.sm.toggle_mesh_mask_mesh_for_active_bone(context)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
     def invoke(self, context, event):
         self.sm = SceneManipulator(context.scene)
-        bpy.types.VIEW3D_MT_editor_menus.remove(menu_func_finish_setup)
         return self.execute(context)
+
+    @classmethod
+    def poll(cls, context):
+        return bf2_is_setup(context)
 
 
 class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
     bl_idname = "bf2_import.anim_ctrl_setup_begin"
-    bl_label = "Setup Controlers"
-
-    # use_mask : BoolProperty(name="Mask mesh on select", default=True)
+    bl_label = "Setup controllers"
 
     def draw(self, context):
         layout = self.layout
 
-        layout.label(text="Please move all bones to best match the weapon meshes")
-        layout.label(text="Then press 'Finish setup' button on the top")
-        # layout.prop(self, "use_mask")
+        layout.label(text="Please move all 'meshX.CTRL' bones to desired loaction to best match with the weapon meshes.")
+        layout.label(text="You can toggle showing only a specific weapon part that corresponds")
+        layout.label(text="to the active bone with 'Mask mesh for active bone' in the top menu.")
+        layout.label(text="")
+        layout.label(text="When You are done, select 'Finish setup'")
 
     def execute(self, context):
         try:
             self.sm.setup_controllers(step=1)
-            bpy.types.VIEW3D_MT_editor_menus.append(menu_func_finish_setup)
+            bf2_setup_started(context)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
@@ -97,8 +115,30 @@ class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
         bpy.ops.bf2_import.anim_ctrl_setup_begin('INVOKE_DEFAULT')
 
 
-def menu_func_finish_setup(self, context):
-    self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_end.bl_idname, text="(BF2) Finish setup")
+class IMPORT_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
+    bl_idname = "bf2_import.anim_ctrl_setup_end"
+    bl_label = "Finish controller setup"
+
+    def execute(self, context):
+        try:
+            self.sm.setup_controllers(step=2)
+            bf2_setup_finished(context)
+        except Exception as e:
+            self.report({"ERROR"}, traceback.format_exc())
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        self.sm = SceneManipulator(context.scene)
+        return self.execute(context)
+
+    @classmethod
+    def poll(cls, context):
+        return bf2_is_setup(context)
+
+
+def menu_func_view3d(self, context):
+    self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_end.bl_idname, text="Finish setup")
+    self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_mask.bl_idname, text="Mask mesh for active bone")
 
 
 class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
@@ -245,8 +285,7 @@ def register():
     bpy.utils.register_class(IMPORT_OT_bf2_skeleton)
     bpy.utils.register_class(IMPORT_OT_bf2_mesh)
     bpy.utils.register_class(IMPORT_OT_bf2_animation)
-    bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_begin)
-    bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_end)
+
     bpy.utils.register_class(IMPORT_MT_bf2_submenu)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
@@ -254,15 +293,21 @@ def register():
     bpy.utils.register_class(EXPORT_MT_bf2_submenu)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
+    bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_begin)
+    bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_end)
+    bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_mask)
+
 def unregister():
+    bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_mask)
+    bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_end)
+    bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_begin)
+    
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
     bpy.utils.unregister_class(EXPORT_MT_bf2_submenu)
     bpy.utils.unregister_class(EXPORT_OT_bf2_animation)
 
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     bpy.utils.unregister_class(IMPORT_MT_bf2_submenu)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_end)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_begin)
     bpy.utils.unregister_class(IMPORT_OT_bf2_animation)
     bpy.utils.unregister_class(IMPORT_OT_bf2_mesh)
     bpy.utils.unregister_class(IMPORT_OT_bf2_skeleton)
