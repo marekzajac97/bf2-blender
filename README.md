@@ -1,5 +1,5 @@
 # Blender addon for Battlefield 2
-Probably like 15 years too late but anyway, here are some basic tools for importing/exporting Refractor 2 engine files. Development is still in its early stages and currently the add-on is only useable for animating.
+Probably like 15 years too late but anyway, here are some basic tools for importing/exporting Refractor 2 engine files. Development is still in its early stages and currently the add-on is only usable for animating.
 
 ## Features:
 - Animation (`.baf`) import/export
