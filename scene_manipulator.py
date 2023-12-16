@@ -4,12 +4,13 @@ from mathutils import Vector, Matrix
 import struct
 import math
 import os
-import itertools
+from itertools import cycle
 
 from . import bl_info
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame
 from .bf2.bf2_skeleton import BF2Skeleton
 from .bf2.bf2_mesh import BF2Mesh
+from .bf2.bf2_collmesh import BF2CollMesh
 
 def _to_matrix(pos, rot):
     matrix = rot.to_matrix()
@@ -603,6 +604,122 @@ class SceneManipulator:
         # add armature modifier to the object
         modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
         modifier.object = rig
+
+    def import_collisionmesh(self, mesh_file, geom=0, subgeom=0, lod=0, reload=False):
+        bf2_mesh = BF2CollMesh(mesh_file)
+        name = bf2_mesh.name
+    
+        if reload and name in bpy.data.objects:
+            obj = bpy.data.objects[name]
+            obj_mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.meshes.remove(obj_mesh, do_unlink=True)
+
+        bf2_lod = bf2_mesh.geoms[geom].subgeoms[subgeom].lods[lod]
+
+        verts = [(v.x, v.z, v.y) for v in bf2_lod.verts]
+        faces = [(f.v3, f.v2, f.v1) for f in bf2_lod.faces]
+        face_materials = [f.material for f in bf2_lod.faces]
+
+        bm = bmesh.new()
+        for vert in verts:
+            bm.verts.new(vert)
+
+        bm.verts.ensure_lookup_table()
+        bm.verts.index_update()
+
+        for face, mat in zip(faces, face_materials):
+            face_verts = [bm.verts[i] for i in face]
+            bm_face = bm.faces.new(face_verts)
+            bm_face.material_index = mat
+
+        mesh = bpy.data.meshes.new(name)
+        bm.to_mesh(mesh)
+
+        cycol = cycle([[0.267004, 0.004874, 0.329415, 1.],
+                       [0.282623, 0.140926, 0.457517, 1.],
+                       [0.253935, 0.265254, 0.529983, 1.],
+                       [0.206756, 0.371758, 0.553117, 1.],
+                       [0.163625, 0.471133, 0.558148, 1.],
+                       [0.127568, 0.566949, 0.550556, 1.],
+                       [0.134692, 0.658636, 0.517649, 1.],
+                       [0.266941, 0.748751, 0.440573, 1.],
+                       [0.477504, 0.821444, 0.318195, 1.],
+                       [0.741388, 0.873449, 0.149561, 1.]])
+
+        for i in set(face_materials):
+            mat_name = f'{bf2_mesh.name}_collmesh_material_{i}'
+            try:
+                material = bpy.data.materials[mat_name]
+                bpy.data.materials.remove(material, do_unlink=True)
+            except:
+                pass
+            material = bpy.data.materials.new(mat_name)
+            mesh.materials.append(material)
+            
+            material.use_nodes=True
+            principled_BSDF = material.node_tree.nodes.get('Principled BSDF')
+            principled_BSDF.inputs[0].default_value = tuple(next(cycol))
+
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.scene.collection.objects.link(obj)
+
+        return obj
+
+    def import_collmesh_bsp(self, mesh_file, geom=0, subgeom=0, lod=0, reload=False):
+        bf2_mesh = BF2CollMesh(mesh_file)
+
+        bf2_lod = bf2_mesh.geoms[geom].subgeoms[subgeom].lods[lod]
+        bsp = bf2_lod.bsp
+
+        verts = [(v.x, v.z, v.y) for v in bf2_lod.verts]
+
+        def del_if_exists(name):
+            if reload and name in bpy.data.objects:
+                obj = bpy.data.objects[name]
+                obj_mesh = obj.data
+                bpy.data.objects.remove(obj, do_unlink=True)
+                bpy.data.meshes.remove(obj_mesh, do_unlink=True)
+
+        def _import_bsp_node(node, parent_obj):
+            node_idx = bsp._nodes.index(node)
+            for i, child in enumerate(node.children):
+                p = '|F' if i == 0 else '|B'
+                name = str(node_idx) + p
+                if child is None: # leaf
+                    faces = [(f.v3, f.v2, f.v1) for f in node.faces[i]]
+
+                    bm = bmesh.new()
+                    for vert in verts:
+                        bm.verts.new(vert)
+
+                    bm.verts.ensure_lookup_table()
+                    bm.verts.index_update()
+
+                    for face in faces:
+                        face_verts = [bm.verts[i] for i in face]
+                        bm_face = bm.faces.new(face_verts)
+                        # bm_face.material_index = 0
+
+                    del_if_exists(name)
+
+                    mesh = bpy.data.meshes.new(name)
+                    bm.to_mesh(mesh)
+
+                    obj = bpy.data.objects.new(name, mesh)
+                    obj.parent = parent_obj
+                    bpy.context.scene.collection.objects.link(obj)
+                else:
+                    obj = bpy.data.objects.new(name, None)
+                    obj.parent = parent_obj
+                    bpy.context.scene.collection.objects.link(obj)
+                    _import_bsp_node(child, obj)
+
+        del_if_exists(f'{bf2_mesh.name}_BSP')
+        root_obj = bpy.data.objects.new(f'{bf2_mesh.name}_BSP', None)
+        bpy.context.scene.collection.objects.link(root_obj)
+        _import_bsp_node(bsp.root, root_obj)
+
 
     # ##############################################################
     # ################## Controllers setup #########################
