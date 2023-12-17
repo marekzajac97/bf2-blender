@@ -14,6 +14,9 @@ def load_n_elems(f : FileUtils, struct_type, count, version=None):
         kwargs = {'version': version}
     return [struct_type.load(f, **kwargs) for _ in range(count)]
 
+def calc_bounds(verts, func):
+    axes  = [[ v[i] for v in verts] for i in range(3)]
+    return Vec3(*[func(axis) for axis in axes])
 
 class Face:
     def __init__(self, verts, material):
@@ -28,6 +31,12 @@ class Face:
         verts = (v1, v2, v3)
         material = f.read_word()
         return cls(verts, material)
+    
+    def save(self, f : FileUtils):
+        f.write_word(self.verts[0])
+        f.write_word(self.verts[1])
+        f.write_word(self.verts[2])
+        f.write_word(self.material)
 
 
 # https://en.wikipedia.org/wiki/Binary_space_partitioning
@@ -66,7 +75,28 @@ class BSP:
                 else:
                     obj._children_idx[i] = f.read_dword()
             return obj
- 
+
+        def save(self, f : FileUtils, nodes, face_refs):
+            f.write_float(self.split_plane_val)
+            _0x04 = self.split_plane_axis & 0b11
+
+            face_ref_start = [0, 0]
+            for i in range(2):
+                if self.children[i] == None:
+                    face_ref_count = len(self.faces[i])
+                    face_ref_start[i] = len(face_refs)
+                    for face in self.faces[i]:
+                        face_refs.append(face)
+
+                    _0x04 |= 4 << i
+                    _0x04 |= face_ref_count << (i * 8 + 16)
+                else:
+                    face_ref_start[i] = nodes.index(self.children[i]) 
+
+            f.write_dword(_0x04)
+            for i in range(2):
+                f.write_dword(face_ref_start[i])
+
         def resolve_children(self, nodes):
             for i in range(2):
                 child_idx = self._children_idx[i]
@@ -141,6 +171,30 @@ class BSP:
             raise BF2CollMeshException("BSP: root node not found")
         return obj
 
+    def save(self, f : FileUtils, faces):
+        self.min.save(f)
+        self.max.save(f)
+
+        def _get_nodes_list(node, node_list):
+            node_list.append(node)
+            for i in range(2):
+                child = node.children[i]
+                if child is not None:
+                    _get_nodes_list(child, node_list)
+
+        nodes = list()
+        _get_nodes_list(self.root, nodes)
+        face_refs = list()
+
+        f.write_dword(len(nodes))
+
+        for node in nodes:
+            node.save(f, nodes, face_refs)
+
+        f.write_dword(len(face_refs))
+        for face in face_refs:
+            f.write_word(faces.index(face))
+
     def resolve_faces(self, faces):
         for node in self._nodes:
             node.resolve_faces(faces)
@@ -170,7 +224,9 @@ class BSP:
             return node
 
         root = _conv(builder.root)
-        return BSP(0, 0, root) # TODO min max
+        mins = calc_bounds(verts, min)
+        maxs = calc_bounds(verts, max)
+        return BSP(mins, maxs, root)
 
 
 class CollLod:
@@ -206,8 +262,8 @@ class CollLod:
         obj.verts = load_n_elems(f, Vec3, count=vertnum)
         obj.vert_materials = [f.read_word() for _ in range(vertnum)]
 
-        obj.min.load(f)
-        obj.max.load(f)
+        obj.min = Vec3.load(f)
+        obj.max = Vec3.load(f)
 
         bsp_present = int(chr(f.read_byte())) # 0x30 or 0x31 (which is ASCII '0' or '1'... why DICE)
 
@@ -221,6 +277,26 @@ class CollLod:
             obj.debug_mesh = [f.read_dword(signed=True) for _ in range(f.read_dword())]
         return obj
 
+    def save(self, f : FileUtils):
+        f.write_dword(self.coll_type)
+        f.write_dword(len(self.faces))
+        for face in self.faces:
+            face.save(f)
+        f.write_dword(len(self.verts))
+        for vert in self.verts:
+            vert.save(f)
+        for vert_mat in self.vert_materials:
+            f.write_word(vert_mat)
+        
+        calc_bounds(self.verts, min).save(f)
+        calc_bounds(self.verts, max).save(f)
+
+        f.write_byte(0x31)
+        if self.bsp is None:
+            self.bsp = BSP.build(self.verts, self.faces)
+  
+        self.bsp.save(f, self.faces)
+
 
 class CollSubGeom:
     def __init__(self):
@@ -231,7 +307,11 @@ class CollSubGeom:
         obj = cls()
         obj.lods = load_n_elems(f, CollLod, count=f.read_dword(), version=version)
         return obj
-
+    
+    def save(self, f : FileUtils):
+        f.write_dword(len(self.lods))
+        for lod in self.lods:
+            lod.save(f)
 
 class CollGeom:
     def __init__(self):
@@ -242,6 +322,11 @@ class CollGeom:
         obj = cls()
         obj.subgeoms = load_n_elems(f, CollSubGeom, count=f.read_dword(), version=version)
         return obj
+
+    def save(self, f : FileUtils):
+        f.write_dword(len(self.subgeoms))
+        for subgeom in self.subgeoms:
+            subgeom.save(f)
 
 
 class BF2CollMesh:
@@ -272,3 +357,12 @@ class BF2CollMesh:
 
             if os.fstat(file.fileno()).st_size != file.tell():
                 raise BF2CollMeshException("Corrupted .collisionmesh file? Reading finished and file pointer != filesize")
+
+    def export(self, export_path):
+        with open(export_path, "wb") as file:
+            f = FileUtils(file)
+            f.write_dword(0)
+            f.write_dword(9)
+            f.write_dword(len(self.geoms))
+            for geoms in self.geoms:
+                geoms.save(f)

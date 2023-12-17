@@ -76,6 +76,12 @@ class Quat:
         obj.z = f.read_float()
         obj.w = f.read_float()
         return obj
+
+    def save(self, f : FileUtils):
+        f.write_float(self.x)
+        f.write_float(self.y)
+        f.write_float(self.z)
+        f.write_float(self.w)
     
     def __repr__(self):
         return f"{self.x:.3f}/{self.y:.3f}/{self.z:.3f}/{self.w:.3f}"
@@ -179,6 +185,11 @@ class Vec3:
         obj.y = f.read_float()
         obj.z = f.read_float()
         return obj
+
+    def save(self, f : FileUtils):
+        f.write_float(self.x)
+        f.write_float(self.y)
+        f.write_float(self.z)
     
     def __repr__(self):
         return f"{self.x:.3f}/{self.y:.3f}/{self.z:.3f}"
