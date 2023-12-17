@@ -9,38 +9,33 @@ class BF2CollMeshException(Exception):
     pass
 
 def load_n_elems(f : FileUtils, struct_type, count, version=None):
-    elems = [struct_type() for _ in range(count)]
-    for elem in elems:
-        kwargs = {}
-        if version is not None:
-            kwargs = {'version': version}
-        elem.load(f, **kwargs)
-    return elems
+    kwargs = {}
+    if version is not None:
+        kwargs = {'version': version}
+    return [struct_type.load(f, **kwargs) for _ in range(count)]
 
 
-class CollFace:
-    def __init__(self):
-        self.v1 = None
-        self.v2 = None
-        self.v3 = None
-        self.material = None
+class Face:
+    def __init__(self, verts, material):
+        self.verts = verts
+        self.material = material
 
-    def load(self, f : FileUtils):
-        self.v1 = f.read_word()
-        self.v2 = f.read_word()
-        self.v3 = f.read_word()
-        self.material = f.read_word()
+    @classmethod
+    def load(cls, f : FileUtils):
+        v1 = f.read_word()
+        v2 = f.read_word()
+        v3 = f.read_word()
+        verts = (v1, v2, v3)
+        material = f.read_word()
+        return cls(verts, material)
 
 
 # https://en.wikipedia.org/wiki/Binary_space_partitioning
 class BSP:
     class Node():
-        def __init__(self):
-            self.split_plane_val = None
-            self.split_plane_axis = None # 0,1,2
-            # 0 = split plane on ZY which crosses (val, _, _) point
-            # 1 = split plane on XZ which crosses (_, val, _) point
-            # 2 = split plane on XY which crosses (_, _, val) point
+        def __init__(self, split_plane_val, split_plane_axis):
+            self.split_plane_val = split_plane_val
+            self.split_plane_axis = split_plane_axis
 
             self.parent = None # BSP.Node, None if root
             self.children = [None, None] # front/back BSP.Node (if Node is a subtree Node)
@@ -51,10 +46,13 @@ class BSP:
             self._face_refs_idx = [[], []]
             self._children_idx = [None, None]
 
-        def load(self, f : FileUtils):
-            self.split_plane_val = f.read_float()
+        @classmethod
+        def load(cls, f : FileUtils):
+            split_plane_val = f.read_float()
             _0x04 = f.read_dword()
-            self.split_plane_axis = _0x04 & 0b11
+            split_plane_axis = _0x04 & 0b11
+
+            obj = cls(split_plane_val, split_plane_axis)
 
             for i in range(2):
                 is_leaf = bool((4 << i) & _0x04)
@@ -63,10 +61,11 @@ class BSP:
                 if is_leaf:
                     face_ref_count = _0x04 >> (i * 8 + 16) & 0xFF
                     face_ref_start = f.read_dword()
-                    self._face_refs_idx[i] = list(range(face_ref_start, face_ref_start + face_ref_count))
-                    self._children_idx[i] = None
+                    obj._face_refs_idx[i] = list(range(face_ref_start, face_ref_start + face_ref_count))
+                    obj._children_idx[i] = None
                 else:
-                    self._children_idx[i] = f.read_dword()
+                    obj._children_idx[i] = f.read_dword()
+            return obj
  
         def resolve_children(self, nodes):
             for i in range(2):
@@ -96,7 +95,7 @@ class BSP:
                     for f in self.faces[i]:
                         if len(faceset) > 1:
                             faceset += ', '
-                        faceset += f'({f.v1}, {f.v2}, {f.v3})'
+                        faceset += str(f.verts)
                     faceset += '}'
                     ret += prfx + f'{p}  {faceset}\n'
                 else:
@@ -107,52 +106,53 @@ class BSP:
         def __str__(self):
             return self._to_string()
 
-    def __init__(self):
+    def __init__(self, min, max, root):
         # tree bounds, used for checking rayRadiusIntersectsAABB
-        self.min : Vec3 = Vec3()
-        self.max : Vec3 = Vec3()
+        self.min : Vec3 = min
+        self.max : Vec3 = max
 
-        self.root : BSP.Node = None
+        self.root : BSP.Node = root
 
         self._nodes : List[BSP.Node] = []
         self._face_refs : List[int] = []
-    
-    def load(self, f : FileUtils):
-        self.min.load(f)
-        self.max.load(f)
 
-        self._nodes = load_n_elems(f, BSP.Node, count=f.read_dword())
-        self._face_refs = [f.read_word() for _ in range(f.read_dword())]
+    @classmethod
+    def load(cls, f : FileUtils):
+        tree_min = Vec3.load(f)
+        tree_max = Vec3.load(f)
 
-        for node in self._nodes:
-            node.resolve_children(self._nodes)
-            node.resolve_face_refs(self._face_refs)
+        obj = cls(tree_min, tree_max, None)
+
+        obj._nodes = load_n_elems(f, BSP.Node, count=f.read_dword())
+        obj._face_refs = [f.read_word() for _ in range(f.read_dword())]
+
+        for node in obj._nodes:
+            node.resolve_children(obj._nodes)
+            node.resolve_face_refs(obj._face_refs)
         
-        self._find_root()
+        obj.root = None
+        for node in obj._nodes:
+            if node.parent is None:
+                if obj.root is None:
+                    obj.root = node
+                else:
+                    raise BF2CollMeshException("BSP: found multiple root nodes")
+        if obj.root is None:
+            raise BF2CollMeshException("BSP: root node not found")
+        return obj
 
     def resolve_faces(self, faces):
         for node in self._nodes:
             node.resolve_faces(faces)
 
-    def _find_root(self):
-        self.root = None
-        for node in self._nodes:
-            if node.parent is None:
-                if self.root is None:
-                    self.root = node
-                else:
-                    raise BF2CollMeshException("BSP: found multiple root nodes")
-        if self.root is None:
-            raise BF2CollMeshException("BSP: root node not found")
 
     @staticmethod
     def build(verts, faces):
         builder = BspBuilder(verts, faces)
 
         def _conv(builder_node, parent=None):
-            node = BSP.Node()
-            node.split_plane_axis = builder_node.split_plane.axis
-            node.split_plane_val = builder_node.split_plane.val
+            split_plane = builder_node.split_plane
+            node = BSP.Node(split_plane.axis, split_plane.val)
             node.parent = parent
             if builder_node.front_node is not None:
                 node.children[0] = _conv(builder_node.front_node, node)
@@ -169,9 +169,8 @@ class BSP:
                     node.faces[1].append(poly.face_ref)
             return node
 
-        bsp = BSP()
-        bsp.root = _conv(builder.root)
-        return bsp
+        root = _conv(builder.root)
+        return BSP(0, 0, root) # TODO min max
 
 
 class CollLod:
@@ -196,45 +195,53 @@ class CollLod:
         self.bsp = None
         self.debug_mesh = None
 
-    def load(self, f : FileUtils, version):
-        self.coll_type = f.read_dword()
+    @classmethod
+    def load(cls, f : FileUtils, version):
+        obj = cls()
+        obj.coll_type = f.read_dword()
 
-        self.faces = load_n_elems(f, CollFace, count=f.read_dword())
+        obj.faces = load_n_elems(f, Face, count=f.read_dword())
 
         vertnum = f.read_dword()
-        self.verts = load_n_elems(f, Vec3, count=vertnum)
-        self.vert_materials = [f.read_word() for _ in range(vertnum)]
+        obj.verts = load_n_elems(f, Vec3, count=vertnum)
+        obj.vert_materials = [f.read_word() for _ in range(vertnum)]
 
-        self.min.load(f)
-        self.max.load(f)
+        obj.min.load(f)
+        obj.max.load(f)
 
         bsp_present = int(chr(f.read_byte())) # 0x30 or 0x31 (which is ASCII '0' or '1'... why DICE)
 
         if bsp_present:
-            self.bsp = BSP()
-            self.bsp.load(f)
-            self.bsp.resolve_faces(self.faces)
+            obj.bsp = BSP.load(f)
+            obj.bsp.resolve_faces(obj.faces)
 
         # array of face indexes, can be -1 if unset, loaded only for ver >= 10, what exactly is this I don't know
         # used for buildDebugMeshes, we could probably skip this and export as ver 9 and BF2 will generate it
         if version[0] == 0 and version[1] >= 10:
-            self.debug_mesh = [f.read_dword(signed=True) for _ in range(f.read_dword())]
+            obj.debug_mesh = [f.read_dword(signed=True) for _ in range(f.read_dword())]
+        return obj
 
 
 class CollSubGeom:
     def __init__(self):
         self.lods = []
 
-    def load(self, f : FileUtils, version):
-        self.lods = load_n_elems(f, CollLod, count=f.read_dword(), version=version)
+    @classmethod
+    def load(cls, f : FileUtils, version):
+        obj = cls()
+        obj.lods = load_n_elems(f, CollLod, count=f.read_dword(), version=version)
+        return obj
 
 
 class CollGeom:
     def __init__(self):
         self.subgeoms = []
 
-    def load(self, f : FileUtils, version):
-        self.subgeoms = load_n_elems(f, CollSubGeom, count=f.read_dword(), version=version)
+    @classmethod
+    def load(cls, f : FileUtils, version):
+        obj = cls()
+        obj.subgeoms = load_n_elems(f, CollSubGeom, count=f.read_dword(), version=version)
+        return obj
 
 
 class BF2CollMesh:
@@ -254,16 +261,14 @@ class BF2CollMesh:
 
         with open(file, "rb") as file:
             f = FileUtils(file)
-            self.load(f)
+            v1 = f.read_dword()
+            v2 = f.read_dword()
+            self.version = (v1, v2)
+
+            if self.version[0] != 0 and self.version[1] < 9 or self.version[1] > 10:
+                raise BF2CollMeshException(f"Unsupported .collisionmesh version {self.version}")
+
+            self.geoms = load_n_elems(f, CollGeom, count=f.read_dword(), version=self.version)
+
             if os.fstat(file.fileno()).st_size != file.tell():
                 raise BF2CollMeshException("Corrupted .collisionmesh file? Reading finished and file pointer != filesize")
-
-    def load(self, f : FileUtils):
-        v1 = f.read_dword()
-        v2 = f.read_dword()
-        self.version = (v1, v2)
-
-        if self.version[0] != 0 and self.version[1] < 9 or self.version[1] > 10:
-            raise BF2CollMeshException(f"Unsupported .collisionmesh version {self.version}")
-
-        self.geoms = load_n_elems(f, CollGeom, count=f.read_dword(), version=self.version)

@@ -91,18 +91,18 @@ class BspBuilder:
         polys = list()
         for face in faces:
             points = list()
-            points.append(verts[face.v1].copy())
-            points.append(verts[face.v2].copy())
-            points.append(verts[face.v3].copy())
+            points.append(verts[face.verts[0]].copy())
+            points.append(verts[face.verts[1]].copy())
+            points.append(verts[face.verts[2]].copy())
             polys.append(Poly(points, face))
         self.root = self._build_bsp_tree(polys)
 
     def _get_all_verts(self, polys : List[Poly]):
         verts = set()
         for poly in polys:
-            verts.add(poly.face_ref.v1)
-            verts.add(poly.face_ref.v2)
-            verts.add(poly.face_ref.v3)
+            verts.add(poly.face_ref.verts[0])
+            verts.add(poly.face_ref.verts[1])
+            verts.add(poly.face_ref.verts[2])
         return [self.verts[v] for v in verts]
 
     def _get_all_planes(self, polys : List[Poly]):

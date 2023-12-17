@@ -68,12 +68,14 @@ class Quat:
     def copy(self):
         return Quat(self.x, self.y, self.z, self.w)
 
-    def load(self, f : FileUtils):
-        self.x = f.read_float()
-        self.y = f.read_float()
-        self.z = f.read_float()
-        self.w = f.read_float()
-        return self
+    @classmethod
+    def load(cls, f : FileUtils):
+        obj = cls()
+        obj.x = f.read_float()
+        obj.y = f.read_float()
+        obj.z = f.read_float()
+        obj.w = f.read_float()
+        return obj
     
     def __repr__(self):
         return f"{self.x:.3f}/{self.y:.3f}/{self.z:.3f}/{self.w:.3f}"
@@ -170,11 +172,13 @@ class Vec3:
     def copy(self):
         return Vec3(self.x, self.y, self.z)
 
-    def load(self, f : FileUtils):
-        self.x = f.read_float()
-        self.y = f.read_float()
-        self.z = f.read_float()
-        return self
+    @classmethod
+    def load(cls, f : FileUtils):
+        obj = cls()
+        obj.x = f.read_float()
+        obj.y = f.read_float()
+        obj.z = f.read_float()
+        return obj
     
     def __repr__(self):
         return f"{self.x:.3f}/{self.y:.3f}/{self.z:.3f}"
