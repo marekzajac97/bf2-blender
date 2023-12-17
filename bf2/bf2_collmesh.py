@@ -1,5 +1,7 @@
 from typing import List
 from .fileutils import FileUtils
+from .bsp_builder import BspBuilder
+from .bf2_common import Vec3
 
 import os
 
@@ -16,7 +18,7 @@ def load_n_elems(f : FileUtils, struct_type, count, version=None):
     return elems
 
 
-class CollFace():
+class CollFace:
     def __init__(self):
         self.v1 = None
         self.v2 = None
@@ -30,20 +32,8 @@ class CollFace():
         self.material = f.read_word()
 
 
-class Vec3():
-    def __init__(self):
-        self.x = None
-        self.y = None
-        self.z = None
-
-    def load(self, f : FileUtils):
-        self.x = f.read_float()
-        self.y = f.read_float()
-        self.z = f.read_float()
-
-
 # https://en.wikipedia.org/wiki/Binary_space_partitioning
-class BSP():
+class BSP:
     class Node():
         def __init__(self):
             self.split_plane_val = None
@@ -97,7 +87,7 @@ class BSP():
         
         def _to_string(self, level=0):
             prfx = '   ' * level
-            ret = prfx + f' |* split_plane: {self.split_plane_val:.2f}|{self.split_plane_axis}\n'
+            ret = prfx + f' |* split_plane: {self.split_plane_val}|{self.split_plane_axis}\n'
             for i, child in enumerate(self.children):
                 p = ' |F' if i == 0 else ' |B'
                 
@@ -155,8 +145,36 @@ class BSP():
         if self.root is None:
             raise BF2CollMeshException("BSP: root node not found")
 
+    @staticmethod
+    def build(verts, faces):
+        builder = BspBuilder(verts, faces)
 
-class CollLod():
+        def _conv(builder_node, parent=None):
+            node = BSP.Node()
+            node.split_plane_axis = builder_node.split_plane.axis
+            node.split_plane_val = builder_node.split_plane.val
+            node.parent = parent
+            if builder_node.front_node is not None:
+                node.children[0] = _conv(builder_node.front_node, node)
+            else:
+                node.children[0] = None
+                for poly in builder_node.front_polys:
+                    node.faces[0].append(poly.face_ref)
+
+            if builder_node.back_node is not None:
+                node.children[1] = _conv(builder_node.back_node, node)
+            else:
+                node.children[1] = None
+                for poly in builder_node.back_polys:
+                    node.faces[1].append(poly.face_ref)
+            return node
+
+        bsp = BSP()
+        bsp.root = _conv(builder.root)
+        return bsp
+
+
+class CollLod:
 
     class CollType:
         PROJECTILE = 0
@@ -203,7 +221,7 @@ class CollLod():
             self.debug_mesh = [f.read_dword(signed=True) for _ in range(f.read_dword())]
 
 
-class CollSubGeom():
+class CollSubGeom:
     def __init__(self):
         self.lods = []
 
@@ -211,7 +229,7 @@ class CollSubGeom():
         self.lods = load_n_elems(f, CollLod, count=f.read_dword(), version=version)
 
 
-class CollGeom():
+class CollGeom:
     def __init__(self):
         self.subgeoms = []
 

@@ -10,7 +10,7 @@ from . import bl_info
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame
 from .bf2.bf2_skeleton import BF2Skeleton
 from .bf2.bf2_mesh import BF2Mesh
-from .bf2.bf2_collmesh import BF2CollMesh
+from .bf2.bf2_collmesh import BSP, BF2CollMesh
 
 def _to_matrix(pos, rot):
     matrix = rot.to_matrix()
@@ -671,7 +671,6 @@ class SceneManipulator:
 
         bf2_lod = bf2_mesh.geoms[geom].subgeoms[subgeom].lods[lod]
         bsp = bf2_lod.bsp
-
         verts = [(v.x, v.z, v.y) for v in bf2_lod.verts]
 
         def del_if_exists(name):
@@ -679,13 +678,14 @@ class SceneManipulator:
                 obj = bpy.data.objects[name]
                 obj_mesh = obj.data
                 bpy.data.objects.remove(obj, do_unlink=True)
-                bpy.data.meshes.remove(obj_mesh, do_unlink=True)
+                if obj_mesh:
+                    bpy.data.meshes.remove(obj_mesh, do_unlink=True)
 
         def _import_bsp_node(node, parent_obj):
             node_idx = bsp._nodes.index(node)
             for i, child in enumerate(node.children):
                 p = '|F' if i == 0 else '|B'
-                name = str(node_idx) + p
+                name = f'{bf2_mesh.name}_BSP_' + str(node_idx) + p
                 if child is None: # leaf
                     faces = [(f.v3, f.v2, f.v1) for f in node.faces[i]]
 
