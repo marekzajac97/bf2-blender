@@ -4,7 +4,7 @@ Probably like 15 years too late but anyway, here are some basic tools for import
 ## Features:
 - Animation (`.baf`) import/export
 - Skeleton (`.ske`) import only
-- BundledMesh/SkinnedMesh (`.bundledmesh, .skinnedmesh`) import only
+- BundledMesh/SkinnedMesh (`.bundledMesh, .skinnedMesh`) import only
 
 ## Installation
 - To download use [Download ZIP](https://github.com/marekzajac97/bf2-blender/archive/refs/heads/main.zip) option
@@ -20,36 +20,6 @@ After installation, setup your `BF2 mod directory` (`Edit -> Preferences -> Add-
 - You can optionally enable `Setup controllers` option during animation import to automatically create basic controllers and IK setup (only works for 1P as of now)
 - Make sure to set geom 1 in mesh import options if you wish to import 3P animations.
 - When exporting, you can select/deselect bones for export in the export menu.
-
-#### All-in-one import script
-
-Sample script you can use to automate the import
-
-```python
-import bpy
-import sys
-from os import path
-
-MOD_PATH          = r'D:\Battlefield 2\mods\fh2_edit'
-SKELETON          = path.join(MOD_PATH, r'objects\soldiers\Common\Animations\1p_setup.ske')
-SOLDIER_MESH      = path.join(MOD_PATH, r'objects\soldiers\BA\Meshes\ba_light_soldier.skinnedmesh')
-WEAPON_MESH       = path.join(MOD_PATH, r'objects\Weapons\Handheld\03a3\Meshes\03a3.bundledmesh')
-WEAPON_ANIMATION  = path.join(MOD_PATH, r'objects\Weapons\Handheld\03a3\Animations\1p\1p_03a3_reload.baf')
-SOLDIER_ANIMATION = path.join(MOD_PATH, r'objects\soldiers\Common\Animations\3P\3p_reload.baf') # for 3P only
-SETUP_CONTROLLERS = True
-
-is_1p = path.split(SKELETON)[1].startswith('1p')
-geom = 0 if is_1p else 1
-sm = sys.modules['bf2-blender'].scene_manipulator.SceneManipulator(bpy.context.scene)
-sm.import_skeleton(SKELETON, reload=True)
-sm.import_mesh(SOLDIER_MESH, geom=geom, lod=0, mod_path=MOD_PATH, reload=True)
-sm.import_mesh(WEAPON_MESH, geom=geom, lod=0,  mod_path=MOD_PATH, reload=True)
-sm.import_animation(WEAPON_ANIMATION)
-if not is_1p and SOLDIER_ANIMATION:
-    sm.import_animation(SOLDIER_ANIMATION)
-if SETUP_CONTROLLERS:
-    sm.setup_controllers()
-```
 
 ## Credits
 - [rpoxo](https://github.com/rpoxo) for the [BF2 mesh file parser](https://github.com/rpoxo/bf2mesh) (MIT License)

@@ -24,19 +24,21 @@ bl_info = {
     "author" : "Marek Zajac",
     "description" : "",
     "blender" : (3, 4, 0),
-    "version" : (0, 0, 5),
+    "version" : (0, 0, 6),
     "location" : "",
     "warning" : "",
     "category" : "Import-Export"
 }
 
-from . import plugin_main
+PLUGIN_NAME = __package__
+
+from .plugins import main
 
 def register():
-    plugin_main.register()
+    main.register()
 
 def unregister():
-    plugin_main.unregister()
+    main.unregister()
 
 if __name__ == "__main__":
     register()
