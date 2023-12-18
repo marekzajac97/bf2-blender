@@ -81,6 +81,13 @@ class Node:
         self.back_node : Optional[Node] = None
         self.split_plane : Plane = None
 
+    def get_children(self):
+        return (self.front_node, self.back_node)
+
+    def get_faces(self):
+        front = [poly.face_ref for poly in self.front_polys] if self.front_polys else None
+        back = [poly.face_ref for poly in self.back_polys] if self.back_polys else None
+        return (front, back)
 
 class BspBuilder:
 

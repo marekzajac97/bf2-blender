@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List
 from .fileutils import FileUtils
 from .bsp_builder import BspBuilder
 from .bf2_common import Vec3
@@ -8,14 +8,11 @@ import os
 class BF2CollMeshException(Exception):
     pass
 
-def load_n_elems(f : FileUtils, struct_type, count, version=None):
-    kwargs = {}
-    if version is not None:
-        kwargs = {'version': version}
+def load_n_elems(f : FileUtils, struct_type, count, **kwargs):
     return [struct_type.load(f, **kwargs) for _ in range(count)]
 
 def calc_bounds(verts, func):
-    axes  = [[ v[i] for v in verts] for i in range(3)]
+    axes = [[ v[i] for v in verts] for i in range(3)]
     return Vec3(*[func(axis) for axis in axes])
 
 class Face:
@@ -45,13 +42,16 @@ class BSP:
         def __init__(self, split_plane_val, split_plane_axis):
             self.split_plane_val = split_plane_val
             self.split_plane_axis = split_plane_axis
+            # axis 0 == parallel to ZY plane and intersecting (val, _, _) point
+            # axis 1 == parallel to XZ plane and intersecting (_, val, _) point
+            # axis 2 == parallel to XY plane and intersecting (_, _, val) point
 
             self.parent = None # BSP.Node, None if root
             self.children = [None, None] # front/back BSP.Node (if Node is a subtree Node)
-            self.face_refs = [[], []] # front/back lists of face_ref indexes
             self.faces = [[], []] # front/back lists of CollFace (if Node is a leaf Node)
             # NOTE: in DICE's implementation if a face straddles the split plane it is added to both 'front' and 'back' sets
 
+            # temporary raw import data
             self._face_refs_idx = [[], []]
             self._children_idx = [None, None]
 
@@ -76,6 +76,16 @@ class BSP:
                     obj._children_idx[i] = f.read_dword()
             return obj
 
+        def load_children_and_faces(self, nodes, face_ref_to_face):
+            for i in range(2):
+                child_idx = self._children_idx[i]
+                if child_idx is not None:
+                    self.children[i] = nodes[child_idx]
+                    self.children[i].parent = self
+                else:
+                    for j in self._face_refs_idx[i]:
+                        self.faces[i].append(face_ref_to_face[j])
+
         def save(self, f : FileUtils, nodes, face_refs):
             f.write_float(self.split_plane_val)
             _0x04 = self.split_plane_axis & 0b11
@@ -97,29 +107,11 @@ class BSP:
             for i in range(2):
                 f.write_dword(face_ref_start[i])
 
-        def resolve_children(self, nodes):
-            for i in range(2):
-                child_idx = self._children_idx[i]
-                if child_idx is not None:
-                    self.children[i] = nodes[child_idx]
-                    self.children[i].parent = self
-
-        def resolve_face_refs(self, face_refs):
-            for i in range(2):
-                for j in self._face_refs_idx[i]:
-                    self.face_refs[i].append(face_refs[j])
-        
-        def resolve_faces(self, faces):
-            for i in range(2):
-                for j in self.face_refs[i]:
-                    self.faces[i].append(faces[j])
-        
         def _to_string(self, level=0):
             prfx = '   ' * level
             ret = prfx + f' |* split_plane: {self.split_plane_val}|{self.split_plane_axis}\n'
             for i, child in enumerate(self.children):
                 p = ' |F' if i == 0 else ' |B'
-                
                 if child is None: # leaf
                     faceset = '{'
                     for f in self.faces[i]:
@@ -137,31 +129,29 @@ class BSP:
             return self._to_string()
 
     def __init__(self, min, max, root):
-        # tree bounds, used for checking rayRadiusIntersectsAABB
         self.min : Vec3 = min
         self.max : Vec3 = max
-
         self.root : BSP.Node = root
 
-        self._nodes : List[BSP.Node] = []
-        self._face_refs : List[int] = []
-
     @classmethod
-    def load(cls, f : FileUtils):
+    def load(cls, f : FileUtils, faces : List[Face]):
         tree_min = Vec3.load(f)
         tree_max = Vec3.load(f)
 
         obj = cls(tree_min, tree_max, None)
 
-        obj._nodes = load_n_elems(f, BSP.Node, count=f.read_dword())
-        obj._face_refs = [f.read_word() for _ in range(f.read_dword())]
+        nodes = load_n_elems(f, BSP.Node, count=f.read_dword())
+        face_refs = [f.read_word() for _ in range(f.read_dword())]
 
-        for node in obj._nodes:
-            node.resolve_children(obj._nodes)
-            node.resolve_face_refs(obj._face_refs)
-        
+        face_ref_to_face : Dict[int, Face] = {}
+        for i, face_ref in enumerate(face_refs):
+            face_ref_to_face[i] = faces[face_ref]
+
+        for node in nodes:
+            node.load_children_and_faces(nodes, face_ref_to_face)
+
         obj.root = None
-        for node in obj._nodes:
+        for node in nodes:
             if node.parent is None:
                 if obj.root is None:
                     obj.root = node
@@ -195,35 +185,27 @@ class BSP:
         for face in face_refs:
             f.write_word(faces.index(face))
 
-    def resolve_faces(self, faces):
-        for node in self._nodes:
-            node.resolve_faces(faces)
-
 
     @staticmethod
     def build(verts, faces):
         builder = BspBuilder(verts, faces)
 
-        def _conv(builder_node, parent=None):
+        def _copy(builder_node, parent=None):
             split_plane = builder_node.split_plane
             node = BSP.Node(split_plane.axis, split_plane.val)
             node.parent = parent
-            if builder_node.front_node is not None:
-                node.children[0] = _conv(builder_node.front_node, node)
-            else:
-                node.children[0] = None
-                for poly in builder_node.front_polys:
-                    node.faces[0].append(poly.face_ref)
+            children = builder_node.get_children()
+            faces = builder_node.get_faces()
 
-            if builder_node.back_node is not None:
-                node.children[1] = _conv(builder_node.back_node, node)
-            else:
-                node.children[1] = None
-                for poly in builder_node.back_polys:
-                    node.faces[1].append(poly.face_ref)
+            for i in range(2):
+                if children[i] is not None:
+                    node.children[i] = _copy(children[i], node)
+                else:
+                    node.children[i] = None
+                    node.faces[i] = faces[i]
             return node
 
-        root = _conv(builder.root)
+        root = _copy(builder.root)
         mins = calc_bounds(verts, min)
         maxs = calc_bounds(verts, max)
         return BSP(mins, maxs, root)
@@ -268,8 +250,7 @@ class CollLod:
         bsp_present = int(chr(f.read_byte())) # 0x30 or 0x31 (which is ASCII '0' or '1'... why DICE)
 
         if bsp_present:
-            obj.bsp = BSP.load(f)
-            obj.bsp.resolve_faces(obj.faces)
+            obj.bsp = BSP.load(f, obj.faces)
 
         # array of face indexes, can be -1 if unset, loaded only for ver >= 10, what exactly is this I don't know
         # used for buildDebugMeshes, we could probably skip this and export as ver 9 and BF2 will generate it
