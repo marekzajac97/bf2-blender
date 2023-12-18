@@ -5,6 +5,8 @@ Probably like 15 years too late but anyway, here are some basic tools for import
 - Animation (`.baf`) import/export
 - Skeleton (`.ske`) import only
 - BundledMesh/SkinnedMesh (`.bundledMesh, .skinnedMesh`) import only
+- CollisionMesh (`.collisionMesh`) import/export
+
 
 ## Installation
 - To download use [Download ZIP](https://github.com/marekzajac97/bf2-blender/archive/refs/heads/main.zip) option

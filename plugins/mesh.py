@@ -7,7 +7,7 @@ from ..core.mesh import import_mesh
 from .. import PLUGIN_NAME
 
 class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
-    bl_idname= "bf2_mesg.import"
+    bl_idname= "bf2_mesh.import"
     bl_description = 'Battlefield 2 mesh file'
     bl_label = "Import mesh"
     filter_glob = StringProperty(default="*.bundledmesh;*.skinnedmesh", options={'HIDDEN'})

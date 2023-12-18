@@ -192,7 +192,7 @@ class BSP:
 
         def _copy(builder_node, parent=None):
             split_plane = builder_node.split_plane
-            node = BSP.Node(split_plane.axis, split_plane.val)
+            node = BSP.Node(split_plane.val, split_plane.axis)
             node.parent = parent
             children = builder_node.get_children()
             faces = builder_node.get_faces()

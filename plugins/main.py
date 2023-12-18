@@ -5,6 +5,7 @@ from . import animation
 from . import animation_ctrl_setup
 from . import skeleton
 from . import mesh
+from . import collisionmesh
 
 from .. import PLUGIN_NAME
 
@@ -17,6 +18,7 @@ class IMPORT_MT_bf2_submenu(bpy.types.Menu):
         self.layout.operator(skeleton.IMPORT_OT_bf2_skeleton.bl_idname, text="Skeleton (.ske)")
         self.layout.operator(animation.IMPORT_OT_bf2_animation.bl_idname, text="Animation (.baf)")
         self.layout.operator(mesh.IMPORT_OT_bf2_mesh.bl_idname, text="Mesh (.bundledmesh, .skinnedmesh)")
+        self.layout.operator(collisionmesh.IMPORT_OT_bf2_collisionmesh.bl_idname, text="CollisionMesh (.collisionmesh)")
 
 
 def menu_func_import(self, context):
@@ -29,6 +31,7 @@ class EXPORT_MT_bf2_submenu(bpy.types.Menu):
 
     def draw(self, context):
         self.layout.operator(animation.EXPORT_OT_bf2_animation.bl_idname, text="Animation (.baf)")
+        self.layout.operator(collisionmesh.EXPORT_OT_bf2_collisionmesh.bl_idname, text="CollisionMesh (.collisionmesh)")
 
 def menu_func_export(self, context):
     self.layout.menu(EXPORT_MT_bf2_submenu.bl_idname, text="BF2")
@@ -55,6 +58,7 @@ def register():
     animation_ctrl_setup.register()
     skeleton.register()
     mesh.register()
+    collisionmesh.register()
 
     bpy.utils.register_class(BF2AddonPreferences)
 
@@ -65,10 +69,11 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
 def unregister():
-    animation.unregister()
-    animation_ctrl_setup.unregister()
-    skeleton.unregister()
+    collisionmesh.unregister()
     mesh.unregister()
+    skeleton.unregister()
+    animation_ctrl_setup.unregister()
+    animation.unregister()
 
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
     bpy.utils.unregister_class(EXPORT_MT_bf2_submenu)

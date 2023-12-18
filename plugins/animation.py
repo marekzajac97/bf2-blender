@@ -36,7 +36,6 @@ class BoneExportCollection(bpy.types.PropertyGroup):
 
 
 class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
-    """This appears in the tooltip of the operator and in the generated docs"""
     bl_idname = "bf2_animation.export"
     bl_label = "Export Animation"
 
