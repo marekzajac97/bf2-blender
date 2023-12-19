@@ -25,8 +25,8 @@ class BF2Mesh(VisibleMesh):
         for vertattr in self.vertex_attributes:
             if vertattr.usage == usageId:
                 return int(vertattr.offset / 4)
-        return -1
-    
+        return None
+
     def get_wight_offset(self):
         return self._get_attr_offset(2)
     
@@ -36,12 +36,6 @@ class BF2Mesh(VisibleMesh):
     def get_tangent_offset(self):
         return self._get_attr_offset(6)
     
-    def get_textc_offset(self, uvchan):
-        uvchan_to_usage = {
-            0: 5,
-            1: 261,
-            2: 517,
-            3: 733,
-            4: 1029
-        }
-        return self._get_attr_offset(uvchan_to_usage[uvchan])
+    def get_uv_offset(self, uvchan):
+        usage = uvchan << 8 | 5
+        return self._get_attr_offset(usage)
