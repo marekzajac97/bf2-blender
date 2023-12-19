@@ -18,6 +18,13 @@ class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
+FILE_DESC = "Skeleton (.ske)"
+
+def draw_import(layout):
+    layout.operator(IMPORT_OT_bf2_skeleton.bl_idname, text=FILE_DESC)
+
+def draw_export(layout):
+    pass
 
 def register():
     bpy.utils.register_class(IMPORT_OT_bf2_skeleton)

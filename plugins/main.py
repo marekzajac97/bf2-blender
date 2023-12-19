@@ -15,10 +15,10 @@ class IMPORT_MT_bf2_submenu(bpy.types.Menu):
     bl_options = {'REGISTER', 'UNDO'}
 
     def draw(self, context):
-        self.layout.operator(skeleton.IMPORT_OT_bf2_skeleton.bl_idname, text="Skeleton (.ske)")
-        self.layout.operator(animation.IMPORT_OT_bf2_animation.bl_idname, text="Animation (.baf)")
-        self.layout.operator(mesh.IMPORT_OT_bf2_mesh.bl_idname, text="Mesh (.bundledmesh, .skinnedmesh)")
-        self.layout.operator(collisionmesh.IMPORT_OT_bf2_collisionmesh.bl_idname, text="CollisionMesh (.collisionmesh)")
+        animation.draw_import(self.layout)
+        skeleton.draw_import(self.layout)
+        mesh.draw_import(self.layout)
+        collisionmesh.draw_import(self.layout)
 
 
 def menu_func_import(self, context):
@@ -30,8 +30,10 @@ class EXPORT_MT_bf2_submenu(bpy.types.Menu):
     bl_options = {'REGISTER', 'UNDO'}
 
     def draw(self, context):
-        self.layout.operator(animation.EXPORT_OT_bf2_animation.bl_idname, text="Animation (.baf)")
-        self.layout.operator(collisionmesh.EXPORT_OT_bf2_collisionmesh.bl_idname, text="CollisionMesh (.collisionmesh)")
+        animation.draw_export(self.layout)
+        skeleton.draw_export(self.layout)
+        mesh.draw_export(self.layout)
+        collisionmesh.draw_export(self.layout)
 
 def menu_func_export(self, context):
     self.layout.menu(EXPORT_MT_bf2_submenu.bl_idname, text="BF2")
@@ -69,12 +71,6 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
 
 def unregister():
-    collisionmesh.unregister()
-    mesh.unregister()
-    skeleton.unregister()
-    animation_ctrl_setup.unregister()
-    animation.unregister()
-
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
     bpy.utils.unregister_class(EXPORT_MT_bf2_submenu)
 
@@ -82,3 +78,9 @@ def unregister():
     bpy.utils.unregister_class(IMPORT_MT_bf2_submenu)
 
     bpy.utils.unregister_class(BF2AddonPreferences)
+
+    collisionmesh.unregister()
+    mesh.unregister()
+    skeleton.unregister()
+    animation_ctrl_setup.unregister()
+    animation.unregister()

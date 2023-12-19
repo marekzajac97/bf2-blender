@@ -34,6 +34,14 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
+FILE_DESC = "Mesh (.bundledmesh, .skinnedmesh)"
+
+def draw_import(layout):
+    layout.operator(IMPORT_OT_bf2_mesh.bl_idname, text=FILE_DESC)
+
+def draw_export(layout):
+    pass
+
 def register():
     bpy.utils.register_class(IMPORT_OT_bf2_mesh)
 

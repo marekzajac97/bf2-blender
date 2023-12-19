@@ -33,6 +33,14 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 
+FILE_DESC = "CollisionMesh (.collisionmesh)"
+
+def draw_import(layout):
+    layout.operator(IMPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
+
+def draw_export(layout):
+    layout.operator(EXPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
+
 def register():
     bpy.utils.register_class(IMPORT_OT_bf2_collisionmesh)
     bpy.utils.register_class(EXPORT_OT_bf2_collisionmesh)
