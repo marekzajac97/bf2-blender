@@ -1,4 +1,5 @@
-from typing import Dict, List
+from typing import Dict, List, Tuple, Optional
+
 from .fileutils import FileUtils
 from .bsp_builder import BspBuilder
 from .bf2_common import Vec3
@@ -17,8 +18,8 @@ def calc_bounds(verts, func):
 
 class Face:
     def __init__(self, verts, material):
-        self.verts = verts
-        self.material = material
+        self.verts : Tuple[int] = verts
+        self.material : int = material
 
     @classmethod
     def load(cls, f : FileUtils):
@@ -40,20 +41,20 @@ class Face:
 class BSP:
     class Node():
         def __init__(self, split_plane_val, split_plane_axis):
-            self.split_plane_val = split_plane_val
-            self.split_plane_axis = split_plane_axis
+            self.split_plane_val : float = split_plane_val
+            self.split_plane_axis : int = split_plane_axis
             # axis 0 == parallel to ZY plane and intersecting (val, _, _) point
             # axis 1 == parallel to XZ plane and intersecting (_, val, _) point
             # axis 2 == parallel to XY plane and intersecting (_, _, val) point
 
-            self.parent = None # BSP.Node, None if root
-            self.children = [None, None] # front/back BSP.Node (if Node is a subtree Node)
-            self.faces = [[], []] # front/back lists of CollFace (if Node is a leaf Node)
+            self.parent : Optional[BSP.Node] = None # not set for root
+            self.children : List[Optional[BSP.Node]] = [None, None] # front/back set only for a subtree Node
+            self.faces : List[List[Face]] = [[], []]  # 2-element front/back set only for leaf Node
             # NOTE: in DICE's implementation if a face straddles the split plane it is added to both 'front' and 'back' sets
 
             # temporary raw import data
-            self._face_refs_idx = [[], []]
-            self._children_idx = [None, None]
+            self._face_refs_idx : List[List[int]] = [[], []]
+            self._children_idx : List[int] = [None, None]
 
         @classmethod
         def load(cls, f : FileUtils):
@@ -211,7 +212,7 @@ class BSP:
         return BSP(mins, maxs, root)
 
 
-class CollLod:
+class Lod:
 
     class CollType:
         PROJECTILE = 0
@@ -220,18 +221,18 @@ class CollLod:
         AI = 3
 
     def __init__(self):
-        self.coll_type : CollLod.CollType = None
+        self.coll_type : Lod.CollType = None
 
-        self.faces = []
-        self.verts = []
-        self.vert_materials = []
+        self.faces : List[Face] = []
+        self.verts : List[Vec3] = []
+        self.vert_materials : List[int] = []
 
         # vertex bounds
         self.min = Vec3()
         self.max = Vec3()
 
-        self.bsp = None
-        self.debug_mesh = None
+        self.bsp : Optional[BSP] = None
+        self.debug_mesh : Optional[List[int]] = None
 
     @classmethod
     def load(cls, f : FileUtils, version):
@@ -266,6 +267,10 @@ class CollLod:
         f.write_dword(len(self.verts))
         for vert in self.verts:
             vert.save(f)
+
+        if len(vert_mat) != len(self.verts):
+            raise BF2CollMeshException("vertex materials don't match vertex count")
+
         for vert_mat in self.vert_materials:
             f.write_word(vert_mat)
         
@@ -279,14 +284,14 @@ class CollLod:
         self.bsp.save(f, self.faces)
 
 
-class CollSubGeom:
+class SubGeom:
     def __init__(self):
-        self.lods = []
+        self.lods : List[Lod] = []
 
     @classmethod
     def load(cls, f : FileUtils, version):
         obj = cls()
-        obj.lods = load_n_elems(f, CollLod, count=f.read_dword(), version=version)
+        obj.lods = load_n_elems(f, Lod, count=f.read_dword(), version=version)
         return obj
     
     def save(self, f : FileUtils):
@@ -294,14 +299,14 @@ class CollSubGeom:
         for lod in self.lods:
             lod.save(f)
 
-class CollGeom:
+class Geom:
     def __init__(self):
-        self.subgeoms = []
+        self.subgeoms : List[SubGeom] = []
 
     @classmethod
     def load(cls, f : FileUtils, version):
         obj = cls()
-        obj.subgeoms = load_n_elems(f, CollSubGeom, count=f.read_dword(), version=version)
+        obj.subgeoms = load_n_elems(f, SubGeom, count=f.read_dword(), version=version)
         return obj
 
     def save(self, f : FileUtils):
@@ -312,8 +317,7 @@ class CollGeom:
 
 class BF2CollMesh:
     def __init__(self, file='', name=''):
-        self.version = None
-        self.geoms = []
+        self.geoms : List[Geom] = []
 
         if name:
             self.name = name
@@ -329,12 +333,12 @@ class BF2CollMesh:
             f = FileUtils(file)
             v1 = f.read_dword()
             v2 = f.read_dword()
-            self.version = (v1, v2)
+            version = (v1, v2)
 
-            if self.version[0] != 0 and self.version[1] < 9 or self.version[1] > 10:
-                raise BF2CollMeshException(f"Unsupported .collisionmesh version {self.version}")
+            if version[0] != 0 and version[1] < 9 or version[1] > 10:
+                raise BF2CollMeshException(f"Unsupported .collisionmesh version {version}")
 
-            self.geoms = load_n_elems(f, CollGeom, count=f.read_dword(), version=self.version)
+            self.geoms = load_n_elems(f, Geom, count=f.read_dword(), version=version)
 
             if os.fstat(file.fileno()).st_size != file.tell():
                 raise BF2CollMeshException("Corrupted .collisionmesh file? Reading finished and file pointer != filesize")

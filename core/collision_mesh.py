@@ -2,7 +2,7 @@ import bpy
 import bmesh
 
 from itertools import cycle
-from .bf2.bf2_collmesh import BF2CollMesh, CollGeom, CollSubGeom, CollLod, Face, Vec3
+from .bf2.bf2_collmesh import BF2CollMesh, Geom, SubGeom, Lod, Face, Vec3
 from .utils import delete_object_if_exists
 
 MATERIAL_COLORS = [
@@ -108,7 +108,7 @@ def export_collisonmesh(context, mesh_file):
             raise RuntimeError(f"duplicated geom'{geom_idx} found")
         geoms[geom_idx] = geom_obj
     for _, geom_obj in sorted(geoms.items()):
-        geom = CollGeom()
+        geom = Geom()
         collmesh.geoms.append(geom)
 
         subgeoms = dict()
@@ -118,7 +118,7 @@ def export_collisonmesh(context, mesh_file):
                 raise RuntimeError(f"duplicated subgeom'{subgeom_idx} found")
             subgeoms[subgeom_idx] = subgeom_obj
         for _, subgeom_obj in sorted(subgeoms.items()):
-            subgeom = CollSubGeom()
+            subgeom = SubGeom()
             geom.subgeoms.append(subgeom)
 
             lods = dict()
@@ -128,11 +128,14 @@ def export_collisonmesh(context, mesh_file):
                     raise RuntimeError(f"duplicated lod'{lod_idx} found")
                 lods[lod_idx] = lod_obj
             for lod_idx, lod_obj in sorted(lods.items()):
-                lod = CollLod()
+                lod = Lod()
                 subgeom.lods.append(lod)
                 mesh = lod_obj.data
                 if mesh is None:
                     raise RuntimeError(f"empty lod'{lod_idx}")
+
+                if lod_idx < 0 or lod_idx > 3:
+                    raise RuntimeError(f"Invalid lod index '{lod_idx}, must be in 0-3")
 
                 lod.coll_type = lod_idx
                 for v in mesh.vertices:
