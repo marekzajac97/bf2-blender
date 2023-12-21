@@ -10,7 +10,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_mesh.import"
     bl_description = 'Battlefield 2 mesh file'
     bl_label = "Import mesh"
-    filter_glob = StringProperty(default="*.bundledmesh;*.skinnedmesh", options={'HIDDEN'})
+    filter_glob = StringProperty(default="*.bundledmesh;*.skinnedmesh;*.staticmesh", options={'HIDDEN'})
 
     geom: IntProperty(
         name="Geom",
@@ -34,7 +34,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
-FILE_DESC = "Mesh (.bundledmesh, .skinnedmesh)"
+FILE_DESC = "Mesh (.bundledmesh, .skinnedmesh, .staticmesh)"
 
 def draw_import(layout):
     layout.operator(IMPORT_OT_bf2_mesh.bl_idname, text=FILE_DESC)

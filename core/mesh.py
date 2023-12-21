@@ -411,8 +411,6 @@ def _setup_static_mesh_shader(node_tree, texture_nodes, uv_map_nodes):
 
     # ---- normal  ----
 
-    # ShaderNodeMapRange with data_type FLOAT_VECTOR doesn't work
-
     map_range_ndetail = node_tree.nodes.new('ShaderNodeMapRange')
     map_range_ndetail.data_type = 'FLOAT_VECTOR'
     map_range_ndetail.inputs[9].default_value = (-1, -1, -1)

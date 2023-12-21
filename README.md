@@ -4,7 +4,7 @@ Probably like 15 years too late but anyway, here are some basic tools for import
 ## Features:
 - Animation (`.baf`) import/export
 - Skeleton (`.ske`) import only
-- BundledMesh/SkinnedMesh (`.bundledMesh, .skinnedMesh`) import only
+- VisibleMesh (`.bundledMesh, .skinnedMesh, .staticMesh`) import only
 - CollisionMesh (`.collisionMesh`) import/export
 
 
