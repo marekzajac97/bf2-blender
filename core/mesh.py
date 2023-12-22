@@ -356,6 +356,7 @@ def _split_str_from_word_set(s : str, word_set : set):
     return words
 
 def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique, has_alpha=False):
+    material_output = node_tree.nodes.get('Material Output')
     principled_BSDF = node_tree.nodes.get('Principled BSDF')
     shader_base_color = principled_BSDF.inputs[0]
     shader_specular = principled_BSDF.inputs[7]
@@ -381,7 +382,7 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
         node_tree.links.new(diffuse.outputs[0], shader_base_color)
 
         # specular
-        has_specular = shader.lower() != 'skinnedmesh.fx'
+        has_specular = shader.lower() != 'skinnedmesh.fx' and not has_alpha
         if has_specular:
             node_tree.links.new(diffuse.outputs[1], shader_specular)
 
@@ -405,10 +406,20 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
         node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
         node_tree.links.new(axes_swap.outputs[0], shader_normal)
 
+        # transparency
+        if has_alpha:
+            transparent_BSDF = node_tree.nodes.new('ShaderNodeBsdfTransparent')
+            mix_shader = node_tree.nodes.new('ShaderNodeMixShader')
+
+            node_tree.links.new(principled_BSDF.outputs[0], mix_shader.inputs[2])
+            node_tree.links.new(transparent_BSDF.outputs[0], mix_shader.inputs[1])
+
+            node_tree.links.new(diffuse.outputs[1], mix_shader.inputs[0])
+            node_tree.links.new(mix_shader.outputs[0], material_output.inputs[0])
+
         principled_BSDF.location = (3 * NODE_WIDTH, 0 * NODE_HEIGHT)
-        material_output = node_tree.nodes.get('Material Output')
         material_output.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
-    
+
     elif shader.lower() == 'staticmesh.fx':
 
         if technique == '':
@@ -586,10 +597,6 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         if normal_out:
             node_tree.links.new(normal_out, shader_normal)
-        
-        # ---- transparency ----
-        # TODO
 
         principled_BSDF.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
-        material_output = node_tree.nodes.get('Material Output')
         material_output.location = (5 * NODE_WIDTH, 0 * NODE_HEIGHT)
