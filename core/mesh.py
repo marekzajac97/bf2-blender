@@ -316,7 +316,7 @@ def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod):
     modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
     modifier.object = rig
 
-def _crate_bf2_axes_swap():
+def _create_bf2_axes_swap():
     if 'BF2AxesSwap' in bpy.data.node_groups:
         return bpy.data.node_groups['BF2AxesSwap']
     bf2_axes_swap = bpy.data.node_groups.new('BF2AxesSwap', 'ShaderNodeTree')
@@ -425,7 +425,7 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
             normal_out = normal_node.outputs[0]
 
         axes_swap = node_tree.nodes.new('ShaderNodeGroup')
-        axes_swap.node_tree = _crate_bf2_axes_swap()
+        axes_swap.node_tree = _create_bf2_axes_swap()
         axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
         axes_swap.hide = True
 
@@ -587,7 +587,7 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         normal_out = None
 
-        def _crate_normal_map_node_chain(nmap, uv_chan):
+        def _create_normal_map_node_chain(nmap, uv_chan):
             # convert to normal
             normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
             normal_node.uv_map = uv_map_nodes[uv_chan].uv_map
@@ -596,7 +596,7 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
             node_tree.links.new(nmap.outputs[0], normal_node.inputs[1])
 
             axes_swap = node_tree.nodes.new('ShaderNodeGroup')
-            axes_swap.node_tree = _crate_bf2_axes_swap()
+            axes_swap.node_tree = _create_bf2_axes_swap()
             axes_swap.location = (2 * NODE_WIDTH, -1 - uv_chan * NODE_HEIGHT)
             axes_swap.hide = True
 
@@ -604,8 +604,8 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
             return axes_swap.outputs[0]
 
-        ndetail_out = ndetail and _crate_normal_map_node_chain(ndetail, 1)
-        ncrack_out = ncrack and _crate_normal_map_node_chain(ncrack, 3 if dirt else 2)
+        ndetail_out = ndetail and _create_normal_map_node_chain(ndetail, 1)
+        ncrack_out = ncrack and _create_normal_map_node_chain(ncrack, 3 if dirt else 2)
 
         if ndetail_out and ncrack_out:
             # mix ndetail & ncrack based on crack alpha
