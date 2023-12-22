@@ -36,7 +36,6 @@ class Face:
         f.write_word(self.verts[2])
         f.write_word(self.material)
 
-
 # https://en.wikipedia.org/wiki/Binary_space_partitioning
 class BSP:
     class Node():
@@ -259,7 +258,7 @@ class Lod:
             obj.debug_mesh = [f.read_dword(signed=True) for _ in range(f.read_dword())]
         return obj
 
-    def save(self, f : FileUtils):
+    def save(self, f : FileUtils, update_bounds=True):
         f.write_dword(self.coll_type)
         f.write_dword(len(self.faces))
         for face in self.faces:
@@ -273,9 +272,13 @@ class Lod:
 
         for vert_mat in self.vert_materials:
             f.write_word(vert_mat)
-        
-        calc_bounds(self.verts, min).save(f)
-        calc_bounds(self.verts, max).save(f)
+
+        if update_bounds:
+            calc_bounds(self.verts, min).save(f)
+            calc_bounds(self.verts, max).save(f)
+        else:
+            self.min.save(f)
+            self.max.save(f)
 
         f.write_byte(0x31)
         if self.bsp is None:

@@ -113,12 +113,10 @@ class BspBuilder:
         return [self.verts[v] for v in verts]
 
     def _get_all_planes(self, polys : List[Poly]):
-        planes = list()
         for vert in self._get_all_verts(polys):
-            planes.append(Plane(vert.x, 0))
-            planes.append(Plane(vert.y, 1))
-            planes.append(Plane(vert.z, 2))
-        return planes
+            yield Plane(vert.x, 0)
+            yield Plane(vert.y, 1)
+            yield Plane(vert.z, 2)
 
     def _find_best_split_plane(self, polys : List[Poly]):
         COPLANAR_WEIGHT = 0.5 # puts more emphasis on keeping to minimum coplanar polygons

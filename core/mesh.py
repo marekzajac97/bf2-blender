@@ -9,20 +9,40 @@ from .bf2.bf2_mesh import BF2Mesh
 from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists
 from .skeleton import find_active_skeleton, ske_get_bone_rot, ske_weapon_part_ids
 
-NODE_WIDTH = 400
+NODE_WIDTH = 300
 NODE_HEIGHT = 100
 
-def import_mesh(context, mesh_file, geom=0, lod=0, texture_path='', reload=False):
+def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', reload=False):
     bf2_mesh = BF2Mesh(mesh_file)
+    if geom is None and lod is None:
+        if reload: delete_object_if_exists(bf2_mesh.name)
+        root_obj = bpy.data.objects.new(bf2_mesh.name, None)
+        context.scene.collection.objects.link(root_obj)
+        for geom_idx, _ in enumerate(bf2_mesh.geoms):
+            geom_name = f'{bf2_mesh.name}_geom{geom_idx}'
+            if reload: delete_object_if_exists(geom_name)
+            geom_obj = bpy.data.objects.new(geom_name, None)
+            geom_obj.parent = root_obj
+            context.scene.collection.objects.link(geom_obj)
+            for lod_idx, _ in enumerate(bf2_mesh.geoms[geom_idx].lods):
+                lod_name = f'{geom_name}_lod{lod_idx}'
+                if reload: delete_object_if_exists(lod_name)
+                lod_obj = _import_mesh(context, lod_name, bf2_mesh, geom_idx, lod_idx, texture_path, reload=reload)
+                lod_obj.parent = geom_obj
+                context.scene.collection.objects.link(lod_obj)
+    else:
+        obj = _import_mesh(context, bf2_mesh.name, bf2_mesh, geom, lod, texture_path, reload=reload)
+        context.scene.collection.objects.link(obj)
 
-    mesh_obj = _import_mesh_geometry(bf2_mesh.name, bf2_mesh, geom, lod, texture_path, reload)
+def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', reload=False):
+    mesh_obj = _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload)
 
     if bf2_mesh.isSkinnedMesh:
         _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod)
     elif bf2_mesh.isBundledMesh:
         _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, geom, lod)
 
-    context.scene.collection.objects.link(mesh_obj)
+    return mesh_obj
 
 def _roatate_uv(uv, angle):
     uv = Vector(uv)
@@ -133,7 +153,7 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
     # create materials
     for i, bf2_mat in enumerate(bf2_lod.materials):
-        mat_name = f'{bf2_mesh.name}_material_{i}'
+        mat_name = f'{name}_material_{i}'
         try:
             material = bpy.data.materials[mat_name]
             bpy.data.materials.remove(material, do_unlink=True)
@@ -388,22 +408,28 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         # normal
         normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
-
-        if shader.lower() == 'skinnedmesh.fx':
-            normal_node.space = 'OBJECT'
-        else:
-            normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
-
         normal_node.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
         normal_node.hide = True
         node_tree.links.new(normal.outputs[0], normal_node.inputs[1])
+
+        if shader.lower() == 'skinnedmesh.fx':
+            normal_node.space = 'OBJECT'
+            # don't know why but it only looks right inverted
+            inverter = node_tree.nodes.new('ShaderNodeVectorMath')
+            inverter.operation = 'SCALE'
+            inverter.inputs[3].default_value = -1
+            node_tree.links.new(normal_node.outputs[0], inverter.inputs[0])
+            normal_out = inverter.outputs[0]
+        else:
+            normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
+            normal_out = normal_node.outputs[0]
 
         axes_swap = node_tree.nodes.new('ShaderNodeGroup')
         axes_swap.node_tree = _crate_bf2_axes_swap()
         axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
         axes_swap.hide = True
 
-        node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
+        node_tree.links.new(normal_out, axes_swap.inputs[0])
         node_tree.links.new(axes_swap.outputs[0], shader_normal)
 
         # transparency

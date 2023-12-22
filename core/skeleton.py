@@ -34,12 +34,12 @@ def find_active_skeleton(context):
     rig_obj = None
     # check selected ones first
     for obj in context.selected_objects:
-        if 'bf2_skeleton' in obj.data.keys():
+        if obj.data and 'bf2_skeleton' in obj.data.keys():
             rig_obj = obj
             break
     # try to find any
     for obj in bpy.data.objects:
-        if 'bf2_skeleton' in obj.data.keys():
+        if obj.data and 'bf2_skeleton' in obj.data.keys():
             rig_obj = obj
             break
     if rig_obj:
