@@ -25,3 +25,4 @@ After installation, setup your `BF2 mod directory` (`Edit -> Preferences -> Add-
 
 ## Credits
 - [rpoxo](https://github.com/rpoxo) for the [BF2 mesh file parser](https://github.com/rpoxo/bf2mesh) (MIT License)
+- Remdul for [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/) (most of the stuff is ported over form there)

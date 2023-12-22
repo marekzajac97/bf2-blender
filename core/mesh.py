@@ -142,6 +142,11 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         material = bpy.data.materials.new(mat_name)
         mesh.materials.append(material)
 
+        # alpha mode
+        has_alpha = bf2_mat.alphamode is not None and bf2_mat.alphamode > 0
+        if has_alpha:
+            material.blend_method = 'BLEND'
+
         material.use_nodes = True
         node_tree = material.node_tree
 
@@ -173,13 +178,10 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
             tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
             tex_node.hide = True
 
-        # TODO check technique name
-        if bf2_mesh.isStaticMesh:
-            _setup_static_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes)
-        elif bf2_mesh.isBundledMesh:
-            _setup_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes, has_specular=True)
-        elif bf2_mesh.isSkinnedMesh:
-            _setup_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes, has_specular=False)
+        technique = bf2_mat.technique.decode('ascii')
+        shader = bf2_mat.fxfile.decode('ascii')
+        _setup_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes,
+                           shader, technique, has_alpha=has_alpha)
 
     obj = bpy.data.objects.new(name, mesh)
     return obj
@@ -294,6 +296,27 @@ def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod):
     modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
     modifier.object = rig
 
+def _crate_bf2_axes_swap():
+    if 'BF2AxesSwap' in bpy.data.node_groups:
+        return bpy.data.node_groups['BF2AxesSwap']
+    bf2_axes_swap = bpy.data.node_groups.new('BF2AxesSwap', 'ShaderNodeTree')
+
+    group_inputs = bf2_axes_swap.nodes.new('NodeGroupInput')
+    bf2_axes_swap.inputs.new('NodeSocketVector', 'in')
+    group_outputs = bf2_axes_swap.nodes.new('NodeGroupOutput')
+    bf2_axes_swap.outputs.new('NodeSocketVector', 'out')
+
+    # swap Y/Z axes
+    swap_yz_decompose = bf2_axes_swap.nodes.new('ShaderNodeSeparateXYZ')
+    swap_yz_compose = bf2_axes_swap.nodes.new('ShaderNodeCombineXYZ')
+    bf2_axes_swap.links.new(swap_yz_decompose.outputs[0], swap_yz_compose.inputs[0])
+    bf2_axes_swap.links.new(swap_yz_decompose.outputs[2], swap_yz_compose.inputs[1])
+    bf2_axes_swap.links.new(swap_yz_decompose.outputs[1], swap_yz_compose.inputs[2])
+
+    bf2_axes_swap.links.new(group_inputs.outputs['in'], swap_yz_decompose.inputs[0])
+    bf2_axes_swap.links.new(swap_yz_compose.outputs[0], group_outputs.inputs['out'])
+
+    return bf2_axes_swap
 
 def _create_multiply_rgb_shader_node():
     if 'MultiplyRGB' in bpy.data.node_groups:
@@ -311,18 +334,28 @@ def _create_multiply_rgb_shader_node():
     node_multiply_rgb = multi_rgb.nodes.new('ShaderNodeMath')
     node_multiply_rgb.operation = 'MULTIPLY'
 
-    multi_rgb.links.new(group_inputs.outputs['color'], node_separate_color.inputs[0])
-
     multi_rgb.links.new(node_separate_color.outputs[0], node_multiply_rg.inputs[0])
     multi_rgb.links.new(node_separate_color.outputs[1], node_multiply_rg.inputs[1])
     multi_rgb.links.new(node_separate_color.outputs[2], node_multiply_rgb.inputs[0])
     multi_rgb.links.new(node_multiply_rg.outputs[0], node_multiply_rgb.inputs[1])
 
+    multi_rgb.links.new(group_inputs.outputs['color'], node_separate_color.inputs[0])
     multi_rgb.links.new(node_multiply_rgb.outputs[0], group_outputs.inputs['value'])
-
     return multi_rgb
 
-def _setup_static_mesh_shader(node_tree, texture_nodes, uv_map_nodes):
+def _split_str_from_word_set(s : str, word_set : set):
+    words = list()
+    while s:
+        for word in word_set:
+            if s.startswith(word):
+                words.append(word)
+                s = s[len(word):]
+                break
+        else:
+            return None # contains word not in wordset
+    return words
+
+def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique, has_alpha=False):
     principled_BSDF = node_tree.nodes.get('Principled BSDF')
     shader_base_color = principled_BSDF.inputs[0]
     shader_specular = principled_BSDF.inputs[7]
@@ -332,146 +365,231 @@ def _setup_static_mesh_shader(node_tree, texture_nodes, uv_map_nodes):
     shader_roughness.default_value = 1
     shader_specular.default_value = 0
 
-    # link UVs
-    for map_index, tex_node in enumerate(texture_nodes):
-        uv_chan = None
-        if map_index == 0: # color
-            uv_chan = 0
-        elif map_index == 1: # detail
-            uv_chan = 1
-        elif map_index == 2: # dirt
-            uv_chan = 2
-        elif map_index == 3: # crack
-            uv_chan = 3
-        elif map_index == 4: # ndetail
-            uv_chan = 1
-        elif map_index == 5: # ncrack
-            uv_chan = 3
+    if shader.lower() in ('skinnedmesh.fx', 'bundledmesh.fx') :
+        UV_CHANNEL = 0      
 
-        if uv_chan is not None and uv_chan in uv_map_nodes:
-            node_tree.links.new(uv_map_nodes[uv_chan].outputs[0], tex_node.inputs[0])
+        diffuse = texture_nodes[0]
+        normal = texture_nodes[1]
 
-    base = texture_nodes[0]
-    detail = texture_nodes[1]
-    dirt = texture_nodes[2]
-    crack = texture_nodes[3]
-    ndetail = texture_nodes[4]
-    ncrack = texture_nodes[5]
+        node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], diffuse.inputs[0])
+        node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], normal.inputs[0])
 
-    # ---- diffuse ----
-    multiply_detail = node_tree.nodes.new('ShaderNodeMixRGB')
-    multiply_detail.inputs[0].default_value = 1
-    multiply_detail.blend_type = 'MULTIPLY'
-    multiply_detail.location = (0 * NODE_WIDTH, 0 * NODE_HEIGHT)
-    multiply_detail.hide = True
+        if normal.image:
+            normal.image.colorspace_settings.name = 'Non-Color'
 
-    mix_crack = node_tree.nodes.new('ShaderNodeMixRGB')
-    mix_crack.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
-    mix_crack.hide = True
+        # diffuse
+        node_tree.links.new(diffuse.outputs[0], shader_base_color)
 
-    multiply_dirt = node_tree.nodes.new('ShaderNodeMixRGB')
-    multiply_dirt.inputs[0].default_value = 1
-    multiply_dirt.blend_type = 'MULTIPLY'
-    multiply_dirt.location = (2 * NODE_WIDTH, 0 * NODE_HEIGHT)
-    multiply_dirt.hide = True
+        # specular
+        has_specular = shader.lower() != 'skinnedmesh.fx'
+        if has_specular:
+            node_tree.links.new(diffuse.outputs[1], shader_specular)
 
-    # multiply detail and base color
-    node_tree.links.new(base.outputs[0], multiply_detail.inputs[1])
-    node_tree.links.new(detail.outputs[0], multiply_detail.inputs[2])
+        # normal
+        normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
 
-    # mix detail & crack color based on crack alpha
-    node_tree.links.new(crack.outputs[1], mix_crack.inputs[0])
-    node_tree.links.new(multiply_detail.outputs[0], mix_crack.inputs[1])
-    node_tree.links.new(crack.outputs[0], mix_crack.inputs[2])
+        if shader.lower() == 'skinnedmesh.fx':
+            normal_node.space = 'OBJECT'
+        else:
+            normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
 
-    # multiply above with dirt
-    node_tree.links.new(mix_crack.outputs[0], multiply_dirt.inputs[1])
-    node_tree.links.new(dirt.outputs[0], multiply_dirt.inputs[2])
+        normal_node.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
+        normal_node.hide = True
+        node_tree.links.new(normal.outputs[0], normal_node.inputs[1])
 
-    node_tree.links.new(multiply_dirt.outputs[0], shader_base_color)
+        axes_swap = node_tree.nodes.new('ShaderNodeGroup')
+        axes_swap.node_tree = _crate_bf2_axes_swap()
+        axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
+        axes_swap.hide = True
 
-    # ---- specular ----
+        node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
+        node_tree.links.new(axes_swap.outputs[0], shader_normal)
 
-    dirt_rgb_mult = node_tree.nodes.new('ShaderNodeGroup')
-    dirt_rgb_mult.node_tree = _create_multiply_rgb_shader_node()
-    dirt_rgb_mult.location = (0 * NODE_WIDTH, 1 * NODE_HEIGHT)
-    dirt_rgb_mult.hide = True
-
-    specular = node_tree.nodes.new('ShaderNodeMath')
-    specular.operation = 'MULTIPLY'
-    specular.location = (0 * NODE_WIDTH, 1 * NODE_HEIGHT)
-    specular.hide = True
-
-    node_tree.links.new(dirt.outputs[0], dirt_rgb_mult.inputs[0])
-
-    node_tree.links.new(dirt_rgb_mult.outputs[0], specular.inputs[1])
-    node_tree.links.new(detail.outputs[0], specular.inputs[0])
-
-    node_tree.links.new(specular.outputs[0], shader_specular)
-
-    # ---- normal  ----
-
-    map_range_ndetail = node_tree.nodes.new('ShaderNodeMapRange')
-    map_range_ndetail.data_type = 'FLOAT_VECTOR'
-    map_range_ndetail.inputs[9].default_value = (-1, -1, -1)
-    map_range_ndetail.location = (0 * NODE_WIDTH, 3 * NODE_HEIGHT)
-    map_range_ndetail.hide = True
-
-    map_range_ncrack = node_tree.nodes.new('ShaderNodeMapRange')
-    map_range_ncrack.data_type = 'FLOAT_VECTOR'
-    map_range_ncrack.inputs[9].default_value = (-1, -1, -1)
-    map_range_ncrack.location = (0 * NODE_WIDTH, 4 * NODE_HEIGHT)
-    map_range_ncrack.hide = True
-
-    mix_normal = node_tree.nodes.new('ShaderNodeMix')
-    mix_normal.data_type = 'VECTOR'
-    mix_normal.location = (1 * NODE_WIDTH, 3 * NODE_HEIGHT)
-    mix_normal.hide = True
-
-    normalize = node_tree.nodes.new('ShaderNodeVectorMath')
-    normalize.operation = 'NORMALIZE'
-    normalize.location = (2 * NODE_WIDTH, 3 * NODE_HEIGHT)
-    normalize.hide = True
-
-    node_tree.links.new(ndetail.outputs[0], map_range_ndetail.inputs[6])
-    node_tree.links.new(ncrack.outputs[0], map_range_ncrack.inputs[6])
-
-    node_tree.links.new(crack.outputs[1], mix_normal.inputs[0])
-    node_tree.links.new(map_range_ndetail.outputs[1], mix_normal.inputs[4])
-    node_tree.links.new(map_range_ncrack.outputs[1], mix_normal.inputs[5])
-
-    node_tree.links.new(mix_normal.outputs[1], normalize.inputs[0])
-
-    node_tree.links.new(normalize.outputs[0], shader_normal)
-
-    principled_BSDF.location = (3 * NODE_WIDTH, 0 * NODE_HEIGHT)
-
-
-def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, has_specular=True):
-    principled_BSDF = node_tree.nodes.get('Principled BSDF')
-    shader_base_color = principled_BSDF.inputs[0]
-    shader_specular = principled_BSDF.inputs[7]
-    shader_roughness = principled_BSDF.inputs[9]
-    shader_normal = principled_BSDF.inputs[22]
-
-    shader_roughness.default_value = 1
-    shader_specular.default_value = 0
-
-    # link UVs
-    for map_index, tex_node in enumerate(texture_nodes):
-        uv_chan = None
-        if map_index == 0: # diffuse
-            uv_chan = 0
-        elif map_index == 1: # normal
-            uv_chan = 0
-
-        if uv_chan is not None and uv_chan in uv_map_nodes:
-            node_tree.links.new(uv_map_nodes[uv_chan].outputs[0], tex_node.inputs[0])
+        principled_BSDF.location = (3 * NODE_WIDTH, 0 * NODE_HEIGHT)
+        material_output = node_tree.nodes.get('Material Output')
+        material_output.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
     
-    diffuse = texture_nodes[0]
-    normal = texture_nodes[1]
+    elif shader.lower() == 'staticmesh.fx':
 
-    node_tree.links.new(diffuse.outputs[0], shader_base_color)
-    if has_specular:
-        node_tree.links.new(diffuse.outputs[1], shader_specular)
-    node_tree.links.new(normal.outputs[0], shader_normal)
+        if technique == '':
+            return
+
+        if technique in ('ColormapGloss', 'EnvColormapGloss', 'Alpha', 'Alpha_Test'):
+            return # TODO
+
+        map_types = {'Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack'}
+        maps = _split_str_from_word_set(technique, map_types)
+        if maps is None:
+            raise RuntimeError(f'Unsupported techinique "{technique}"')
+        
+        if len(texture_nodes) - 1 != len(maps):
+            raise RuntimeError(f'Material techinique ({technique}) doesn\'t match number of texture maps ({len(texture_nodes)})')
+
+        base = None
+        detail = None
+        dirt = None
+        crack = None
+        ndetail = None
+        ncrack = None
+
+        # TODO specular LUT
+
+        for map_name, tex_node in zip(maps, texture_nodes):
+            if map_name == 'Base':
+                base = tex_node
+                uv_chan = 0
+            elif map_name == 'Detail':
+                detail = tex_node
+                uv_chan = 1
+            elif map_name == 'Dirt':
+                dirt = tex_node
+                uv_chan = 2
+            elif map_name == 'Crack':
+                crack = tex_node
+                uv_chan = 3 if dirt else 2
+            elif map_name == 'NDetail':
+                ndetail = tex_node
+                uv_chan = 1
+            elif map_name == 'NCrack':
+                ncrack = tex_node
+                uv_chan = 3 if dirt else 2
+
+            # link UVs with texture nodes
+            if uv_chan in uv_map_nodes:
+                node_tree.links.new(uv_map_nodes[uv_chan].outputs[0], tex_node.inputs[0])
+        
+        # change normal maps color space
+        if ndetail and ndetail.image:
+            ndetail.image.colorspace_settings.name = 'Non-Color'
+        if ncrack and ncrack.image:
+            ncrack.image.colorspace_settings.name = 'Non-Color'
+
+        # ---- diffuse ----
+        if detail:
+            # multiply detail and base color
+            multiply_detail = node_tree.nodes.new('ShaderNodeMixRGB')
+            multiply_detail.inputs[0].default_value = 1
+            multiply_detail.blend_type = 'MULTIPLY'
+            multiply_detail.location = (0 * NODE_WIDTH, 0 * NODE_HEIGHT)
+            multiply_detail.hide = True
+
+            node_tree.links.new(base.outputs[0], multiply_detail.inputs[1])
+            node_tree.links.new(detail.outputs[0], multiply_detail.inputs[2])
+            detail_out = multiply_detail.outputs[0]
+        else:
+            detail_out = base.outputs[0]
+
+        if crack:
+            # mix detail & crack color based on crack alpha
+            mix_crack = node_tree.nodes.new('ShaderNodeMixRGB')
+            mix_crack.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
+            mix_crack.hide = True
+
+            node_tree.links.new(crack.outputs[1], mix_crack.inputs[0])
+            node_tree.links.new(detail_out, mix_crack.inputs[1])
+            node_tree.links.new(crack.outputs[0], mix_crack.inputs[2])
+            crack_out = mix_crack.outputs[0]
+        else:
+            crack_out =  detail_out
+
+        if dirt:
+            # multiply dirt and diffuse
+            multiply_dirt = node_tree.nodes.new('ShaderNodeMixRGB')
+            multiply_dirt.inputs[0].default_value = 1
+            multiply_dirt.blend_type = 'MULTIPLY'
+            multiply_dirt.location = (2 * NODE_WIDTH, 0 * NODE_HEIGHT)
+            multiply_dirt.hide = True
+
+            node_tree.links.new(crack_out, multiply_dirt.inputs[1])
+            node_tree.links.new(dirt.outputs[0], multiply_dirt.inputs[2])
+            dirt_out = multiply_dirt.outputs[0]
+        else:
+            dirt_out = crack_out
+
+        # finally link to shader
+        node_tree.links.new(dirt_out, shader_base_color)
+
+        # ---- specular ----
+        if dirt:
+            # dirt.r * dirt.g * dirt.b
+            dirt_rgb_mult = node_tree.nodes.new('ShaderNodeGroup')
+            dirt_rgb_mult.node_tree = _create_multiply_rgb_shader_node()
+            dirt_rgb_mult.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
+            dirt_rgb_mult.hide = True
+
+            node_tree.links.new(dirt.outputs[0], dirt_rgb_mult.inputs[0])
+
+            # multiply that with detailmap alpha
+            mult_detaila = node_tree.nodes.new('ShaderNodeMath')
+            mult_detaila.operation = 'MULTIPLY'
+            mult_detaila.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
+            mult_detaila.hide = True
+
+            node_tree.links.new(dirt_rgb_mult.outputs[0], mult_detaila.inputs[1])
+            node_tree.links.new(detail.outputs[1], mult_detaila.inputs[0])
+            dirt_out = mult_detaila.outputs[0]
+        else:
+            dirt_out = detail.outputs[1]
+        
+        if has_alpha:
+            # mult with detaimap normal alpha
+            mult_ndetaila = node_tree.nodes.new('ShaderNodeMath')
+            mult_ndetaila.operation = 'MULTIPLY'
+            mult_ndetaila.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
+            mult_ndetaila.hide = True
+            
+            node_tree.links.new(dirt_out, mult_ndetaila.inputs[1])
+            node_tree.links.new(ndetail.outputs[1], mult_ndetaila.inputs[0])
+            has_alpha_out = mult_ndetaila.outputs[0]
+        else:
+            has_alpha_out = dirt_out
+
+        node_tree.links.new(has_alpha_out, shader_specular)
+
+        # ---- normal  ----
+
+        normal_out = None
+
+        def _crate_normal_map_node_chain(nmap, uv_chan):
+            # convert to normal
+            normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
+            normal_node.uv_map = uv_map_nodes[uv_chan].uv_map
+            normal_node.location = (1 * NODE_WIDTH, -1 - uv_chan * NODE_HEIGHT)
+            normal_node.hide = True
+            node_tree.links.new(nmap.outputs[0], normal_node.inputs[1])
+
+            axes_swap = node_tree.nodes.new('ShaderNodeGroup')
+            axes_swap.node_tree = _crate_bf2_axes_swap()
+            axes_swap.location = (2 * NODE_WIDTH, -1 - uv_chan * NODE_HEIGHT)
+            axes_swap.hide = True
+
+            node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
+
+            return axes_swap.outputs[0]
+
+        ndetail_out = ndetail and _crate_normal_map_node_chain(ndetail, 1)
+        ncrack_out = ncrack and _crate_normal_map_node_chain(ncrack, 3 if dirt else 2)
+
+        if ndetail_out and ncrack_out:
+            # mix ndetail & ncrack based on crack alpha
+            mix_normal = node_tree.nodes.new('ShaderNodeMix')
+            mix_normal.data_type = 'VECTOR'
+            mix_normal.location = (3 * NODE_WIDTH, -3 * NODE_HEIGHT)
+            mix_normal.hide = True
+
+            node_tree.links.new(crack.outputs[1], mix_normal.inputs[0])
+            node_tree.links.new(ndetail_out, mix_normal.inputs[4])
+            node_tree.links.new(ncrack_out, mix_normal.inputs[5])
+            normal_out = mix_normal.outputs[1]
+        elif ndetail_out:
+            normal_out = ndetail_out
+
+        if normal_out:
+            node_tree.links.new(normal_out, shader_normal)
+        
+        # ---- transparency ----
+        # TODO
+
+        principled_BSDF.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
+        material_output = node_tree.nodes.get('Material Output')
+        material_output.location = (5 * NODE_WIDTH, 0 * NODE_HEIGHT)
