@@ -57,7 +57,6 @@ class VisibleMesh(BF2Mesh):
 
         ### MESH DATA ###
         self.head = _bf2head()  # header contains version info and some bfp4f data
-        self.u1 = 0  # unknown byte, seems to be version flag for bfp4f
 
         # geom struct, hold materials info etc
         # staticmesh: geom0 = non-destroayble, geom1 = 3p destroyed
@@ -69,12 +68,12 @@ class VisibleMesh(BF2Mesh):
         # vertex attributes table, holds info how vertex data packed in .vertices array
         self.vertattribnum = 0
         self.vertex_attributes = [_bf2vertattrib() for i in range(self.vertattribnum)]
-        self.vertformat = 0  # bytes lenght for vertarray members, seems always to be 4? seems like DICE planned to have it for optimization later
+        self.primitive_type = 0  # D3DPRIMITIVETYPE enum, seems to be always D3DPT_TRIANGLELIST = 4 but DICE's code also handles D3DPT_TRIANGLESTRIP = 5
         self.vertstride = 0  # bytes len for vertex data chunk
 
         # vertex data
         self.vertnum = 0  # number of vertices
-        #self.vertices = tuple([_ for i in range( self.vertnum * self.vertstride / self.vertformat )])  # geom data, parse using attrib table
+        #self.vertices = tuple([_ for i in range( self.vertnum * self.vertstride / self.primitive_type )])  # geom data, parse using attrib table
         self.vertices = []
 
         # indices
@@ -82,7 +81,7 @@ class VisibleMesh(BF2Mesh):
         self.indexnum = 0  # number of indices
         self.index = []  # indices array, values per-material
 
-        self.u2 = 0  # some another bfp4f garbage..
+        self.alpha_blend_indexnum = 0 # number of extra sets of pre-sorted indieces, only used for materials with alpha_blend
         ### MESH DATA ###
 
         self.__enter__()
@@ -103,7 +102,6 @@ class VisibleMesh(BF2Mesh):
         retstr = []
         retstr.append(self.filename)
         retstr.append('header:\n%s' % str(self.head))
-        retstr.append('u1: %s' % self.u1)
         
         raise NotImplementedError
         #return '\n'.join(retstr)
@@ -114,18 +112,17 @@ class VisibleMesh(BF2Mesh):
         
     def __load(self):
         self.__read_header()
-        self.__read_u1()
         self.__read_geomnum()
         self.__read_geom_table()
         self.__read_vertattribnum()
         self.__read_vertattrib_table()
-        self.__read_vertformat()
+        self.__read_primitive_type()
         self.__read_vertstride()
         self.__read_vertnum()
         self.__read_vertices()
         self.__read_indexnum()
         self.__read_indices()
-        self.__read_u2()
+        self.__read_alpha_blend_indexnum()
         self.__load_lods_nodes_rigs()
         self.__load_lods_materials()
         
@@ -140,10 +137,6 @@ class VisibleMesh(BF2Mesh):
         logging.debug('starting reading header at %d' % self.__meshfile.tell())
         self.head.load(self.__meshfile)
         logging.debug('finished reading header at %d' % self.__meshfile.tell())
-    
-    def __read_u1(self):
-        self.u1 = read_byte(self.__meshfile)
-        logging.debug('u1 = %d' % self.u1)
     
     def __read_geomnum(self):
         self.geomnum = read_long(self.__meshfile)
@@ -168,9 +161,9 @@ class VisibleMesh(BF2Mesh):
             logging.debug('attrib [{0}] = {1.flag}, {1.offset}, {1.usage}, {1.vartype}'.format(i, self.vertex_attributes[i]))
         logging.debug('finished reading vertattrib table at %d' % self.__meshfile.tell())
 
-    def __read_vertformat(self):
-        self.vertformat = read_long(self.__meshfile)
-        logging.debug('vertformat = %d' % self.vertformat)
+    def __read_primitive_type(self):
+        self.primitive_type = read_long(self.__meshfile)
+        logging.debug('primitive_type = %d' % self.primitive_type)
 
     def __read_vertstride(self):
         self.vertstride = read_long(self.__meshfile)
@@ -182,7 +175,7 @@ class VisibleMesh(BF2Mesh):
 
     def __read_vertices(self):
         logging.debug('starting reading vertex block at %d' % self.__meshfile.tell())
-        data_num = int(self.vertstride / self.vertformat * self.vertnum)
+        data_num = int(self.vertstride / self.primitive_type * self.vertnum)
         self.vertices = read_float(self.__meshfile, data_num)
         logging.debug('array size = %d' % len(self.vertices))
         logging.debug('finished reading vertex block at %d' % self.__meshfile.tell())
@@ -196,10 +189,10 @@ class VisibleMesh(BF2Mesh):
         self.index = read_short(self.__meshfile, self.indexnum)
         logging.debug('finished reading index block at %d' % self.__meshfile.tell())
 
-    def __read_u2(self):
+    def __read_alpha_blend_indexnum(self):
         if not self.isSkinnedMesh:
-            self.u2 = read_long(self.__meshfile)
-            logging.debug('u2 = %d' % self.u2)
+            self.alpha_blend_indexnum = read_long(self.__meshfile)
+            logging.debug('alpha_blend_indexnum = %d' % self.alpha_blend_indexnum)
     
     def __load_lods_nodes_rigs(self):
         logging.debug('starting reading lods tables at %d' % self.__meshfile.tell())
@@ -237,7 +230,6 @@ class VisibleMesh(BF2Mesh):
     def __export(self, fo):
         logging.debug('writing header at %d' % fo.tell())
         self.head.export(fo)
-        write_byte(fo, self.u1)
         logging.debug('writing geom table at %d' % fo.tell())
         write_long(fo, self.geomnum)
         for geom in self.geoms:
@@ -247,7 +239,7 @@ class VisibleMesh(BF2Mesh):
         for vertex_attributes_table in self.vertex_attributes:
             vertex_attributes_table.export(fo)
         logging.debug('writing vertices block at %d' % fo.tell())
-        write_long(fo, self.vertformat)
+        write_long(fo, self.primitive_type)
         write_long(fo, self.vertstride)
         write_long(fo, self.vertnum)
         logging.debug('writing vertices array at %d' % fo.tell())
@@ -257,7 +249,7 @@ class VisibleMesh(BF2Mesh):
         write_long(fo, self.indexnum)
         for value in self.index:
             write_short(fo, value)
-        if not self.isSkinnedMesh: write_long(fo, self.u2)
+        if not self.isSkinnedMesh: write_long(fo, self.alpha_blend_indexnum)
         logging.debug('writing nodes at %d' % fo.tell())
         for geom in self.geoms:
             for lod in geom.lods:
@@ -291,7 +283,7 @@ class VisibleMesh(BF2Mesh):
                         vertex = self._vertex()
                         for attrib in self.vertex_attributes:
                             if attrib.flag is UNUSED: continue
-                            _start = int(attrib.offset / self.vertformat)
+                            _start = int(attrib.offset / self.primitive_type)
                             _end = _start + len(D3DDECLTYPE(attrib.vartype))
                             setattr(vertex, D3DDECLUSAGE(attrib.usage).name, vertexBuffer[_start:_end])
                         # update material and lod bounds
@@ -326,9 +318,12 @@ class _bf2head:
     def __init__(self):
         self.u1 = None
         self.version = None
+        # those below seem to be reserved for future use
+        # BF2 just reads them and doesn't save the values anywhere
         self.u3 = None
         self.u4 = None
         self.u5 = None
+        self.u6 = None # seems to be version flag for bfp4f
 
     def load(self, fo):
         self.u1 = read_long(fo)
@@ -336,11 +331,13 @@ class _bf2head:
         self.u3 = read_long(fo)
         self.u4 = read_long(fo)
         self.u5 = read_long(fo)
+        self.u6 = read_byte(fo)
         logging.debug('head.u1 = %d' % self.u1)
         logging.debug('head.version = %d' % self.version)
         logging.debug('head.u3 = %d' % self.u3)
         logging.debug('head.u4 = %d' % self.u4)
         logging.debug('head.u5 = %d' % self.u5)
+        logging.debug('head.u6 = %d' % self.u6)
     
     def export(self, fo):
         write_long(fo, self.u1)
@@ -348,7 +345,7 @@ class _bf2head:
         write_long(fo, self.u3)
         write_long(fo, self.u4)
         write_long(fo, self.u5)
-
+        write_byte(fo, self.u6)
 
     def __eq__(self, other):
         if self.u1 != other.u1: return False
@@ -356,6 +353,7 @@ class _bf2head:
         if self.u3 != other.u3: return False
         if self.u4 != other.u4: return False
         if self.u5 != other.u5: return False
+        if self.u6 != other.u6: return False
         return True
     
     def __str__(self):
@@ -364,7 +362,8 @@ class _bf2head:
                         'head.version = ' + str(self.version),
                         'head.u3 = ' + str(self.u3),
                         'head.u4 = ' + str(self.u4),
-                        'head.u5 = ' + str(self.u5)])
+                        'head.u5 = ' + str(self.u5),
+                        'head.u6 = ' + str(self.u6)])
 
 class _bf2mat:
     def __init__(self):
@@ -453,13 +452,13 @@ class _bf2mat:
         logging.debug('inum = %d' % self.inum)
         logging.debug('vnum = %d' % self.vnum)
 
-        self.u4 = read_long(fo)
+        self.u4 = read_long(fo) # XXX: only read for Staticmesh
         self.u5 = read_long(fo)
         logging.debug('u4 = %d' % self.u4)
         logging.debug('u5 = %d' % self.u5)
 
         if not isSkinnedMesh and version == 11:
-            self.mmin = read_float3(fo)
+            self.mmin = read_float3(fo) # XXX: only present for Staticmesh
             self.mmax = read_float3(fo)
             logging.debug('mmin = ({})'.format(*self.mmin))
             logging.debug('mmax = ({})'.format(*self.mmax))
