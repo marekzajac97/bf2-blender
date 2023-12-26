@@ -195,7 +195,7 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
                 try:
                     tex_node.image = bpy.data.images.load(os.path.join(texture_path, texture_map), check_existing=True)
                     tex_node.image.alpha_mode = 'NONE'
-                except OSError:
+                except RuntimeError:
                     pass
 
             tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
@@ -415,23 +415,19 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         if shader.lower() == 'skinnedmesh.fx':
             normal_node.space = 'OBJECT'
-            # don't know why but it only looks right inverted
-            inverter = node_tree.nodes.new('ShaderNodeVectorMath')
-            inverter.operation = 'SCALE'
-            inverter.inputs[3].default_value = -1
-            node_tree.links.new(normal_node.outputs[0], inverter.inputs[0])
-            normal_out = inverter.outputs[0]
+            # since this is object space normal we gotta swap Z/Y axes for it to look correct
+            axes_swap = node_tree.nodes.new('ShaderNodeGroup')
+            axes_swap.node_tree = _create_bf2_axes_swap()
+            axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
+            axes_swap.hide = True
+    
+            node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
+            normal_out = axes_swap.outputs[0]
         else:
             normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
             normal_out = normal_node.outputs[0]
 
-        axes_swap = node_tree.nodes.new('ShaderNodeGroup')
-        axes_swap.node_tree = _create_bf2_axes_swap()
-        axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
-        axes_swap.hide = True
-
-        node_tree.links.new(normal_out, axes_swap.inputs[0])
-        node_tree.links.new(axes_swap.outputs[0], shader_normal)
+        node_tree.links.new(normal_out, shader_normal)
 
         # transparency
         if has_alpha:
@@ -588,25 +584,17 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         normal_out = None
 
-        def _create_normal_map_node_chain(nmap, uv_chan):
+        def _create_normal_map_node(nmap, uv_chan):
             # convert to normal
             normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
             normal_node.uv_map = uv_map_nodes[uv_chan].uv_map
             normal_node.location = (1 * NODE_WIDTH, -1 - uv_chan * NODE_HEIGHT)
             normal_node.hide = True
             node_tree.links.new(nmap.outputs[0], normal_node.inputs[1])
+            return normal_node.outputs[0]
 
-            axes_swap = node_tree.nodes.new('ShaderNodeGroup')
-            axes_swap.node_tree = _create_bf2_axes_swap()
-            axes_swap.location = (2 * NODE_WIDTH, -1 - uv_chan * NODE_HEIGHT)
-            axes_swap.hide = True
-
-            node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
-
-            return axes_swap.outputs[0]
-
-        ndetail_out = ndetail and _create_normal_map_node_chain(ndetail, 1)
-        ncrack_out = ncrack and _create_normal_map_node_chain(ncrack, 3 if dirt else 2)
+        ndetail_out = ndetail and _create_normal_map_node(ndetail, 1)
+        ncrack_out = ncrack and _create_normal_map_node(ncrack, 3 if dirt else 2)
 
         if ndetail_out and ncrack_out:
             # mix ndetail & ncrack based on crack alpha
