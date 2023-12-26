@@ -1,6 +1,13 @@
 import math
 from .fileutils import FileUtils
 
+def load_n_elems(f : FileUtils, struct_type, count, **kwargs):
+    return [struct_type.load(f, **kwargs) for _ in range(count)]
+
+def calc_bounds(verts, func):
+    axes = [[ v[i] for v in verts] for i in range(3)]
+    return Vec3(*[func(axis) for axis in axes])
+
 class Quat:
     def __init__(self, x=0.0, y=0.0, z=0.0, w=1.0):
         self.x = x
@@ -200,3 +207,25 @@ class Vec3:
                     self.y == other.y and
                     self.z == other.z)
         return False
+
+class Mat4:
+    def __init__(self):
+        self.m = [[1, 0, 0, 0],
+                  [0, 1, 0, 0],
+                  [0, 0, 1, 0],
+                  [0, 0, 0, 1]]
+
+    @classmethod
+    def load(cls, f : FileUtils):
+        obj = cls()
+        obj.m[0] = f.read_float(count=4)
+        obj.m[1] = f.read_float(count=4)
+        obj.m[2] = f.read_float(count=4)
+        obj.m[3] = f.read_float(count=4)
+        return obj
+
+    def __getitem__(self, row):
+        return self.m[row]
+    
+    def __setitem__(self, row, val):
+        self.m[row] = val

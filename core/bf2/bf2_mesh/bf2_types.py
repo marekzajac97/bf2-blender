@@ -32,22 +32,30 @@ class D3DDECLTYPE(enum.IntEnum):
     FLOAT3 = 2  # 3D float expanded to (value, value, value, 1.)
     FLOAT4 = 3  # 4D float
     D3DCOLOR = 4  # 4D packed unsigned bytes mapped to 0. to 1. range
-    # Input is in D3DCOLOR format (ARGB) expanded to (R, G, B, A)
-
-    # UBYTE4 doesnt seems to be used anywhere in bf2 meshes
-    # TODO: test PR meshes if it does
-    #UBYTE4 = 5  # 4D unsigned byte
+    UBYTE4 = 5,
+    SHORT2 = 6,
+    SHORT4 = 7,
+    UBYTE4N = 8,
+    SHORT2N = 9,
+    SHORT4N = 10,
+    USHORT2N = 11,
+    USHORT4N = 12,
+    UDEC3 = 13,
+    DEC3N = 14,
+    FLOAT16_2 = 15,
+    FLOAT16_4 = 16,
     UNUSED = 17,  # When the type field in a decl is unused.
 
-    def __len__(self):
-        return {
-            self.FLOAT1: len([0.,]),
-            self.FLOAT2: len([0., 0.]),
-            self.FLOAT3: len([0., 0., 0.]),
-            self.FLOAT4: len([0., 0., 0., 0.]),
-            self.D3DCOLOR: len([0.,]),
-            self.UNUSED : len([])
-        }[self]
+    def get_struct_fmt(self):
+        _TYPE_TO_FORMAT = {
+            D3DDECLTYPE.FLOAT1: '1f',
+            D3DDECLTYPE.FLOAT2: '2f',
+            D3DDECLTYPE.FLOAT3: '3f',
+            D3DDECLTYPE.FLOAT4: '4f',
+            D3DDECLTYPE.D3DCOLOR: '4B',
+        }
+
+        return _TYPE_TO_FORMAT[self]
 
 
 # copypasta from DX SDK 'Include/d3d9types.h' enum _D3DDECLUSAGE to
@@ -58,7 +66,7 @@ class D3DDECLUSAGE(enum.IntEnum):
     BLENDINDICES = 2
     NORMAL = 3
     PSIZE = 4
-    UV1 = 5  # TEXCOORD in d3d9 enums
+    TEXCOORD0 = 5
     TANGENT = 6
     BINORMAL = 7
     TESSFACTOR = 8
@@ -68,7 +76,15 @@ class D3DDECLUSAGE(enum.IntEnum):
     DEPTH = 12
     SAMPLE = 13
     # bf2 enums for additional UVs much larger than dx to avoid collisions?
-    UV2 = 261
-    UV3 = 517
-    UV4 = 773
-    UV5 = 1029
+    TEXCOORD1 = 1 << 8 | 5
+    TEXCOORD2 = 2 << 8 | 5
+    TEXCOORD3 = 3 << 8 | 5
+    TEXCOORD4 = 4 << 8 | 5
+
+class D3DPRIMITIVETYPE(enum.IntEnum):
+    POINTLIST = 1
+    LINELIST = 2
+    LINESTRIP = 3
+    TRIANGLELIST = 4
+    TRIANGLESTRIP = 5
+    TRIANGLEFAN = 6

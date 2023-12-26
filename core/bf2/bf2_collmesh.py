@@ -2,19 +2,12 @@ from typing import Dict, List, Tuple, Optional
 
 from .fileutils import FileUtils
 from .bsp_builder import BspBuilder
-from .bf2_common import Vec3
+from .bf2_common import Vec3, calc_bounds, load_n_elems
 
 import os
 
 class BF2CollMeshException(Exception):
     pass
-
-def load_n_elems(f : FileUtils, struct_type, count, **kwargs):
-    return [struct_type.load(f, **kwargs) for _ in range(count)]
-
-def calc_bounds(verts, func):
-    axes = [[ v[i] for v in verts] for i in range(3)]
-    return Vec3(*[func(axis) for axis in axes])
 
 class Face:
     def __init__(self, verts, material):

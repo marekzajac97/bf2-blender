@@ -4,8 +4,11 @@ import math
 import struct
 import os
 
+
+from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh
+
 from mathutils import Vector, Matrix
-from .bf2.bf2_mesh import BF2Mesh
+
 from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists
 from .skeleton import find_active_skeleton, ske_get_bone_rot, ske_weapon_part_ids
 
@@ -13,7 +16,7 @@ NODE_WIDTH = 300
 NODE_HEIGHT = 100
 
 def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', reload=False):
-    bf2_mesh = BF2Mesh(mesh_file)
+    bf2_mesh = BF2Mesh.load(mesh_file)
     if geom is None and lod is None:
         if reload: delete_object_if_exists(bf2_mesh.name)
         root_obj = bpy.data.objects.new(bf2_mesh.name, None)
@@ -37,9 +40,9 @@ def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', reload
 def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', reload=False):
     mesh_obj = _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload)
 
-    if bf2_mesh.isSkinnedMesh:
+    if isinstance(bf2_mesh, BF2SkinnedMesh):
         _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod)
-    elif bf2_mesh.isBundledMesh:
+    elif isinstance(bf2_mesh, BF2BundledMesh):
         _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, geom, lod)
 
     return mesh_obj
@@ -52,7 +55,7 @@ def _roatate_uv(uv, angle):
     uv_len = uv.length
     uv.normalize()
     uv = Vector((uv.x * math.cos(angle) - uv.y * math.sin(angle),
-                    uv.x * math.sin(angle) + uv.y * math.cos(angle)))
+                 uv.x * math.sin(angle) + uv.y * math.cos(angle)))
     uv *= uv_len
     uv += pivot
     return uv
@@ -69,20 +72,18 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
     for mat in bf2_lod.materials:
         f_offset = len(verts)
-        index_arr = bf2_mesh.index[mat.istart:mat.istart + mat.inum]
-        _faces = list()
-        for i in range(0, len(index_arr), 3):
-            v1 = index_arr[i + 0] + f_offset
-            v2 = index_arr[i + 1] + f_offset
-            v3 = index_arr[i + 2] + f_offset
-            _faces.append((v3, v2, v1))
-        faces.append(_faces)
+        mat_faces = list()
+        for face in mat.faces:
+            v1, v2, v3 = face
+            # shift indexes
+            v1 += f_offset
+            v2 += f_offset
+            v3 += f_offset
+            mat_faces.append((v3, v2, v1))
+        faces.append(mat_faces)
 
-        for i in range(mat.vstart, mat.vstart + mat.vnum):
-            vi = i * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
-            x = bf2_mesh.vertices[vi + 0]
-            y = bf2_mesh.vertices[vi + 1]
-            z = bf2_mesh.vertices[vi + 2]
+        for vert in mat.vertices:
+            x, y, z = tuple(vert.position)
             verts.append((x, z, y))
 
     bm = bmesh.new()
@@ -92,8 +93,8 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
     bm.verts.ensure_lookup_table()
     bm.verts.index_update()
 
-    for material_index, _faces in enumerate(faces):
-        for face  in _faces:
+    for material_index, mat_faces in enumerate(faces):
+        for face in mat_faces:
             face_verts = [bm.verts[i] for i in face]
             try:
                 bm_face = bm.faces.new(face_verts)
@@ -109,38 +110,37 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
     bm.to_mesh(mesh)
 
     # load vertex normals
-    normal_off = bf2_mesh.get_normal_offset()
-    vertex_normals = list()
+    if bf2_mesh.has_normal():
+        vertex_normals = list()
 
-    for i, mat in enumerate(bf2_lod.materials):
-        for j in range(mat.vstart, mat.vstart + mat.vnum):
-            vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
-            x = bf2_mesh.vertices[vi + normal_off + 0]
-            y = bf2_mesh.vertices[vi + normal_off + 1]
-            z = bf2_mesh.vertices[vi + normal_off + 2]
-            vertex_normals.append((x, z, y))
+        for mat in bf2_lod.materials:
+            for vert in mat.vertices:
+                x = vert.normal[0]
+                y = vert.normal[1]
+                z = vert.normal[2]
+                vertex_normals.append((x, z, y))
 
-    # apply normals
-    mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
-    mesh.normals_split_custom_set_from_vertices(vertex_normals)
-    mesh.use_auto_smooth = True
+        # apply normals
+        mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
+        mesh.normals_split_custom_set_from_vertices(vertex_normals)
+        mesh.use_auto_smooth = True
 
-    bm.normal_update()
+        bm.normal_update()
+
     bm.free()
 
     # load UVs
     uvs = dict()
     for uv_chan in range(5):
-        uv_off = bf2_mesh.get_uv_offset(uv_chan)
-        if uv_off is None:
+        if not bf2_mesh.has_uv(uv_chan):
             continue
         uvs[uv_chan] = list()
-        for i, mat in enumerate(bf2_lod.materials):
-            for j in range(mat.vstart, mat.vstart + mat.vnum):
-                vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
-                u = bf2_mesh.vertices[vi + uv_off + 0]
-                v = bf2_mesh.vertices[vi + uv_off + 1]
-                uvs[uv_chan].append((v, u)) # this is no mistake
+        for mat in bf2_lod.materials:
+            for vert in mat.vertices:
+                uv_attr = getattr(vert, f'texcoord{uv_chan}')
+                u = uv_attr[0]
+                v = uv_attr[1]
+                uvs[uv_chan].append((v, u)) # this is no mistake, EDIT: or is it?
 
     # apply UVs
     for uv_chan, vert_uv in uvs.items():
@@ -163,7 +163,11 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         mesh.materials.append(material)
 
         # alpha mode
-        has_alpha = bf2_mat.alphamode is not None and bf2_mat.alphamode > 0
+        if bf2_mat.SUPPORTS_TRANSPARENCY:
+            has_alpha = bf2_mat.alpha_mode > 0
+        else:
+            has_alpha = False
+
         if has_alpha:
             material.blend_method = 'BLEND'
 
@@ -184,13 +188,12 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         for map_index, texture_map in enumerate(bf2_mat.maps):
             tex_node = node_tree.nodes.new('ShaderNodeTexImage')
             textute_map_nodes.append(tex_node)
-            texture_file = texture_map.decode('ascii')
             if texture_path:
                 # t = os.path.basename(texture_file)
                 # if t in bpy.data.images:
                 #     bpy.data.images.remove(bpy.data.images[t])
                 try:
-                    tex_node.image = bpy.data.images.load(os.path.join(texture_path, texture_file), check_existing=True)
+                    tex_node.image = bpy.data.images.load(os.path.join(texture_path, texture_map), check_existing=True)
                     tex_node.image.alpha_mode = 'NONE'
                 except OSError:
                     pass
@@ -198,10 +201,8 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
             tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
             tex_node.hide = True
 
-        technique = bf2_mat.technique.decode('ascii')
-        shader = bf2_mat.fxfile.decode('ascii')
         _setup_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes,
-                           shader, technique, has_alpha=has_alpha)
+                           bf2_mat.fxfile, bf2_mat.technique, has_alpha=has_alpha)
 
     obj = bpy.data.objects.new(name, mesh)
     return obj
@@ -210,23 +211,21 @@ def _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, geom, lod):
     
     if not find_active_skeleton(context):
         return # ignore if skeleton not loaded
-        
+    
+    if not bf2_mesh.has_blend_indices():
+        return
+
     rig, skeleton = find_active_skeleton(context)
 
     bf2_lod = bf2_mesh.geoms[geom].lods[lod]
-    
-    off = bf2_mesh.get_wight_offset()
-    
-    # find which part vertex bbelongs to
+
+    # find which part vertex belongs to
     vert_part_id = list()
     for mat in bf2_lod.materials:
-        for j in range(mat.vstart, mat.vstart + mat.vnum):
-            vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
-            _data_float = bf2_mesh.vertices[vi + off]
-            _data = tuple([b for b in struct.pack('f', _data_float)])
-            part_id = _data[0]
+        for vert in mat.vertices:
+            part_id = vert.blendindices[0]
             vert_part_id.append(part_id)
-    
+
     # create vertex groups and assing verticies to them
     for vertex in mesh_obj.data.vertices:
         part_id = vert_part_id[vertex.index]
@@ -246,7 +245,13 @@ def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod):
     
     if not find_active_skeleton(context):
         return # ignore if skeleton not loaded
-        
+    
+    if not bf2_mesh.has_blend_indices():
+        return
+
+    if not bf2_mesh.has_blend_weight():
+        return
+
     rig, skeleton = find_active_skeleton(context)
     armature = rig.data
     
@@ -260,12 +265,12 @@ def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod):
     id_to_bone = dict()
     for i, node in enumerate(skeleton.node_list()):
         id_to_bone[i] = armature.edit_bones[node.name]
-    
+
     rigs_bones = list()
     for bf2_rig in bf2_lod.rigs:
         rig_bones = list()
         for bf2_bone in bf2_rig.bones:    
-            m = Matrix(bf2_bone.matrix)
+            m = Matrix(bf2_bone.matrix.m)
             m.transpose()
             m.invert()
             pos, rot, _ = m.decompose()
@@ -277,21 +282,17 @@ def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod):
     
     # get weigths from bf2 mesh
     vert_weigths = list()
-    for i, mat in enumerate(bf2_lod.materials):
-        rig_bones = rigs_bones[i]
-        for j in range(mat.vstart, mat.vstart + mat.vnum):
-            vi = j * int(bf2_mesh.vertstride /  bf2_mesh.vertformat)
-            WIEGHTS_OFFSET = 6
-            w = bf2_mesh.vertices[vi + WIEGHTS_OFFSET + 0]
-            _bones_float = bf2_mesh.vertices[vi + WIEGHTS_OFFSET + 1]
-            _bone_ids = tuple([b for b in struct.pack('f', _bones_float)])
-            weights = [] # max two bones per vert
-            
-            _bone = rig_bones[_bone_ids[0]]
-            weights.append((_bone, w))
-            if w < 1.0:
-                _bone = rig_bones[_bone_ids[1]]
-                weights.append((_bone, 1.0 - w))
+    for rig_bones, mat in zip(rigs_bones, bf2_lod.materials):
+        for vert in mat.vertices:
+            bone_ids = vert.blendindices
+            bone_weight = vert.blendweight[0]
+
+            weights = []
+            _bone = rig_bones[bone_ids[0]]
+            weights.append((_bone, bone_weight))
+            if bone_weight < 1.0: # max two bones per vert
+                _bone = rig_bones[bone_ids[1]]
+                weights.append((_bone, 1.0 - bone_weight))
             vert_weigths.append(weights)
 
     # create vertex group for each bone
