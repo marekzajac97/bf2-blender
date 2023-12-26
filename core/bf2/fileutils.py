@@ -14,8 +14,10 @@ class FileUtils:
         else:
             return unpacked
 
-    def _write(self, content, data_type, count=1, signed=False):
-        fmt = str(count) + data_type.lower() if signed else data_type
+    def _write(self, data_type, content, signed=False):
+        count = len(content) if isinstance(content, list) else 1
+        dt = data_type.lower() if signed else data_type
+        fmt =  f'{count}{dt}'
         if count == 1:
             packed = struct.Struct(fmt).pack(content)
         else:
@@ -39,25 +41,25 @@ class FileUtils:
         unpacked = struct.Struct(f'{lenght}s').unpack(self.file.read(lenght))
         return unpacked[0].decode('ascii')
 
-    def read_raw(self, lenght=1):
+    def read_raw(self, lenght):
         return self.file.read(lenght)
 
-    def write_byte(self, content, count=1, signed=False):
-        self.write('B', content, count=count, signed=signed)
+    def write_byte(self, content, signed=False):
+        self._write('B', content, signed=signed)
 
-    def write_word(self, content, count=1, signed=False):
-        self.write('H', content, count=count, signed=signed)
+    def write_word(self, content, signed=False):
+        self._write('H', content, signed=signed)
 
-    def write_dword(self, content, count=1, signed=False):
-        self.write('I', content, count=count, signed=signed)
+    def write_dword(self, content, signed=False):
+        self._write('I', content, signed=signed)
     
-    def write_float(self, content, count=1, signed=False):
-        self.write('I', content, count=count, signed=signed)
+    def write_float(self, content, signed=False):
+        self._write('f', content, signed=signed)
 
     def write_string(self, content):
         lenght = len(content)
-        self.write_long(lenght)
-        self.file.write(struct.Struct(f'{lenght}s').pack(content))
+        self.write_dword(lenght)
+        self.file.write(struct.Struct(f'{lenght}s').pack(content.encode('ascii')))
 
     def write_raw(self, content):
         self.file.write(content)
