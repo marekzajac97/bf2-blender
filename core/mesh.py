@@ -74,6 +74,13 @@ def export_staticmesh(context, mesh_file, texture_path=''):
     
     bf2_mesh = BF2StaticMesh(name=mesh_obj.name)
 
+    class _VertexData:
+        def __init__(self):
+            self.position = (0, 0, 0)
+            self.normal = (0, 0, 0)
+            self.tangent = (0, 0, 0)
+            self.texcoords = [(0, 0) for _ in range(5)]
+
     vert_attrs = bf2_mesh.vertex_attributes
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.NORMAL))
@@ -116,6 +123,14 @@ def export_staticmesh(context, mesh_file, texture_path=''):
             if mesh is None:
                 raise ExportException(f"lod '{lod_obj.name}' has no mesh data!")
 
+            mesh.calc_tangents()
+
+            # map uv channel to uv layer object
+            uv_layers = dict()
+            for uv_chan in range(5):
+                if f'UV{uv_chan}' in mesh.uv_layers:
+                    uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
+
             # map materials to verts and faces
             mat_idx_to_verts_faces = dict()
             for poly in mesh.polygons:
@@ -140,13 +155,47 @@ def export_staticmesh(context, mesh_file, texture_path=''):
                 bf2_mat = StaticMeshMaterial()
                 lod.materials.append(bf2_mat)
 
+                # create vertex data for each vertex
+                blend_vert_idx_to_vert_data = dict()
+                for loop in mesh.loops:
+                    blend_vert = mesh.vertices[loop.vertex_index]
+                    if loop.vertex_index not in blend_vert_idx_to_vert_data:
+                        vert_data = _VertexData()
+                        blend_vert_idx_to_vert_data[loop.vertex_index] = vert_data
+                        vert_data.position = tuple(blend_vert.co)
+                        # TODO: will this break if mesh has no split normals?
+                        # idea for future me, if mesh has no custom split normals temporarly create them from vertex normals
+                        # to calculate tangents
+                        vert_data.normal = tuple(loop.normal)
+                        vert_data.tangent = tuple(loop.tangent)
+                        for uv_chan, uvlayer in uv_layers.items():
+                            vert_data.texcoords[uv_chan] = tuple(uvlayer.data[loop.index].uv)
+                    else:
+                        # XXX: probably it will be needed to duplicate the vertex if it is present in more than one loop
+                        # for now lets just make sure loop data it is the same
+                        vert_data = blend_vert_idx_to_vert_data[loop.vertex_index]
+                        if not _is_same(vert_data.normal, tuple(loop.normal)):
+                            raise ExportException(f"Only one normal per vertex is supported, merge split normals before exporting!")
+                        # TODO: why the fuck tangents are different when normals and uvs are?
+                        # if not _is_same(vert_data.tangent, tuple(loop.tangent)):
+                        #     raise ExportException(f"tangent missmatch {vert_data.tangent} != {tuple(loop.tangent)}")
+                        for uv_chan, uvlayer in uv_layers.items():
+                            loop_uv = tuple(uvlayer.data[loop.index].uv)
+                            if vert_data.texcoords[uv_chan] != loop_uv:
+                                raise ExportException(f"Multiple different UV{uv_chan} coords for single vertex in different mesh loops")
+
                 # create vertices
                 for blend_vert in blend_verts:
+                    vert_data = blend_vert_idx_to_vert_data[blend_vert.index]
                     vert = Vertex()
-                    vert.position = (blend_vert.co[0], blend_vert.co[2], blend_vert.co[1])
-                    vert.normal = (blend_vert.normal[0], blend_vert.normal[2], blend_vert.normal[1])
+                    vert.position = _swap_zy(vert_data.position)
+                    vert.normal = _swap_zy(vert_data.normal)
                     vert.blendindices = (0, 0, 0, 0) # TODO blendindices! THE FUCK IS THIS USED FOR
-                    vert.tangent = (0, 0, 1) # TODO tangents!
+                    vert.tangent = _swap_zy(vert_data.tangent)
+                    for uv_chan, uv in enumerate(vert_data.texcoords):
+                        _uv = _roatate_uv(uv, 90.0)
+                        setattr(vert, f'texcoord{uv_chan}', (_uv[1], _uv[0]))
+
                     bf2_mat.vertices.append(vert)
 
                 # create faces
@@ -211,28 +260,10 @@ def export_staticmesh(context, mesh_file, texture_path=''):
                 # TODO lightmap UV, needs to be generated??
                 uv_channels.add(4)
 
-                # apply UV to verts
+                # check UVs are present
                 for uv_chan in uv_channels:
-                    if f'UV{uv_chan}' not in mesh.uv_layers:
+                    if uv_chan not in uv_layers.keys():
                         raise ExportException(f"Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
-                    uvlayer = mesh.uv_layers[f'UV{uv_chan}']
-                    for loop in mesh.loops:
-                        for i, blend_vert in enumerate(blend_verts):
-                            if loop.vertex_index != blend_vert.index:
-                                continue
-                            vert = bf2_mat.vertices[i]
-                            uv = tuple(uvlayer.data[loop.index].uv)
-                            uv = _roatate_uv(uv, 90.0) # the only way it can display properly
-                            u = uv[0]
-                            v = uv[1]
-                            setattr(vert, f'texcoord{uv_chan}', (v, u))
-                            break
-
-                # fill missing, not used vertex UV coords but present in vert attribute
-                for vert in bf2_mat.vertices:
-                    for uv_chan in range(5):
-                        if getattr(vert, f'texcoord{uv_chan}') is None:
-                            setattr(vert, f'texcoord{uv_chan}', (0, 0))
 
             lod.parts = [Mat4()] # TODO parts
 
@@ -816,3 +847,10 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         principled_BSDF.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
         material_output.location = (5 * NODE_WIDTH, 0 * NODE_HEIGHT)
+
+def _swap_zy(vec):
+    return (vec[0], vec[2], vec[1])
+
+def _is_same(v1, v2):
+    EPSILON = 0.0001
+    return all([abs(v1[i] - v2[i]) < EPSILON for i in range(2)])
