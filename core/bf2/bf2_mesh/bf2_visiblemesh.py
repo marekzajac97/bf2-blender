@@ -24,13 +24,11 @@ class Material:
         self.fxfile : str = None
         self.technique : str = None
 
-        # textures
-        self.maps : List[str] = []
-
+        self.maps : List[str] = [] # textures
         self.vertices : List[Vertex] = []
         self.faces : List[Tuple[int]] = []
 
-        # geom data
+        # temp import/export data
         self._vstart : int = None # vertex_buffer offset
         self._istart : int = None # index_buffer offset
         self._inum : int = None # number of indices
@@ -77,7 +75,7 @@ class Material:
         f.write_dword(0) # wite zeros and hope it doesn't break anything
         f.write_dword(0)
 
-    def load_vertices_faces(self, vertex_decl_size, vertex_attributes, vertex_buffer, index_buffer):
+    def load_vertices(self, vertex_decl_size, vertex_attributes, vertex_buffer):
         self.vertices = list()
         for i in range(self._vstart, self._vstart + self._vnum):
             vertex = Vertex()
@@ -92,14 +90,7 @@ class Material:
                 vertex_attr_value = struct.unpack(fmt, data_packed)
                 setattr(vertex, vertex_attr.decl_usage.name.lower(), vertex_attr_value)
 
-        self.faces = list()
-        for i in range(self._istart, self._istart + self._inum, 3):
-            v1 = index_buffer[i + 0]
-            v2 = index_buffer[i + 1]
-            v3 = index_buffer[i + 2]
-            self.faces.append((v1, v2, v3))
-    
-    def save_vertices_faces(self, vertex_attributes, vertex_buffer, vstart, index_buffer, istart):
+    def save_vertices(self, vertex_attributes, vertex_buffer, vstart):
         self._vstart = vstart
         self._vnum = len(self.vertices)
         for vertex in self.vertices:
@@ -109,15 +100,24 @@ class Material:
                 fmt = vertex_attr.decl_type.get_struct_fmt()
                 vertex_attr_value = getattr(vertex, vertex_attr.decl_usage.name.lower())
                 vertex_buffer += struct.pack(fmt, *vertex_attr_value)
+        return self._vnum
 
+    def load_faces(self, index_buffer):
+        self.faces = list()
+        for i in range(self._istart, self._istart + self._inum, 3):
+            v1 = index_buffer[i + 0]
+            v2 = index_buffer[i + 1]
+            v3 = index_buffer[i + 2]
+            self.faces.append((v1, v2, v3))
+
+    def save_faces(self, index_buffer, istart):
         self._inum = len(self.faces) * 3
         self._istart = istart
         for face in self.faces:
             index_buffer.append(face[0])
             index_buffer.append(face[1])
             index_buffer.append(face[2])
-
-        return (self._vnum, self._inum)
+        return self._inum
 
     def calc_bounds(self):
         verts = [vertex.position for vertex in self.vertices]
@@ -136,8 +136,11 @@ class MaterialWithTransparency(Material):
 
     def __init__(self) -> None:
         self.alpha_mode : Material.AlphaMode = None
-        # extra sets of pre-sorted indieces, only used for materials with alpha blend
-        self.presorted_faces : Optional[List[List[int]]] = None
+        # extra sets of pre-sorted faces, only used for materials with alpha blend
+        self.face_sets : Optional[List[List[int]]] = None
+
+        # temp import/export data
+        self._alpha_blend_indexnum = None
         super().__init__()
 
     @classmethod
@@ -145,11 +148,31 @@ class MaterialWithTransparency(Material):
         alpha_mode = cls.AlphaMode(f.read_dword())
         obj : MaterialWithTransparency = super(MaterialWithTransparency, cls).load(f, version=version)
         obj.alpha_mode = alpha_mode
-
-        if alpha_mode == cls.AlphaMode.ALPHA_BLEND:
-            obj.presorted_faces = list()
-            # TODO
+        obj._alpha_blend_indexnum = alpha_blend_indexnum                
         return obj
+
+    def load_faces(self, index_buffer):
+        if self.alpha_mode == self.AlphaMode.ALPHA_BLEND:
+            self.face_sets = list()
+            for i in range(self._alpha_blend_indexnum):
+                face_set = list()
+                self.face_sets.append(face_set)
+                istart = self._istart + i * self._inum
+                for i in range(istart, istart + self._inum, 3):
+                    v1 = index_buffer[i + 0]
+                    v2 = index_buffer[i + 1]
+                    v3 = index_buffer[i + 2]
+                    face_set.append((v1, v2, v3))
+            self.faces = self.face_sets[0]
+        else:
+            super().load_faces(index_buffer)
+
+    def save_faces(self, index_buffer, istart):         
+        if self.alpha_mode == self.AlphaMode.ALPHA_BLEND:
+            # TODO: need to figure out how pre-sorted faces get generated
+            raise NotImplementedError("Exporting materials with alpha blend is not supported as of now")
+        else:
+            return super().save_faces(index_buffer, istart)
 
     def save(self, f : FileUtils):
         f.write_dword(self.alpha_mode)
@@ -328,7 +351,8 @@ class BF2VisibleMesh():
             for lod in geom.lods:
                 lod.load_materials(f, version=version, alpha_blend_indexnum=alpha_blend_indexnum)
                 for mat in lod.materials:
-                    mat.load_vertices_faces(vertex_decl_size, self.vertex_attributes, vertex_buffer, index_buffer)
+                    mat.load_vertices(vertex_decl_size, self.vertex_attributes, vertex_buffer)
+                    mat.load_faces(index_buffer)
 
     def export(self, export_path):
         with open(export_path, "wb") as file:
@@ -367,28 +391,17 @@ class BF2VisibleMesh():
             for geom in self.geoms:
                 for lod in geom.lods:
                     for mat in lod.materials:
-                        vnum, inum = mat.save_vertices_faces(self.vertex_attributes,
-                                                             vertex_buffer, vstart,
-                                                             index_buffer, istart)
-                        vstart += vnum
-                        istart += inum
+                        vstart += mat.save_vertices(self.vertex_attributes, vertex_buffer, vstart)
+                        istart += mat.save_faces(index_buffer, istart)
 
             f.write_dword(int(len(vertex_buffer) / vertex_decl_size))
             f.write_raw(bytes(vertex_buffer))
             f.write_dword(len(index_buffer))
             f.write_word(index_buffer)
 
-            for geom in self.geoms:
-                for lod in geom.lods:
-                    for mat in lod.materials:
-                        if (isinstance(mat, MaterialWithTransparency) and 
-                            mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_BLEND):
-                            # TODO: needs generating extra sets of pre-sorted indices
-                            raise NotImplementedError("Exporting materials with alpha blend is not supported as of now")
-
             if issubclass(self._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE, MaterialWithTransparency):
                 f.write_dword(0) # TODO alpha_blend_indexnum
-            
+
             for geom in self.geoms:
                 for lod in geom.lods:
                     lod.save_parts_rigs(f)

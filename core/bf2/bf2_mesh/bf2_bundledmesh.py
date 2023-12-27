@@ -18,14 +18,15 @@ class BundledMeshLod(Lod):
         super().load_parts_rigs(f, version=version)
         self.parts_num = f.read_dword()
 
+    def save_parts_rigs(self, f : FileUtils):
+        super().save_parts_rigs(f)
+        f.write_dword(self.parts_num) # TODO: maybe can just create a set of all material blendindices and get its size?
 
 class BundledMeshGeom(Geom):
     _LOD_TYPE = BundledMeshLod
 
 
 class BF2BundledMesh(BF2VisibleMesh):
+    _VERSION = 10
     _GEOM_TYPE = BundledMeshGeom
     _FILE_EXT = '.bundledmesh'
-
-    def export(self, export_path):
-        raise NotImplementedError()

@@ -240,3 +240,6 @@ class Mat4:
     
     def __setitem__(self, row, val):
         self.m[row] = val
+
+    def __repr__(self):
+        return repr(self.m)
