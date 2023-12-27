@@ -199,8 +199,7 @@ class BSP:
             return node
 
         root = _copy(builder.root)
-        mins = calc_bounds(verts, min)
-        maxs = calc_bounds(verts, max)
+        mins, maxs = calc_bounds(verts)
         return BSP(mins, maxs, root)
 
 
@@ -267,8 +266,9 @@ class Lod:
             f.write_word(vert_mat)
 
         if update_bounds:
-            calc_bounds(self.verts, min).save(f)
-            calc_bounds(self.verts, max).save(f)
+            _min, _max = calc_bounds(self.verts)
+            _min.save(f)
+            _max.save(f)
         else:
             self.min.save(f)
             self.max.save(f)

@@ -53,6 +53,7 @@ class D3DDECLTYPE(enum.IntEnum):
             D3DDECLTYPE.FLOAT3: '3f',
             D3DDECLTYPE.FLOAT4: '4f',
             D3DDECLTYPE.D3DCOLOR: '4B',
+            D3DDECLTYPE.UNUSED: '', # will evaluate to 0 using calcsize
         }
 
         return _TYPE_TO_FORMAT[self]

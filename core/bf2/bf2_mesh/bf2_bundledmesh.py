@@ -1,10 +1,10 @@
-
-
 from .bf2_visiblemesh import BF2VisibleMesh, MaterialWithTransparency, Lod, Geom
 from ..fileutils import FileUtils
 
+
 class BundledMeshMaterial(MaterialWithTransparency):
     pass
+
 
 class BundledMeshLod(Lod):
     _MATERIAL_TYPE = BundledMeshMaterial
@@ -18,9 +18,14 @@ class BundledMeshLod(Lod):
         super().load_parts_rigs(f, version=version)
         self.parts_num = f.read_dword()
 
+
 class BundledMeshGeom(Geom):
     _LOD_TYPE = BundledMeshLod
+
 
 class BF2BundledMesh(BF2VisibleMesh):
     _GEOM_TYPE = BundledMeshGeom
     _FILE_EXT = '.bundledmesh'
+
+    def export(self, export_path):
+        raise NotImplementedError()

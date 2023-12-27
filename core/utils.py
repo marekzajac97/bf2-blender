@@ -20,8 +20,8 @@ def convert_bf2_pos_rot(pos, rot):
     rot.invert()
 
 def delete_object(obj):
-    bpy.data.objects.remove(obj, do_unlink=True)
     data = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
     if data is None:
         return
     if isinstance(data, Mesh):

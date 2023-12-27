@@ -14,6 +14,7 @@ class Rig:
         obj.bones = load_n_elems(f, Bone, count=f.read_dword())
         return obj
 
+
 class Bone:
     def __init__(self):
         self.id = None
@@ -26,8 +27,10 @@ class Bone:
         obj.matrix = Mat4.load(f)
         return obj
 
+
 class SkinnedMeshMaterial(Material):
     pass
+
 
 class SkinnedMeshLod(Lod):
     _MATERIAL_TYPE = SkinnedMeshMaterial
@@ -40,9 +43,14 @@ class SkinnedMeshLod(Lod):
         super().load_parts_rigs(f, version=version)
         self.rigs = load_n_elems(f, Rig, count=f.read_dword())
 
+
 class SkinnedMeshGeom(Geom):
     _LOD_TYPE = SkinnedMeshLod
+
 
 class BF2SkinnedMesh(BF2VisibleMesh):
     _GEOM_TYPE = SkinnedMeshGeom
     _FILE_EXT = '.skinnedmesh'
+
+    def export(self, export_path):
+        raise NotImplementedError()
