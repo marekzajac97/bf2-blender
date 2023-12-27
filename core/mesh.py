@@ -4,16 +4,36 @@ import math
 import struct
 import os
 
-
-from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh
-
 from mathutils import Vector, Matrix
 
-from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists
+from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
+from .bf2.bf2_common import Vec3, Mat4
+from .bf2.bf2_mesh.bf2_staticmesh import StaticMeshGeom, StaticMeshLod, StaticMeshMaterial
+from .bf2.bf2_mesh.bf2_visiblemesh import Vertex, VertexAttribute
+from .bf2.bf2_mesh.bf2_types import D3DDECLTYPE, D3DDECLUSAGE
+
+from .exceptions import ImportException, ExportException
+from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists, check_suffix
 from .skeleton import find_active_skeleton, ske_get_bone_rot, ske_weapon_part_ids
 
 NODE_WIDTH = 300
 NODE_HEIGHT = 100
+
+STATICMESH_TECHNIQUES = [
+    'Base',
+    'BaseDetail',
+    'BaseDetailNDetail',
+    'BaseDetailCrack',
+    'BaseDetailCrackNCrack',
+    'BaseDetailCrackNDetail',
+    'BaseDetailCrackNDetailNCrack',
+    'BaseDetailDirtCrack',
+    'BaseDetailDirtCrackNCrack',
+    'BaseDetailDirtCrackNDetail',
+    'BaseDetailDirtCrackNDetailNCrack'
+]
+
+STATICMESH_TEXUTRE_MAP_TYPES = {'Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack'}
 
 def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', reload=False):
     bf2_mesh = BF2Mesh.load(mesh_file)
@@ -46,6 +66,177 @@ def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', reload=Fal
         _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, geom, lod)
 
     return mesh_obj
+
+def export_staticmesh(context, mesh_file, texture_path=''):
+    mesh_obj = context.view_layer.objects.active
+    if mesh_obj is None:
+        raise ExportException("No object selected!")
+    
+    bf2_mesh = BF2StaticMesh(name=mesh_obj.name)
+
+    vert_attrs = bf2_mesh.vertex_attributes
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.NORMAL))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.D3DCOLOR, D3DDECLUSAGE.BLENDINDICES))
+
+    # TODO do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD0))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD2))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD3))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD4))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.TANGENT))
+
+    if not mesh_obj.children:
+        raise ExportException(f"mesh object '{mesh_obj.name}' has no children (geoms)!")
+
+    geoms = dict()
+    for geom_obj in mesh_obj.children:
+        geom_idx = check_suffix(geom_obj.name, 'geom')
+        if geom_idx in geoms:
+            raise ExportException(f"mesh object '{mesh_obj.name}' has duplicated geom{geom_idx}")
+        geoms[geom_idx] = geom_obj
+    for _, geom_obj in sorted(geoms.items()):
+        geom = StaticMeshGeom()
+        bf2_mesh.geoms.append(geom)
+
+        if not geom_obj.children:
+            raise ExportException(f"geom '{geom_obj.name}' has no children (lods)!")
+
+        lods = dict()
+        for lod_obj in geom_obj.children:
+            lod_idx = check_suffix(lod_obj.name, 'lod')
+            if lod_idx in lods:
+                raise ExportException(f"geom '{geom_obj.name}' has duplicated lod{lod_idx}")
+            lods[lod_idx] = lod_obj
+        for lod_idx, lod_obj in sorted(lods.items()):
+            lod = StaticMeshLod()
+            geom.lods.append(lod)
+            mesh = lod_obj.data
+            if mesh is None:
+                raise ExportException(f"lod '{lod_obj.name}' has no mesh data!")
+
+            # map materials to verts and faces
+            mat_idx_to_verts_faces = dict()
+            for poly in mesh.polygons:
+                # XXX: make sure is it always a triangle??
+                v1, v2, v3 = poly.vertices
+                if poly.material_index not in mat_idx_to_verts_faces:
+                    mat_idx_to_verts_faces[poly.material_index] = (set(), list())
+
+                vert_set = mat_idx_to_verts_faces[poly.material_index][0]
+                face_list = mat_idx_to_verts_faces[poly.material_index][1]
+    
+                vert_set.add(v1)
+                vert_set.add(v2)
+                vert_set.add(v3)
+                face_list.append(tuple(poly.vertices))
+
+            # create bf2 materials
+            for blend_mat_idx, (blend_vert_set, blend_faces) in sorted(mat_idx_to_verts_faces.items()):
+                blend_material = mesh.materials[blend_mat_idx]
+                blend_verts = [mesh.vertices[v] for v in blend_vert_set]
+
+                bf2_mat = StaticMeshMaterial()
+                lod.materials.append(bf2_mat)
+
+                # create vertices
+                for blend_vert in blend_verts:
+                    vert = Vertex()
+                    vert.position = (blend_vert.co[0], blend_vert.co[2], blend_vert.co[1])
+                    vert.normal = (blend_vert.normal[0], blend_vert.normal[2], blend_vert.normal[1])
+                    vert.blendindices = (0, 0, 0, 0) # TODO blendindices! THE FUCK IS THIS USED FOR
+                    vert.tangent = (0, 0, 1) # TODO tangents!
+                    bf2_mat.vertices.append(vert)
+
+                # create faces
+                for f in blend_faces:
+                    v1 ,v2, v3 = [blend_verts.index(mesh.vertices[v_idx]) for v_idx in f]
+                    vert_indexes = (v3, v2, v1)
+                    bf2_mat.faces.append(vert_indexes)
+
+                bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.NONE # TODO alpha mode
+                bf2_mat.fxfile = 'StaticMesh.fx'
+
+                # collect texture maps from nodes
+                texture_maps = dict()
+                for node in blend_material.node_tree.nodes:
+                    if node.bl_idname != 'ShaderNodeTexImage':
+                        continue
+                    if node.image is None:
+                        continue
+                    if node.name not in STATICMESH_TEXUTRE_MAP_TYPES:
+                        continue
+                    texture_maps[node.name] = node.image.filepath
+
+                # find matching technique, which only conatins maps from collected set
+                for technique in STATICMESH_TECHNIQUES:
+                    maps = _split_str_from_word_set(technique, texture_maps.keys())
+                    if maps is not None and len(maps) == len(texture_maps.keys()):
+                        bf2_mat.technique = technique
+                        break
+                else:
+                    raise ExportException(f"Could not find a matching shader technique for the detected texture map set: {texture_maps.keys()},"
+                                          "make sure that all of your Image Texture nodes are named correctly and have texture files loaded")
+
+                # add maps in proper order, based on technique
+                ordered_maps = _split_str_from_word_set(technique, texture_maps.keys())
+                for texture_map in ordered_maps:
+                    txt_map_file = texture_maps[texture_map]
+                    if texture_path: # make relative
+                        txt_map_file = os.path.relpath(txt_map_file, start=texture_path)     
+                    bf2_mat.maps.append(txt_map_file.replace('\\', '/').lower())
+
+                # TODO
+                bf2_mat.maps.append('Common\Textures\SpecularLUT_pow36.dds')
+
+                # collect required UV channel indexes
+                uv_channels = set()
+                has_dirt = 'Dirt' in texture_maps.keys()
+                for texture_map in texture_maps.keys():
+                    if texture_map == 'Base':
+                        uv_chan = 0
+                    elif texture_map == 'Detail':
+                        uv_chan = 1
+                    elif texture_map == 'Dirt':
+                        uv_chan = 2
+                    elif texture_map == 'Crack':
+                        uv_chan = 3 if has_dirt else 2
+                    elif texture_map == 'NDetail':
+                        uv_chan = 1
+                    elif texture_map == 'NCrack':
+                        uv_chan = 3 if has_dirt else 2
+                    uv_channels.add(uv_chan)
+
+                # TODO lightmap UV, needs to be generated??
+                uv_channels.add(4)
+
+                # apply UV to verts
+                for uv_chan in uv_channels:
+                    if f'UV{uv_chan}' not in mesh.uv_layers:
+                        raise ExportException(f"Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
+                    uvlayer = mesh.uv_layers[f'UV{uv_chan}']
+                    for loop in mesh.loops:
+                        for i, blend_vert in enumerate(blend_verts):
+                            if loop.vertex_index != blend_vert.index:
+                                continue
+                            vert = bf2_mat.vertices[i]
+                            uv = tuple(uvlayer.data[loop.index].uv)
+                            uv = _roatate_uv(uv, 90.0) # the only way it can display properly
+                            u = uv[0]
+                            v = uv[1]
+                            setattr(vert, f'texcoord{uv_chan}', (v, u))
+                            break
+
+                # fill missing, not used vertex UV coords but present in vert attribute
+                for vert in bf2_mat.vertices:
+                    for uv_chan in range(5):
+                        if getattr(vert, f'texcoord{uv_chan}') is None:
+                            setattr(vert, f'texcoord{uv_chan}', (0, 0))
+
+            lod.parts = [Mat4()] # TODO parts
+
+    bf2_mesh.export(mesh_file)
 
 def _roatate_uv(uv, angle):
     uv = Vector(uv)
@@ -134,20 +325,21 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
     for uv_chan in range(5):
         if not bf2_mesh.has_uv(uv_chan):
             continue
-        uvs[uv_chan] = list()
+        vert_uv = list()
+        uvs[uv_chan] = vert_uv
         for mat in bf2_lod.materials:
             for vert in mat.vertices:
                 uv_attr = getattr(vert, f'texcoord{uv_chan}')
                 u = uv_attr[0]
                 v = uv_attr[1]
-                uvs[uv_chan].append((v, u)) # this is no mistake, EDIT: or is it?
+                uv = _roatate_uv((v, u), -90.0) # the only way it can display properly
+                vert_uv.append(uv)
 
     # apply UVs
     for uv_chan, vert_uv in uvs.items():
         uvlayer = mesh.uv_layers.new(name=f'UV{uv_chan}')
         for l in mesh.loops:
-            uv = _roatate_uv(vert_uv[l.vertex_index], -90.0) # the only way it can display properly
-            uvlayer.data[l.index].uv = uv
+            uvlayer.data[l.index].uv = vert_uv[l.vertex_index]
 
         mesh.calc_tangents()
 
@@ -392,6 +584,8 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         diffuse = texture_nodes[0]
         normal = texture_nodes[1]
+        diffuse.name = 'Diffuse'
+        normal.name = 'Normal'
 
         node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], diffuse.inputs[0])
         node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], normal.inputs[0])
@@ -451,11 +645,11 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
         if technique in ('ColormapGloss', 'EnvColormapGloss', 'Alpha', 'Alpha_Test'):
             return # TODO
 
-        map_types = {'Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack'}
-        maps = _split_str_from_word_set(technique, map_types)
-        if maps is None:
+        if technique not in STATICMESH_TECHNIQUES:
             raise RuntimeError(f'Unsupported techinique "{technique}"')
-        
+
+        maps = _split_str_from_word_set(technique, STATICMESH_TEXUTRE_MAP_TYPES)
+
         if len(texture_nodes) - 1 != len(maps):
             raise RuntimeError(f'Material techinique ({technique}) doesn\'t match number of texture maps ({len(texture_nodes)})')
 
@@ -497,6 +691,13 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
             ndetail.image.colorspace_settings.name = 'Non-Color'
         if ncrack and ncrack.image:
             ncrack.image.colorspace_settings.name = 'Non-Color'
+
+        if base: base.name = 'Base'
+        if detail: detail.name = 'Detail'
+        if dirt: dirt.name = 'Dirt'
+        if crack: crack.name = 'Crack'
+        if ndetail: ndetail.name = 'NDetail'
+        if ncrack: ncrack.name = 'NCrack'
 
         # ---- diffuse ----
         if detail:

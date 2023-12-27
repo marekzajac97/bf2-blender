@@ -13,7 +13,24 @@ class BF2MeshException(Exception):
 
 class Vertex:
     def __init__(self):
-        pass # Attributes added dynamically based on D3DDECLUSAGE with value based on D3DDECLTYPE
+        self.position = None
+        self.blendweight = None
+        self.blendindices = None
+        self.normal = None
+        self.psize = None
+        self.texcoord0 = None
+        self.texcoord1 = None
+        self.texcoord2 = None
+        self.texcoord3 = None
+        self.texcoord4 = None
+        self.tangent = None
+        self.binormal = None
+        self.tessfactor = None
+        self.positiont = None
+        self.color = None
+        self.fog = None
+        self.depth = None
+        self.sample = None
 
 
 class Material:

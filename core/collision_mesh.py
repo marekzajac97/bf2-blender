@@ -2,8 +2,9 @@ import bpy
 import bmesh
 
 from itertools import cycle
-from .bf2.bf2_collmesh import BF2CollMesh, Geom, SubGeom, Lod, Face, Vec3
-from .utils import delete_object_if_exists
+from .bf2.bf2_collmesh import BF2CollMesh, BF2CollMeshException, Geom, SubGeom, Lod, Face, Vec3
+from .utils import delete_object_if_exists, check_suffix
+from .exceptions import ImportException, ExportException
 
 MATERIAL_COLORS = [
     [0.267004, 0.004874, 0.329415, 1.],
@@ -19,10 +20,14 @@ MATERIAL_COLORS = [
 ]
 
 def import_collisionmesh(context, mesh_file, reload=False):
-    bf2_mesh = BF2CollMesh(mesh_file)
+    try:
+        bf2_mesh = BF2CollMesh(mesh_file)
+    except BF2CollMeshException as e:
+        raise ImportException(str(e)) from e
+
     name = bf2_mesh.name
 
-    collmesh_name = f'{name}_collisionmesh'
+    collmesh_name = f'{name}_collmesh' # to avoid object name conflicts when loaded together with geometry
     if reload: delete_object_if_exists(collmesh_name)
     collmesh_obj = bpy.data.objects.new(collmesh_name, None)
     context.scene.collection.objects.link(collmesh_obj)
@@ -95,47 +100,57 @@ def _import_collisionmesh_lod(name, lod_verts, lod_faces, materials, reload=Fals
 
 
 def export_collisonmesh(context, mesh_file):
-    collmesh_obj = _find_collmesh(context)
+    collmesh_obj = context.view_layer.objects.active
     if collmesh_obj is None:
-        raise RuntimeError("No collisionmesh found in current context")
+        raise ExportException("No object selected!")
     
     collmesh = BF2CollMesh(name=collmesh_obj.name)
 
+    if not collmesh_obj.children:
+        raise ExportException(f"collisionmesh '{collmesh_obj.name}' has no children (geoms)!")
+
     geoms = dict()
     for geom_obj in collmesh_obj.children:
-        geom_idx = _check_suffix(geom_obj.name, 'geom')
+        geom_idx = check_suffix(geom_obj.name, 'geom')
         if geom_idx in geoms:
-            raise RuntimeError(f"duplicated geom'{geom_idx} found")
+            raise ExportException(f"collisionmesh '{collmesh_obj.name}' has duplicated geom{geom_idx}")
         geoms[geom_idx] = geom_obj
     for _, geom_obj in sorted(geoms.items()):
         geom = Geom()
         collmesh.geoms.append(geom)
 
+        if not geom_obj.children:
+            raise ExportException(f"geom '{geom_obj.name}' has no children (subgeoms)!")
+
         subgeoms = dict()
         for subgeom_obj in geom_obj.children:
-            subgeom_idx = _check_suffix(subgeom_obj.name, 'subgeom')
+            subgeom_idx = check_suffix(subgeom_obj.name, 'subgeom')
             if subgeom_idx in subgeoms:
-                raise RuntimeError(f"duplicated subgeom'{subgeom_idx} found")
+                raise ExportException(f"geom '{geom_obj.name}' has duplicated subgeom{subgeom_idx}")
             subgeoms[subgeom_idx] = subgeom_obj
         for _, subgeom_obj in sorted(subgeoms.items()):
             subgeom = SubGeom()
             geom.subgeoms.append(subgeom)
 
+            # it is possible for a subgeom to have no lods
+            # although it is probably a result of the broken-ass DICE's max exporter
+            # which creates them even when a geom has no _novis tree
+            # TODO: check whether creating them affects anything
             lods = dict()
             for lod_obj in subgeom_obj.children:
-                lod_idx = _check_suffix(lod_obj.name, 'lod')
+                lod_idx = check_suffix(lod_obj.name, 'lod')
                 if lod_idx in lods:
-                    raise RuntimeError(f"duplicated lod'{lod_idx} found")
+                    raise ExportException(f"lod '{lod_obj.name}' has duplicated lod{lod_idx}")
                 lods[lod_idx] = lod_obj
             for lod_idx, lod_obj in sorted(lods.items()):
                 lod = Lod()
                 subgeom.lods.append(lod)
                 mesh = lod_obj.data
                 if mesh is None:
-                    raise RuntimeError(f"empty lod'{lod_idx}")
+                    raise ExportException(f"lod '{lod_obj.name}' has no mesh data!")
 
                 if lod_idx < 0 or lod_idx > 3:
-                    raise RuntimeError(f"Invalid lod index '{lod_idx}, must be in 0-3")
+                    raise ExportException(f"Invalid lod index '{lod_idx}, must be in 0-3")
 
                 lod.coll_type = lod_idx
                 for v in mesh.vertices:
@@ -151,32 +166,7 @@ def export_collisonmesh(context, mesh_file):
 
     collmesh.export(mesh_file)
 
-def _check_suffix(name, expected_suffix):
-    index = ''
-    for char in name[::-1]:
-        if char.isdigit():
-            index += char
-        else:
-            break
-    index = index[::-1]
-    if not index:
-        raise RuntimeError(f"{name} must contain numeric suffix")
-    n = name[0:-len(index)]
-    if not n.endswith(f'_{expected_suffix}'):
-        raise RuntimeError(f"{name} must be suffixed with '_{expected_suffix}' and an index")
-    return int(index)
-
-def _find_collmesh(context):
-    # check selected ones first
-    for obj in context.selected_objects:
-        if obj.name.endswith('_collisionmesh'):
-            return obj
-    # try to find any
-    for obj in bpy.data.objects:
-        if obj.name.endswith('_collisionmesh'):
-            return obj
-    return None
-
+# debug stuff
 def _import_bsp(context, bf2_lod, bsp_name, reload=False):
     bsp = bf2_lod.bsp
     verts = [(v.x, v.z, v.y) for v in bf2_lod.verts]

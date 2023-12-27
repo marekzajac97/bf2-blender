@@ -1,5 +1,6 @@
 import bpy
 from bpy.types import Mesh, Armature, Camera
+from .exceptions import ExportException
 
 def to_matrix(pos, rot):
     matrix = rot.to_matrix()
@@ -36,3 +37,18 @@ def delete_object(obj):
 def delete_object_if_exists(obj_name):
     if obj_name in bpy.data.objects:
         delete_object(bpy.data.objects[obj_name])
+
+def check_suffix(name, expected_suffix):
+    index = ''
+    for char in name[::-1]:
+        if char.isdigit():
+            index += char
+        else:
+            break
+    index = index[::-1]
+    if not index:
+        raise ExportException(f"{name} must contain numeric suffix")
+    n = name[0:-len(index)]
+    if not n.endswith(f'_{expected_suffix}'):
+        raise ExportException(f"{name} must be suffixed with '_{expected_suffix}' and an index")
+    return int(index)
