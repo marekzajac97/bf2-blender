@@ -84,6 +84,7 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
             self.position = (0, 0, 0)
             self.normal = (0, 0, 0)
             self.tangent = (0, 0, 0)
+            self.bitangent_sign = 0
             self.texcoords = [(0, 0) for _ in range(5)]
 
     vert_attrs = bf2_mesh.vertex_attributes
@@ -182,6 +183,7 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                         vert_data.position = tuple(blend_vert.co)
                         vert_data.normal = tuple(loop.normal)
                         vert_data.tangent = tuple(loop.tangent)
+                        vert_data.bitangent_sign = loop.bitangent_sign
                         for uv_chan, uvlayer in uv_layers.items():
                             vert_data.texcoords[uv_chan] = tuple(uvlayer.data[loop.index].uv)
                     else:
@@ -196,6 +198,7 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                         for uv_chan, uvlayer in uv_layers.items():
                             loop_uv = tuple(uvlayer.data[loop.index].uv)
                             if vert_data.texcoords[uv_chan] != loop_uv:
+                                print(mesh.name, f'vert-{loop.vertex_index}', f'loop-{loop.index}', vert_data.texcoords[uv_chan], loop_uv)
                                 raise ExportException(f"Multiple different UV{uv_chan} coords for single vertex in different mesh loops")
 
                 # create vertices
@@ -204,10 +207,14 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                     vert = Vertex()
                     vert.position = _swap_zy(vert_data.position)
                     vert.normal = _swap_zy(vert_data.normal)
-                    vert.blendindices = (0, 0, 0, 0) # TODO blendindices! THE FUCK IS THIS USED FOR
+                    # third element of blendindices is bitangent sign 0 or 1
+                    # XXX: bitangent was caluculated based on UV and because we gotta
+                    # flip it vertically, the sign of the bitangent needs to be inverted as well
+                    bitangent_sign = 0 if vert_data.bitangent_sign > 0 else 1
+                    vert.blendindices = (0, 0, bitangent_sign, 0)
                     vert.tangent = _swap_zy(vert_data.tangent)
                     for uv_chan, uv in enumerate(vert_data.texcoords):
-                        _uv = _uv_from_blend_to_bf2_coords(uv)
+                        _uv = _flip_uv(uv)
                         setattr(vert, f'texcoord{uv_chan}', _uv)
 
                     bf2_mat.vertices.append(vert)
@@ -287,30 +294,12 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
 
     bf2_mesh.export(mesh_file)
 
-def _roatate_uv(uv, angle):
-    uv = Vector(uv)
-    pivot = Vector((0.5, 0.5))
-    angle = math.radians(angle)
-    uv -= pivot
-    uv_len = uv.length
-    uv.normalize()
-    uv = Vector((uv.x * math.cos(angle) - uv.y * math.sin(angle),
-                 uv.x * math.sin(angle) + uv.y * math.cos(angle)))
-    uv *= uv_len
-    uv += pivot
-    return uv
-
 # in BF2/DirectX, UV coords origin is in the upper left corner
 # in Blender it is in the lower left corner
-# so to fix this we need to flip the axes and rotate UV by 90 deg counter-clockwise
-# XXX: will this fuck up the calcualted tangent? I think it won't because U direction in the UV will stay the same
-def _uv_from_bf2_to_blend_coords(uv):
+# so to fix this we need to flip the axes vertically
+def _flip_uv(uv):
     u, v = uv
-    return _roatate_uv((v, u), -90.0) # the only way it can display properly
-
-def _uv_from_blend_to_bf2_coords(uv):
-    u, v = _roatate_uv(uv, 90.0)
-    return (v, u)
+    return (u, 1 - v)
 
 def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
@@ -390,7 +379,7 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         for mat in bf2_lod.materials:
             for vert in mat.vertices:
                 uv = getattr(vert, f'texcoord{uv_chan}')
-                uv = _uv_from_bf2_to_blend_coords(uv)
+                uv = _flip_uv(uv)
                 vert_uv.append(uv)
 
     # apply UVs
