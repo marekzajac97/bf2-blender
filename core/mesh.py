@@ -38,8 +38,7 @@ STATICMESH_TEXUTRE_MAP_TYPES = {'Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'N
 def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', remove_doubles=False, reload=False):
 
     def _do_mesh_import(_name, _geom, _lod):
-        obj = _import_mesh(context, _name, bf2_mesh, _geom, _lod, texture_path,
-                           remove_doubles=remove_doubles, reload=reload)
+        obj = _import_mesh(context, _name, bf2_mesh, _geom, _lod, texture_path, reload=reload)
         context.scene.collection.objects.link(obj)
         if remove_doubles: _remove_double_verts(context, obj)
         return obj
@@ -62,7 +61,7 @@ def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', remove
     else:
         _do_mesh_import(bf2_mesh.name, geom, lod)
 
-def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', remove_doubles=False, reload=False):
+def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', reload=False):
     mesh_obj = _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload)
 
     if isinstance(bf2_mesh, BF2SkinnedMesh):
@@ -72,7 +71,7 @@ def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', remove_dou
 
     return mesh_obj
 
-def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
+def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map='', gen_ligtmap_uv=False):
     mesh_obj = context.view_layer.objects.active
     if mesh_obj is None:
         raise ExportException("No object selected!")
@@ -147,6 +146,20 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                 if f'UV{uv_chan}' in mesh.uv_layers:
                     uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
 
+            # lightmap UV, if not present, generate it (or when generation is forced by a bool flag)
+            has_lightmap = 4 in uv_layers.keys() 
+            if gen_ligtmap_uv or not has_lightmap:
+                if has_lightmap:
+                    light_uv_layer = mesh.uv_layers['UV4']
+                else:
+                    light_uv_layer = mesh.uv_layers.new(name='UV4')
+                light_uv_layer.active = True
+                bpy.ops.object.select_all(action='DESELECT')
+                context.view_layer.objects.active = lod_obj
+                lod_obj.select_set(True)
+                bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True, PREF_NEW_UVLAYER=False,
+                                         PREF_APPLY_IMAGE=False, PREF_IMG_PX_SIZE=128, PREF_BOX_DIV=12, PREF_MARGIN_DIV=1)
+
             # map materials to verts and faces
             mat_idx_to_verts_faces = dict()
             for poly in mesh.polygons:
@@ -192,7 +205,6 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                         vert_data = blend_vert_idx_to_vert_data[loop.vertex_index]
                         if not _is_same(vert_data.normal, tuple(loop.normal)):
                             raise ExportException(f"Only one normal per vertex is supported, merge split normals before exporting!")
-                        # TODO: why the fuck tangents are different when normals and uvs are?
                         # if not _is_same(vert_data.tangent, tuple(loop.tangent)):
                         #     raise ExportException(f"tangent missmatch {vert_data.tangent} != {tuple(loop.tangent)}")
                         for uv_chan, uvlayer in uv_layers.items():
@@ -208,7 +220,7 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                     vert.position = _swap_zy(vert_data.position)
                     vert.normal = _swap_zy(vert_data.normal)
                     # third element of blendindices is bitangent sign 0 or 1
-                    # XXX: bitangent was caluculated based on UV and because we gotta
+                    # bitangent was caluculated based on UV and because we gotta
                     # flip it vertically, the sign of the bitangent needs to be inverted as well
                     bitangent_sign = 0 if vert_data.bitangent_sign > 0 else 1
                     vert.blendindices = (0, 0, bitangent_sign, 0)
@@ -257,8 +269,7 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                         txt_map_file = os.path.relpath(txt_map_file, start=texture_path)     
                     bf2_mat.maps.append(txt_map_file.replace('\\', '/').lower())
 
-                # TODO
-                bf2_mat.maps.append('Common\Textures\SpecularLUT_pow36.dds')
+                bf2_mat.maps.append('Common\Textures\SpecularLUT_pow36.dds') # XXX
 
                 # collect required UV channel indexes
                 uv_channels = set()
@@ -278,13 +289,11 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                         uv_chan = 3 if has_dirt else 2
                     uv_channels.add(uv_chan)
 
-                # TODO lightmap UV, needs to be generated??
-                uv_channels.add(4)
-
-                # check UVs are present
+                # check required UVs are present
                 for uv_chan in uv_channels:
                     if uv_chan not in uv_layers.keys():
                         raise ExportException(f"Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
+
 
             lod.parts = [Mat4()] # TODO parts
         
