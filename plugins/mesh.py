@@ -30,7 +30,13 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
 
     only_selected_lod: BoolProperty(
         name="Only selected LOD",
-        description="When unchecked, lods whole mesh hierarchy, ignoring above options",
+        description="When unchecked, loads whole mesh hierarchy, ignoring above options",
+        default=False
+    )
+
+    remove_doubles: BoolProperty(
+        name="Merge double verts",
+        description="Try to remove vertices that were duplicated during export to preserve split per-vertex normals",
         default=False
     )
 
@@ -51,9 +57,12 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
         try:
             if self.only_selected_lod:
-                import_mesh(context, self.filepath, geom=self.geom, lod=self.lod, texture_path=mod_path)
+                kwargs = {'geom': self.geom, 'lod': self.lod}
             else:
-                import_mesh(context, self.filepath, texture_path=mod_path)
+                kwargs = {}
+
+            import_mesh(context, self.filepath, remove_doubles=self.remove_doubles,
+                        texture_path=mod_path, **kwargs)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}

@@ -35,7 +35,15 @@ STATICMESH_TECHNIQUES = [
 
 STATICMESH_TEXUTRE_MAP_TYPES = {'Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack'}
 
-def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', reload=False):
+def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', remove_doubles=False, reload=False):
+
+    def _do_mesh_import(_name, _geom, _lod):
+        obj = _import_mesh(context, _name, bf2_mesh, _geom, _lod, texture_path,
+                           remove_doubles=remove_doubles, reload=reload)
+        context.scene.collection.objects.link(obj)
+        if remove_doubles: _remove_double_verts(context, obj)
+        return obj
+
     bf2_mesh = BF2Mesh.load(mesh_file)
     if geom is None and lod is None:
         if reload: delete_object_if_exists(bf2_mesh.name)
@@ -49,15 +57,12 @@ def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', reload
             context.scene.collection.objects.link(geom_obj)
             for lod_idx, _ in enumerate(bf2_mesh.geoms[geom_idx].lods):
                 lod_name = f'{geom_name}_lod{lod_idx}'
-                if reload: delete_object_if_exists(lod_name)
-                lod_obj = _import_mesh(context, lod_name, bf2_mesh, geom_idx, lod_idx, texture_path, reload=reload)
+                lod_obj = _do_mesh_import(lod_name, geom_idx, lod_idx)
                 lod_obj.parent = geom_obj
-                context.scene.collection.objects.link(lod_obj)
     else:
-        obj = _import_mesh(context, bf2_mesh.name, bf2_mesh, geom, lod, texture_path, reload=reload)
-        context.scene.collection.objects.link(obj)
+        _do_mesh_import(bf2_mesh.name, geom, lod)
 
-def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', reload=False):
+def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', remove_doubles=False, reload=False):
     mesh_obj = _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload)
 
     if isinstance(bf2_mesh, BF2SkinnedMesh):
@@ -85,8 +90,7 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.NORMAL))
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.D3DCOLOR, D3DDECLUSAGE.BLENDINDICES))
-
-    # TODO do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
+    # XXX: do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD0))
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD2))
@@ -131,7 +135,7 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                 vertex_normals = [vert.normal for vert in mesh.vertices]
                 mesh.normals_split_custom_set_from_vertices(vertex_normals)
 
-            # TODO: I have no idea what map is this supposed to be calculated on
+            # XXX: I have no idea what map is this supposed to be calculated on
             # I assume it must match with tangents which were used to generate the normal map
             # but we don't know this! so its probably needed to be added as an export setting?
             mesh.calc_tangents(uvmap=tangent_uv_map)
@@ -447,7 +451,7 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
         _setup_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes,
                            bf2_mat.fxfile, bf2_mat.technique, has_alpha=has_alpha)
-
+    
     obj = bpy.data.objects.new(name, mesh)
     return obj
 
@@ -875,3 +879,12 @@ def _swap_zy(vec):
 def _is_same(v1, v2):
     EPSILON = 0.0001
     return all([abs(v1[i] - v2[i]) < EPSILON for i in range(2)])
+
+def _remove_double_verts(context, obj):
+    context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT') 
+    bpy.ops.mesh.select_mode(type='VERT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.remove_doubles(threshold=0.0001, use_sharp_edge_from_normals=True)
+    bpy.ops.mesh.select_all(action='DESELECT')
+    bpy.ops.object.mode_set(mode='OBJECT')
