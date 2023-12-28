@@ -67,7 +67,7 @@ def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', reload=Fal
 
     return mesh_obj
 
-def export_staticmesh(context, mesh_file, texture_path=''):
+def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
     mesh_obj = context.view_layer.objects.active
     if mesh_obj is None:
         raise ExportException("No object selected!")
@@ -123,7 +123,18 @@ def export_staticmesh(context, mesh_file, texture_path=''):
             if mesh is None:
                 raise ExportException(f"lod '{lod_obj.name}' has no mesh data!")
 
-            mesh.calc_tangents()
+            has_custom_normals = mesh.has_custom_normals
+
+            # temporarly create custom split normals from vertex normals if not present
+            # need them for tangent calculation, otherwise doesn't work for god knows what reason
+            if not has_custom_normals:
+                vertex_normals = [vert.normal for vert in mesh.vertices]
+                mesh.normals_split_custom_set_from_vertices(vertex_normals)
+
+            # TODO: I have no idea what map is this supposed to be calculated on
+            # I assume it must match with tangents which were used to generate the normal map
+            # but we don't know this! so its probably needed to be added as an export setting?
+            mesh.calc_tangents(uvmap=tangent_uv_map)
 
             # map uv channel to uv layer object
             uv_layers = dict()
@@ -134,7 +145,9 @@ def export_staticmesh(context, mesh_file, texture_path=''):
             # map materials to verts and faces
             mat_idx_to_verts_faces = dict()
             for poly in mesh.polygons:
-                # XXX: make sure is it always a triangle??
+                if poly.loop_total > 3:
+                    raise ExportException("Exporter does not support polygons with more than 3 vertices")
+
                 v1, v2, v3 = poly.vertices
                 if poly.material_index not in mat_idx_to_verts_faces:
                     mat_idx_to_verts_faces[poly.material_index] = (set(), list())
@@ -163,9 +176,6 @@ def export_staticmesh(context, mesh_file, texture_path=''):
                         vert_data = _VertexData()
                         blend_vert_idx_to_vert_data[loop.vertex_index] = vert_data
                         vert_data.position = tuple(blend_vert.co)
-                        # TODO: will this break if mesh has no split normals?
-                        # idea for future me, if mesh has no custom split normals temporarly create them from vertex normals
-                        # to calculate tangents
                         vert_data.normal = tuple(loop.normal)
                         vert_data.tangent = tuple(loop.tangent)
                         for uv_chan, uvlayer in uv_layers.items():
@@ -193,8 +203,8 @@ def export_staticmesh(context, mesh_file, texture_path=''):
                     vert.blendindices = (0, 0, 0, 0) # TODO blendindices! THE FUCK IS THIS USED FOR
                     vert.tangent = _swap_zy(vert_data.tangent)
                     for uv_chan, uv in enumerate(vert_data.texcoords):
-                        _uv = _roatate_uv(uv, 90.0)
-                        setattr(vert, f'texcoord{uv_chan}', (_uv[1], _uv[0]))
+                        _uv = _uv_from_blend_to_bf2_coords(uv)
+                        setattr(vert, f'texcoord{uv_chan}', _uv)
 
                     bf2_mat.vertices.append(vert)
 
@@ -266,6 +276,10 @@ def export_staticmesh(context, mesh_file, texture_path=''):
                         raise ExportException(f"Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
 
             lod.parts = [Mat4()] # TODO parts
+        
+        if not has_custom_normals:
+            mesh.free_normals_split() # remove custom split normals if we added them
+            mesh.free_tangents()
 
     bf2_mesh.export(mesh_file)
 
@@ -281,6 +295,18 @@ def _roatate_uv(uv, angle):
     uv *= uv_len
     uv += pivot
     return uv
+
+# in BF2/DirectX, UV coords origin is in the upper left corner
+# in Blender it is in the lower left corner
+# so to fix this we need to flip the axes and rotate UV by 90 deg counter-clockwise
+# XXX: will this fuck up the calcualted tangent? I think it won't because U direction in the UV will stay the same
+def _uv_from_bf2_to_blend_coords(uv):
+    u, v = uv
+    return _roatate_uv((v, u), -90.0) # the only way it can display properly
+
+def _uv_from_blend_to_bf2_coords(uv):
+    u, v = _roatate_uv(uv, 90.0)
+    return (v, u)
 
 def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
@@ -330,6 +356,7 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
+    bm.free()
 
     # load vertex normals
     if bf2_mesh.has_normal():
@@ -347,9 +374,7 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         mesh.normals_split_custom_set_from_vertices(vertex_normals)
         mesh.use_auto_smooth = True
 
-        bm.normal_update()
-
-    bm.free()
+    # XXX: Blender does NOT support custom tangents import
 
     # load UVs
     uvs = dict()
@@ -360,10 +385,8 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         uvs[uv_chan] = vert_uv
         for mat in bf2_lod.materials:
             for vert in mat.vertices:
-                uv_attr = getattr(vert, f'texcoord{uv_chan}')
-                u = uv_attr[0]
-                v = uv_attr[1]
-                uv = _roatate_uv((v, u), -90.0) # the only way it can display properly
+                uv = getattr(vert, f'texcoord{uv_chan}')
+                uv = _uv_from_bf2_to_blend_coords(uv)
                 vert_uv.append(uv)
 
     # apply UVs
@@ -371,8 +394,6 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         uvlayer = mesh.uv_layers.new(name=f'UV{uv_chan}')
         for l in mesh.loops:
             uvlayer.data[l.index].uv = vert_uv[l.vertex_index]
-
-        mesh.calc_tangents()
 
     # create materials
     for i, bf2_mat in enumerate(bf2_lod.materials):
