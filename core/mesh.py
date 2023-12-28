@@ -233,8 +233,7 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map='', ge
 
                 # create faces
                 for f in blend_faces:
-                    v1 ,v2, v3 = [blend_verts.index(mesh.vertices[v_idx]) for v_idx in f]
-                    vert_indexes = (v3, v2, v1)
+                    vert_indexes = _invert_face([blend_verts.index(mesh.vertices[v_idx]) for v_idx in f])
                     bf2_mat.faces.append(vert_indexes)
 
                 bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.NONE # TODO alpha mode
@@ -324,17 +323,12 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         f_offset = len(verts)
         mat_faces = list()
         for face in mat.faces:
-            v1, v2, v3 = face
-            # shift indexes
-            v1 += f_offset
-            v2 += f_offset
-            v3 += f_offset
-            mat_faces.append((v3, v2, v1))
+            face_verts = _invert_face([v + f_offset for v in face])
+            mat_faces.append(face_verts)
         faces.append(mat_faces)
 
         for vert in mat.vertices:
-            x, y, z = tuple(vert.position)
-            verts.append((x, z, y))
+            verts.append(_swap_zy(vert.position))
 
     bm = bmesh.new()
     for vert in verts:
@@ -366,10 +360,7 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
         for mat in bf2_lod.materials:
             for vert in mat.vertices:
-                x = vert.normal[0]
-                y = vert.normal[1]
-                z = vert.normal[2]
-                vertex_normals.append((x, z, y))
+                vertex_normals.append(_swap_zy(vert.normal))
 
         # apply normals
         mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
@@ -873,6 +864,9 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
 def _swap_zy(vec):
     return (vec[0], vec[2], vec[1])
+
+def _invert_face(verts):
+    return (verts[2], verts[1], verts[0])
 
 def _is_same(v1, v2):
     EPSILON = 0.0001
