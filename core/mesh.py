@@ -9,7 +9,7 @@ from mathutils import Vector, Matrix
 from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
 from .bf2.bf2_common import Vec3, Mat4
 from .bf2.bf2_mesh.bf2_staticmesh import StaticMeshGeom, StaticMeshLod, StaticMeshMaterial
-from .bf2.bf2_mesh.bf2_visiblemesh import Vertex, VertexAttribute
+from .bf2.bf2_mesh.bf2_visiblemesh import MaterialWithTransparency, Vertex, VertexAttribute
 from .bf2.bf2_mesh.bf2_types import D3DDECLTYPE, D3DDECLUSAGE
 
 from .exceptions import ImportException, ExportException
@@ -71,7 +71,7 @@ def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', reload=Fal
 
     return mesh_obj
 
-def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map='', gen_ligtmap_uv=False):
+def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
     mesh_obj = context.view_layer.objects.active
     if mesh_obj is None:
         raise ExportException("No object selected!")
@@ -85,6 +85,22 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map='', ge
             self.tangent = (0, 0, 0)
             self.bitangent_sign = 0
             self.texcoords = [(0, 0) for _ in range(5)]
+
+        def compare(self, other):
+            if isinstance(other, _VertexData):
+                if not _is_same_vec(self.position, other.position):
+                    return False
+                if not _is_same_vec(self.normal, other.normal):
+                    return False
+                if not _is_same_vec(self.tangent, other.tangent):
+                        return False
+                if self.bitangent_sign != other.bitangent_sign:
+                        return False
+                for uv_chan in range(5):
+                    if self.texcoords[uv_chan] != other.texcoords[uv_chan]:
+                        return False
+                return True
+            return False
 
     vert_attrs = bf2_mesh.vertex_attributes
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
@@ -146,13 +162,9 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map='', ge
                 if f'UV{uv_chan}' in mesh.uv_layers:
                     uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
 
-            # lightmap UV, if not present, generate it (or when generation is forced by a bool flag)
-            has_lightmap = 4 in uv_layers.keys() 
-            if gen_ligtmap_uv or not has_lightmap:
-                if has_lightmap:
-                    light_uv_layer = mesh.uv_layers['UV4']
-                else:
-                    light_uv_layer = mesh.uv_layers.new(name='UV4')
+            # lightmap UV, if not present, generate it
+            if 4 not in uv_layers.keys():
+                light_uv_layer = mesh.uv_layers.new(name='UV4')
                 light_uv_layer.active = True
                 bpy.ops.object.select_all(action='DESELECT')
                 context.view_layer.objects.active = lod_obj
@@ -164,58 +176,71 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map='', ge
             mat_idx_to_verts_faces = dict()
             for poly in mesh.polygons:
                 if poly.loop_total > 3:
-                    raise ExportException("Exporter does not support polygons with more than 3 vertices")
-
-                v1, v2, v3 = poly.vertices
+                    raise ExportException("Exporter does not support polygons with more than 3 vertices!")
                 if poly.material_index not in mat_idx_to_verts_faces:
                     mat_idx_to_verts_faces[poly.material_index] = (set(), list())
-
-                vert_set = mat_idx_to_verts_faces[poly.material_index][0]
-                face_list = mat_idx_to_verts_faces[poly.material_index][1]
-    
-                vert_set.add(v1)
-                vert_set.add(v2)
-                vert_set.add(v3)
-                face_list.append(tuple(poly.vertices))
+                vert_set, face_list = mat_idx_to_verts_faces[poly.material_index]
+                for v in poly.vertices:
+                    vert_set.add(v)
+                face_list.append(poly)
 
             # create bf2 materials
             for blend_mat_idx, (blend_vert_set, blend_faces) in sorted(mat_idx_to_verts_faces.items()):
                 blend_material = mesh.materials[blend_mat_idx]
-                blend_verts = [mesh.vertices[v] for v in blend_vert_set]
 
                 bf2_mat = StaticMeshMaterial()
                 lod.materials.append(bf2_mat)
 
-                # create vertex data for each vertex
-                blend_vert_idx_to_vert_data = dict()
-                for loop in mesh.loops:
-                    blend_vert = mesh.vertices[loop.vertex_index]
-                    if loop.vertex_index not in blend_vert_idx_to_vert_data:
+                # map vertices to loop list
+                vert_loops = list()
+                loops_count = 0
+                for vert in sorted(blend_vert_set):
+                    loops = list()
+                    vert_loops.append(loops)
+                    for loop in mesh.loops:
+                        if vert == loop.vertex_index:
+                            loops_count += 1
+                            loops.append(loop)
+
+                # collect a list of unique verts, merge loops if possible
+                vertices = list() 
+                loop_to_vert_idx = [-1] * len(mesh.loops)
+                merged_loops_count = 0
+                for loops in vert_loops:
+                    vert_data_list = list()
+                    merged_loops = dict()
+                    for loop in loops:
                         vert_data = _VertexData()
-                        blend_vert_idx_to_vert_data[loop.vertex_index] = vert_data
-                        vert_data.position = tuple(blend_vert.co)
+                        vert_data.position = tuple(mesh.vertices[loop.vertex_index].co)
                         vert_data.normal = tuple(loop.normal)
                         vert_data.tangent = tuple(loop.tangent)
                         vert_data.bitangent_sign = loop.bitangent_sign
                         for uv_chan, uvlayer in uv_layers.items():
                             vert_data.texcoords[uv_chan] = tuple(uvlayer.data[loop.index].uv)
-                    else:
-                        # XXX: probably it will be needed to duplicate the vertex if it is present in more than one loop
-                        # for now lets just make sure loop data it is the same
-                        vert_data = blend_vert_idx_to_vert_data[loop.vertex_index]
-                        if not _is_same(vert_data.normal, tuple(loop.normal)):
-                            raise ExportException(f"Only one normal per vertex is supported, merge split normals before exporting!")
-                        # if not _is_same(vert_data.tangent, tuple(loop.tangent)):
-                        #     raise ExportException(f"tangent missmatch {vert_data.tangent} != {tuple(loop.tangent)}")
-                        for uv_chan, uvlayer in uv_layers.items():
-                            loop_uv = tuple(uvlayer.data[loop.index].uv)
-                            if vert_data.texcoords[uv_chan] != loop_uv:
-                                print(mesh.name, f'vert-{loop.vertex_index}', f'loop-{loop.index}', vert_data.texcoords[uv_chan], loop_uv)
-                                raise ExportException(f"Multiple different UV{uv_chan} coords for single vertex in different mesh loops")
+
+                        for other_loop_idx, other_vert_data in vert_data_list:
+                            if other_vert_data.compare(vert_data):
+                                merged_loops_count += 1
+                                merged_loops[loop.index] = other_loop_idx
+                                break
+                        else:
+                            vert_data_list.append((loop.index, vert_data))
+
+                    for loop_idx, vert_data in vert_data_list:
+                        loop_to_vert_idx[loop_idx] = len(vertices)
+                        vertices.append(vert_data)
+                    for loop_idx, merged_loop_idx in merged_loops.items():
+                        loop_to_vert_idx[loop_idx] = loop_to_vert_idx[merged_loop_idx]
+
+                # stats = f'{lod_obj.name}_material{lod.materials.index(bf2_mat)}:'
+                # stats += f'\n\tmerged loops: {merged_loops_count}/{loops_count}'
+                # stats += f'\n\tvertices: {len(vertices)}'
+                # stats += f'\n\tduplicated vertices: {len(vertices) - len(blend_vert_set)}'
+                # stats += f'\n\tfaces: {len(blend_faces)}'
+                # print(stats)
 
                 # create vertices
-                for blend_vert in blend_verts:
-                    vert_data = blend_vert_idx_to_vert_data[blend_vert.index]
+                for vert_data in vertices:
                     vert = Vertex()
                     vert.position = _swap_zy(vert_data.position)
                     vert.normal = _swap_zy(vert_data.normal)
@@ -228,15 +253,22 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map='', ge
                     for uv_chan, uv in enumerate(vert_data.texcoords):
                         _uv = _flip_uv(uv)
                         setattr(vert, f'texcoord{uv_chan}', _uv)
-
                     bf2_mat.vertices.append(vert)
 
                 # create faces
-                for f in blend_faces:
-                    vert_indexes = _invert_face([blend_verts.index(mesh.vertices[v_idx]) for v_idx in f])
-                    bf2_mat.faces.append(vert_indexes)
+                for face in blend_faces:
+                    face_verts = tuple(loop_to_vert_idx[face.loop_start:face.loop_start + face.loop_total])
+                    bf2_mat.faces.append( _invert_face(face_verts))
 
-                bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.NONE # TODO alpha mode
+                if blend_material.blend_method == 'BLEND':
+                    bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.ALPHA_BLEND
+                elif blend_material.blend_method == 'CLIP':
+                    bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.ALPHA_TEST
+                elif blend_material.blend_method == 'OPAQUE':
+                    bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.NONE
+                else:
+                    raise ExportException(f"Invalid material alpha blend method '{blend_material.blend_method}', must be 'BLEND' (Alpha Blend), 'CLIP' (Alpha Test) or 'OPAQUE' (None)")
+
                 bf2_mat.fxfile = 'StaticMesh.fx'
 
                 # collect texture maps from nodes
@@ -301,13 +333,6 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map='', ge
             mesh.free_tangents()
 
     bf2_mesh.export(mesh_file)
-
-# in BF2/DirectX, UV coords origin is in the upper left corner
-# in Blender it is in the lower left corner
-# so to fix this we need to flip the axes vertically
-def _flip_uv(uv):
-    u, v = uv
-    return (u, 1 - v)
 
 def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
@@ -400,13 +425,16 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         mesh.materials.append(material)
 
         # alpha mode
-        if bf2_mat.SUPPORTS_TRANSPARENCY:
-            has_alpha = bf2_mat.alpha_mode > 0
-        else:
-            has_alpha = False
-
-        if has_alpha:
-            material.blend_method = 'BLEND'
+        has_alpha = False
+        if isinstance(bf2_mat, MaterialWithTransparency):
+            if bf2_mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_BLEND:
+                has_alpha = True
+                material.blend_method = 'BLEND'
+            elif bf2_mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_TEST:
+                has_alpha = True
+                material.blend_method = 'CLIP'
+            else:
+                material.blend_method = 'OPAQUE'
 
         material.use_nodes = True
         node_tree = material.node_tree
@@ -601,6 +629,27 @@ def _create_multiply_rgb_shader_node():
     multi_rgb.links.new(node_multiply_rgb.outputs[0], group_outputs.inputs['value'])
     return multi_rgb
 
+def _setup_transparency(node_tree, src_alpha_out, one_minus_src_alpha=False):
+    principled_BSDF = node_tree.nodes.get('Principled BSDF')
+
+    transparent_BSDF = node_tree.nodes.new('ShaderNodeBsdfTransparent')
+    mix_shader = node_tree.nodes.new('ShaderNodeMixShader')
+
+    if one_minus_src_alpha:
+        one_minus = node_tree.nodes.new('ShaderNodeMath')
+        one_minus.operation = 'SUBTRACT'
+        one_minus.inputs[0].default_value = 1
+        node_tree.links.new(src_alpha_out, one_minus.inputs[1])
+        alpha_output = one_minus.outputs[0]
+    else:
+        alpha_output = src_alpha_out
+
+    node_tree.links.new(principled_BSDF.outputs[0], mix_shader.inputs[2])
+    node_tree.links.new(transparent_BSDF.outputs[0], mix_shader.inputs[1])
+
+    node_tree.links.new(alpha_output, mix_shader.inputs[0])
+    return mix_shader.outputs[0]
+
 def _split_str_from_word_set(s : str, word_set : set):
     words = list()
     while s:
@@ -670,14 +719,8 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         # transparency
         if has_alpha:
-            transparent_BSDF = node_tree.nodes.new('ShaderNodeBsdfTransparent')
-            mix_shader = node_tree.nodes.new('ShaderNodeMixShader')
-
-            node_tree.links.new(principled_BSDF.outputs[0], mix_shader.inputs[2])
-            node_tree.links.new(transparent_BSDF.outputs[0], mix_shader.inputs[1])
-
-            node_tree.links.new(diffuse.outputs[1], mix_shader.inputs[0])
-            node_tree.links.new(mix_shader.outputs[0], material_output.inputs[0])
+            mix_shader_out = _setup_transparency(node_tree, diffuse.outputs[1])
+            node_tree.links.new(mix_shader_out, material_output.inputs[0])
 
         principled_BSDF.location = (3 * NODE_WIDTH, 0 * NODE_HEIGHT)
         material_output.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
@@ -687,7 +730,7 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
         if technique == '':
             return
 
-        if technique in ('ColormapGloss', 'EnvColormapGloss', 'Alpha', 'Alpha_Test'):
+        if technique in ('ColormapGloss', 'EnvColormapGloss', 'Alpha_TestColormapGloss', 'Alpha', 'Alpha_Test'):
             return # TODO
 
         if technique not in STATICMESH_TECHNIQUES:
@@ -858,6 +901,12 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         if normal_out:
             node_tree.links.new(normal_out, shader_normal)
+        
+        # ---- transparency ------
+        if has_alpha:
+            # TODO alpha blend
+            mix_shader_out = _setup_transparency(node_tree, detail.outputs[1], one_minus_src_alpha=True)
+            node_tree.links.new(mix_shader_out, material_output.inputs[0])
 
         principled_BSDF.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
         material_output.location = (5 * NODE_WIDTH, 0 * NODE_HEIGHT)
@@ -868,7 +917,14 @@ def _swap_zy(vec):
 def _invert_face(verts):
     return (verts[2], verts[1], verts[0])
 
-def _is_same(v1, v2):
+# in BF2/DirectX, UV coords origin is in the upper left corner
+# in Blender it is in the lower left corner
+# so to fix this we need to flip the axes vertically
+def _flip_uv(uv):
+    u, v = uv
+    return (u, 1 - v)
+
+def _is_same_vec(v1, v2):
     EPSILON = 0.0001
     return all([abs(v1[i] - v2[i]) < EPSILON for i in range(2)])
 

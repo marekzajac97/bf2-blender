@@ -35,8 +35,6 @@ class Vertex:
 
 class Material:
 
-    SUPPORTS_TRANSPARENCY = False
-
     def __init__(self):
         self.fxfile : str = None
         self.technique : str = None
@@ -143,8 +141,6 @@ class Material:
 
 
 class MaterialWithTransparency(Material):
-
-    SUPPORTS_TRANSPARENCY = True
 
     class AlphaMode(enum.IntEnum):
         NONE = 0
