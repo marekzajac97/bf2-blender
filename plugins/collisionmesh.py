@@ -25,9 +25,14 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
     filename_ext = ".collisionmesh"
     filter_glob = StringProperty(default="*.collisionmesh", options={'HIDDEN'})
 
+    @classmethod
+    def poll(cls, context):
+        return context.view_layer.objects.active is not None
+
     def execute(self, context):
+        active_obj = context.view_layer.objects.active
         try:
-           export_collisonmesh(context, self.filepath)
+           export_collisonmesh(active_obj, self.filepath)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}

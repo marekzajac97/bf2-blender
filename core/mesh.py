@@ -33,17 +33,34 @@ STATICMESH_TECHNIQUES = [
     'BaseDetailDirtCrackNDetailNCrack'
 ]
 
-STATICMESH_TEXUTRE_MAP_TYPES = {'Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack'}
+STATICMESH_TEXUTRE_MAP_TYPES = ['Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack']
 
-def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', remove_doubles=False, reload=False):
+def import_mesh(context, mesh_file, **kwargs):
+    return _import_mesh(context, BF2Mesh.load(mesh_file), **kwargs)
+
+def import_bundledmesh(context, mesh_file, **kwargs):
+    return _import_mesh(context, BF2BundledMesh(mesh_file), **kwargs)
+
+def import_skinnedmesh(context, mesh_file, **kwargs):
+    return _import_mesh(context, BF2SkinnedMesh(mesh_file), **kwargs)
+
+def import_staticmesh(context, mesh_file, **kwargs):
+    return _import_mesh(context, BF2StaticMesh(mesh_file), **kwargs)
+
+def _import_mesh(context, bf2_mesh, geom=None, lod=None, texture_path='', remove_doubles=False, reload=False):
 
     def _do_mesh_import(_name, _geom, _lod):
-        obj = _import_mesh(context, _name, bf2_mesh, _geom, _lod, texture_path, reload=reload)
-        context.scene.collection.objects.link(obj)
-        if remove_doubles: _remove_double_verts(context, obj)
-        return obj
+        mesh_obj = _import_mesh_geometry(_name, bf2_mesh, _geom, _lod, texture_path, reload)
 
-    bf2_mesh = BF2Mesh.load(mesh_file)
+        if isinstance(bf2_mesh, BF2SkinnedMesh):
+            _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, _geom, _lod)
+        elif isinstance(bf2_mesh, BF2BundledMesh):
+            _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, _geom, _lod)
+
+        context.scene.collection.objects.link(mesh_obj)
+        if remove_doubles: _remove_double_verts(context, mesh_obj)
+        return mesh_obj
+
     if geom is None and lod is None:
         if reload: delete_object_if_exists(bf2_mesh.name)
         root_obj = bpy.data.objects.new(bf2_mesh.name, None)
@@ -61,21 +78,22 @@ def import_mesh(context, mesh_file, geom=None, lod=None, texture_path='', remove
     else:
         _do_mesh_import(bf2_mesh.name, geom, lod)
 
-def _import_mesh(context, name, bf2_mesh, geom, lod, texture_path='', reload=False):
-    mesh_obj = _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload)
-
-    if isinstance(bf2_mesh, BF2SkinnedMesh):
-        _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod)
-    elif isinstance(bf2_mesh, BF2BundledMesh):
-        _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, geom, lod)
-
-    return mesh_obj
-
-def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
-    mesh_obj = context.view_layer.objects.active
+def get_uv_layers(mesh_obj, geom=0, lod=0):
+    uv_layers = dict()
     if mesh_obj is None:
-        raise ExportException("No object selected!")
-    
+        return uv_layers
+
+    for geom_obj in mesh_obj.children:
+        if geom_obj.name.endswith(f'_geom{geom}'):
+            for lod_obj in geom_obj.children:
+                if lod_obj.name.endswith(f'_lod{lod}'):
+                    if lod_obj.data:
+                        for uv_chan in range(5):
+                            if f'UV{uv_chan}' in lod_obj.data.uv_layers:
+                                uv_layers[uv_chan] = f'UV{uv_chan}'
+    return uv_layers
+
+def export_staticmesh(mesh_obj, mesh_file, texture_path='', tangent_uv_map=''):
     bf2_mesh = BF2StaticMesh(name=mesh_obj.name)
 
     class _VertexData:
@@ -167,7 +185,6 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                 light_uv_layer = mesh.uv_layers.new(name='UV4')
                 light_uv_layer.active = True
                 bpy.ops.object.select_all(action='DESELECT')
-                context.view_layer.objects.active = lod_obj
                 lod_obj.select_set(True)
                 bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True, PREF_NEW_UVLAYER=False,
                                          PREF_APPLY_IMAGE=False, PREF_IMG_PX_SIZE=128, PREF_BOX_DIV=12, PREF_MARGIN_DIV=1)
@@ -232,12 +249,12 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
                     for loop_idx, merged_loop_idx in merged_loops.items():
                         loop_to_vert_idx[loop_idx] = loop_to_vert_idx[merged_loop_idx]
 
-                # stats = f'{lod_obj.name}_material{lod.materials.index(bf2_mat)}:'
-                # stats += f'\n\tmerged loops: {merged_loops_count}/{loops_count}'
-                # stats += f'\n\tvertices: {len(vertices)}'
-                # stats += f'\n\tduplicated vertices: {len(vertices) - len(blend_vert_set)}'
-                # stats += f'\n\tfaces: {len(blend_faces)}'
-                # print(stats)
+                stats = f'{lod_obj.name}_material{lod.materials.index(bf2_mat)}:'
+                stats += f'\n\tmerged loops: {merged_loops_count}/{loops_count}'
+                stats += f'\n\tvertices: {len(vertices)}'
+                stats += f'\n\tduplicated vertices: {len(vertices) - len(blend_vert_set)}'
+                stats += f'\n\tfaces: {len(blend_faces)}'
+                print(stats)
 
                 # create vertices
                 for vert_data in vertices:
@@ -333,6 +350,43 @@ def export_staticmesh(context, mesh_file, texture_path='', tangent_uv_map=''):
             mesh.free_tangents()
 
     bf2_mesh.export(mesh_file)
+
+def add_staticmesh_material(mesh, alpha_mode, mat_name='StaticMesh'):
+    if mesh is None:
+        return
+
+    material = bpy.data.materials.new(mat_name)
+    mesh.materials.append(material)
+    material.use_nodes = True
+    node_tree = material.node_tree
+
+    has_alpha = False
+    if alpha_mode == 'ALPHA_TEST':
+        has_alpha = True
+        material.blend_method = 'CLIP'
+
+    # create UV nodes
+    uv_map_nodes = dict()
+    for uv_chan in range(5):
+        uv = node_tree.nodes.new('ShaderNodeUVMap')
+        uv.uv_map = f'UV{uv_chan}'
+        uv.location = (-2 * NODE_WIDTH, -uv_chan * NODE_HEIGHT)
+        uv.hide = True
+        uv_map_nodes[uv_chan] = uv
+
+    # load textures
+    textute_map_nodes = list()
+    map_types = STATICMESH_TEXUTRE_MAP_TYPES + ['SpecularLUT_pow36']
+    for map_index, texture_map in enumerate(map_types):
+        tex_node = node_tree.nodes.new('ShaderNodeTexImage')
+        textute_map_nodes.append(tex_node)
+        tex_node.label = texture_map
+        tex_node.name = texture_map
+        tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
+        tex_node.hide = True
+
+    _setup_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes,
+                       'StaticMesh.fx', 'BaseDetailDirtCrackNDetailNCrack', has_alpha=has_alpha)
 
 def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
 
@@ -736,7 +790,7 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
         if technique not in STATICMESH_TECHNIQUES:
             raise RuntimeError(f'Unsupported techinique "{technique}"')
 
-        maps = _split_str_from_word_set(technique, STATICMESH_TEXUTRE_MAP_TYPES)
+        maps = _split_str_from_word_set(technique, set(STATICMESH_TEXUTRE_MAP_TYPES))
 
         if len(texture_nodes) - 1 != len(maps):
             raise RuntimeError(f'Material techinique ({technique}) doesn\'t match number of texture maps ({len(texture_nodes)})')
@@ -780,12 +834,12 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
         if ncrack and ncrack.image:
             ncrack.image.colorspace_settings.name = 'Non-Color'
 
-        if base: base.name = 'Base'
-        if detail: detail.name = 'Detail'
-        if dirt: dirt.name = 'Dirt'
-        if crack: crack.name = 'Crack'
-        if ndetail: ndetail.name = 'NDetail'
-        if ncrack: ncrack.name = 'NCrack'
+        if base: base.label = base.name = 'Base'
+        if detail: detail.label = detail.name = 'Detail'
+        if dirt: dirt.label = dirt.name = 'Dirt'
+        if crack: crack.label = crack.name = 'Crack'
+        if ndetail: ndetail.label = ndetail.name = 'NDetail'
+        if ncrack: ncrack.label = ncrack.name = 'NCrack'
 
         # ---- diffuse ----
         if detail:
@@ -901,15 +955,17 @@ def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique
 
         if normal_out:
             node_tree.links.new(normal_out, shader_normal)
-        
+
         # ---- transparency ------
         if has_alpha:
-            # TODO alpha blend
+            # TODO alpha blend for statics, is this even used ?
             mix_shader_out = _setup_transparency(node_tree, detail.outputs[1], one_minus_src_alpha=True)
             node_tree.links.new(mix_shader_out, material_output.inputs[0])
 
         principled_BSDF.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
         material_output.location = (5 * NODE_WIDTH, 0 * NODE_HEIGHT)
+
+# BF2 <-> Blender convertions
 
 def _swap_zy(vec):
     return (vec[0], vec[2], vec[1])
@@ -917,12 +973,11 @@ def _swap_zy(vec):
 def _invert_face(verts):
     return (verts[2], verts[1], verts[0])
 
-# in BF2/DirectX, UV coords origin is in the upper left corner
-# in Blender it is in the lower left corner
-# so to fix this we need to flip the axes vertically
 def _flip_uv(uv):
     u, v = uv
     return (u, 1 - v)
+
+# utils
 
 def _is_same_vec(v1, v2):
     EPSILON = 0.0001

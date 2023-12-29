@@ -259,7 +259,7 @@ class Lod:
         for vert in self.verts:
             vert.save(f)
 
-        if len(vert_mat) != len(self.verts):
+        if len(self.vert_materials) != len(self.verts):
             raise BF2CollMeshException("vertex materials don't match vertex count")
 
         for vert_mat in self.vert_materials:

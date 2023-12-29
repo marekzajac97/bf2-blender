@@ -99,11 +99,7 @@ def _import_collisionmesh_lod(name, lod_verts, lod_faces, materials, reload=Fals
     return bpy.data.objects.new(name, mesh)
 
 
-def export_collisonmesh(context, mesh_file):
-    collmesh_obj = context.view_layer.objects.active
-    if collmesh_obj is None:
-        raise ExportException("No object selected!")
-    
+def export_collisonmesh(collmesh_obj, mesh_file):
     collmesh = BF2CollMesh(name=collmesh_obj.name)
 
     if not collmesh_obj.children:
