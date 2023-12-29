@@ -27,6 +27,7 @@ STATICMESH_TECHNIQUES = [
     'BaseDetailCrackNCrack',
     'BaseDetailCrackNDetail',
     'BaseDetailCrackNDetailNCrack',
+    'BaseDetailDirtNDetail',
     'BaseDetailDirtCrack',
     'BaseDetailDirtCrackNCrack',
     'BaseDetailDirtCrackNDetail',

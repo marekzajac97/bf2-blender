@@ -35,7 +35,7 @@ def import_collisionmesh(context, mesh_file, reload=False):
     cycol = cycle(MATERIAL_COLORS)
 
     for geom_idx, geom in enumerate(bf2_mesh.geoms):
-        geom_name = f'{name}_geom{geom_idx}'
+        geom_name = f'{collmesh_name}_geom{geom_idx}'
         if reload: delete_object_if_exists(geom_name)
         geom_obj = bpy.data.objects.new(geom_name, None)
         geom_obj.parent = collmesh_obj
@@ -52,27 +52,27 @@ def import_collisionmesh(context, mesh_file, reload=False):
                 lod_name = f'{subgeom_name}_lod{lod_idx}'
                 if reload: delete_object_if_exists(lod_name)
                 materials = _import_collisionmesh_dummy_materials(name, cycol, lod.faces)
-                lod_obj = _import_collisionmesh_lod(lod_name, lod.verts, lod.faces, materials, reload=reload)
+                lod_obj = _import_collisionmesh_lod(lod_name, lod.verts, lod.faces, materials)
                 lod_obj.parent = subgeom_obj
                 context.scene.collection.objects.link(lod_obj)
 
 def _import_collisionmesh_dummy_materials(name, cycol, lod_faces):
     face_materials = set([f.material for f in lod_faces])
 
-    materials = list()
+    materials = dict()
     for i in face_materials:
-        mat_name = f'{name}_material_{i}'
+        mat_name = f'{name}_collmesh_material_{i}'
         if mat_name in bpy.data.materials:
-            materials.append(bpy.data.materials[mat_name])
+            materials[i] = bpy.data.materials[mat_name]
             continue # already imported
         material = bpy.data.materials.new(mat_name)     
         material.use_nodes = True
         principled_BSDF = material.node_tree.nodes.get('Principled BSDF')
         principled_BSDF.inputs[0].default_value = tuple(next(cycol))
-        materials.append(material)
+        materials[i] = material
     return materials
 
-def _import_collisionmesh_lod(name, lod_verts, lod_faces, materials, reload=False):
+def _import_collisionmesh_lod(name, lod_verts, lod_faces, materials):
     # swap order
     verts = [(v.x, v.z, v.y) for v in lod_verts]
     faces = [(f.verts[2], f.verts[1], f.verts[0]) for f in lod_faces]
@@ -87,7 +87,12 @@ def _import_collisionmesh_lod(name, lod_verts, lod_faces, materials, reload=Fals
 
     for face, mat in zip(faces, face_materials):
         face_verts = [bm.verts[i] for i in face]
-        bm_face = bm.faces.new(face_verts)
+
+        try:
+            bm_face = bm.faces.new(face_verts)
+        except ValueError as e:
+            pass # XXX sometimes face contains duplicated verts or duplicated faces...
+
         bm_face.material_index = mat
 
     mesh = bpy.data.meshes.new(name)
@@ -99,7 +104,7 @@ def _import_collisionmesh_lod(name, lod_verts, lod_faces, materials, reload=Fals
     return bpy.data.objects.new(name, mesh)
 
 
-def export_collisonmesh(collmesh_obj, mesh_file):
+def export_collisionmesh(collmesh_obj, mesh_file):
     collmesh = BF2CollMesh(name=collmesh_obj.name)
 
     if not collmesh_obj.children:

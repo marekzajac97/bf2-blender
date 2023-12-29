@@ -9,7 +9,7 @@ Probably like 15 years too late but anyway, here are some basic tools for import
 - StaticMesh (`.staticMesh`) import/export [WIP]
 - SkinnedMesh (`.skinnedMesh`) import only
 - BundledMesh (`.bundledMesh`) import only
-- CollisionMesh (`.collisionMesh`) import/export
+- CollisionMesh (`.collisionMesh`) import/export [WIP]
 
 ## Installation
 - To download use [Download ZIP](https://github.com/marekzajac97/bf2-blender/archive/refs/heads/main.zip) option
@@ -22,13 +22,13 @@ After installation, setup your `BF2 mod directory` (`Edit -> Preferences -> Add-
 #### Animating:
 
 - Import order of things matter! The skeleton needs to be loaded first! followed by the soldier/weapon/kitmesh and the animation loaded at the very end.
-- When importing the weapon mesh or the soldier mesh, make sure you import only Geom0 Lod0 (First Person Animating) or Geom1 Lod0 (Third Person Animating). Each part of the weapon mesh will be automatically assigned to a vertex group from `mesh1` to `mesh16` and weighted with their respective bones.
+- When importing the weapon mesh or the soldier mesh, make sure you import only Geom0 Lod0 (First Person Animating) or Geom1 Lod0 (Third Person Animating). Each part of the weapon mesh will be automatically assigned to a vertex group from `mesh1` to `mesh16` and their respective bones.
 - The skeleton will be imported as Blender's Armature object. The armature can be freely extended e.g. by adding helper bones for animating, but DO NOT modify imported bones! You should never change their name, position, rotation or relations in `Edit mode`. If you wish to do any of that, create additional helper bones and setup a `Child Of` constraint on the original bones (with those helper bones set as target) instead. See my [example 1P rig (for Blender 3.4)](https://www.mediafire.com/file/qh2km0hsfy2q7s0/bf2_blender_1p_rig.zip/file) for reference.
 - [WIP] You can optionally enable `Setup controllers` option during animation import to automatically create basic controllers and IK setup (only works for 1P as of now)
 - When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, different bone set needs to be selected).
 
 #### Static modeling:
-Export options will only be avaliable when you have an object active in the viewport. This is written 100% in Python which means the export is painfully slow, be patient! If anything described below is unclear just import any mesh and see how everything is set up.
+Export options will only be avaliable when you have an object active in the viewport. This is written 100% in Python which means the export is painfully slow, be patient! Collmesh export with ~4k tris can take up to 20 minutes, trying exporting more complex stff will be a suicide.
 
 ##### StaticMesh exporting:
   - The active object needs to be the root of the hierarchy, each child of the root object must be a GEOM object (suffixed with `_geom<index>`), each child of the GEOM object must be a LOD object (suffixed with `_lod<index>`) containing mesh data.
@@ -45,6 +45,7 @@ root
 
 ##### CollisionMesh exporting:
   - The active object needs to be the root of the hierarchy, each child of the root object must be a GEOM object (suffixed with `_geom<index>`), each child of the geom object must be a SUBGEOM object (suffixed with `_subgeom<index>`) , each child of the subgeom object must be a LOD object (suffixed with `_lod<index>`) containing mesh data.
+  - NOTE: currently collisionMesh exports to a slightly older file version (9) than 3DsMax exporter (10), which will make BF2 regenerate some missing data on load time, not a big deal.
 ```
 root
 └───geom<index>
@@ -55,7 +56,9 @@ root
 - Each GEOM should have a maximum of 4 LODs where the LOD index corresponds to a specific collision type: Projectile = 0, Vehicle = 1, Soldier = 2, AI (navmesh) = 3.
 - Each LOD's mesh can have an arbitrary number of materials assigned, matterial settings do not matter, only their existance and order.
 
+If anything described above is unclear just import any mesh and see how everything is set up.
+
 ## Credits
 
 - [rpoxo](https://github.com/rpoxo) for the [BF2 mesh file parser](https://github.com/rpoxo/bf2mesh) (MIT License)
-- Remdul for [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/) (most of the stuff is ported over form there)
+- Remdul for guidance and [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/) (most of the stuff is ported over form there)

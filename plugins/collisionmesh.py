@@ -3,7 +3,7 @@ import traceback
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from ..core.collision_mesh import import_collisionmesh, export_collisonmesh
+from ..core.collision_mesh import import_collisionmesh, export_collisionmesh
 
 class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_collisionmesh.import"
@@ -32,7 +32,7 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
     def execute(self, context):
         active_obj = context.view_layer.objects.active
         try:
-           export_collisonmesh(active_obj, self.filepath)
+           export_collisionmesh(active_obj, self.filepath)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}

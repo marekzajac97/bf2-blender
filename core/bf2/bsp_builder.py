@@ -25,10 +25,6 @@ class Poly:
         self.d = -self.normal.dot_product(self.center)
 
     def _intersects(self, plane):
-        return self._split_poly(plane) != 0
-
-    def _split_poly(self, plane):
-        sides = 0
         last_side_parallel = False
 
         if self.normal != plane.normal:
@@ -42,11 +38,10 @@ class Poly:
                     t = -numer / denom
                     if not (last_side_parallel and t == 0.0):
                         if t > 0.0 and t < 0.999999:
-                            sides |= 1 << vertex
+                            return True
 
                 last_side_parallel = denom == 0.0
-
-        return sides
+        return False
 
     def classify(self, plane):
         if self._intersects(plane):
@@ -104,19 +99,14 @@ class BspBuilder:
             polys.append(Poly(points, face))
         self.root = self._build_bsp_tree(polys)
 
-    def _get_all_verts(self, polys : List[Poly]):
-        verts = set()
-        for poly in polys:
-            verts.add(poly.face_ref.verts[0])
-            verts.add(poly.face_ref.verts[1])
-            verts.add(poly.face_ref.verts[2])
-        return [self.verts[v] for v in verts]
-
     def _get_all_planes(self, polys : List[Poly]):
-        for vert in self._get_all_verts(polys):
-            yield Plane(vert.x, 0)
-            yield Plane(vert.y, 1)
-            yield Plane(vert.z, 2)
+        checked_verts = set()
+        for poly in polys:
+            for i, vert in enumerate(poly.face_ref.verts):
+                if vert in checked_verts:
+                    continue
+                checked_verts.add(vert)
+                yield Plane(self.verts[vert][i], i)
 
     def _find_best_split_plane(self, polys : List[Poly]):
         COPLANAR_WEIGHT = 0.5 # puts more emphasis on keeping to minimum coplanar polygons
@@ -128,7 +118,6 @@ class BspBuilder:
         best_split_plane = None
 
         for split_plane in self._get_all_planes(polys):
-            
             coplanar : List[Poly] = list()
             intersect : List[Poly] = list()
             front : List[Poly] = list()
