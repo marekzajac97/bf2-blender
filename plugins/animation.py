@@ -4,6 +4,7 @@ from bpy.props import StringProperty, BoolProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from ..core.animation import import_animation, export_animation, get_bones_for_export
+from ..core.skeleton import find_active_skeleton
 
 # -------------------------- Import --------------------------
 
@@ -18,7 +19,11 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
         description="Create basic animation helper bones and setup IKs, (NOTE: enabling this may slightly alter the elbow orientation)",
         default=False
     )
-    
+
+    @classmethod
+    def poll(cls, context):
+        return find_active_skeleton(context) is not None
+
     def execute(self, context):
         try:
            import_animation(context, self.filepath)
@@ -48,6 +53,10 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
     )
 
     bones_for_export: CollectionProperty(type=BoneExportCollection)
+
+    @classmethod
+    def poll(cls, context):
+        return find_active_skeleton(context) is not None
 
     def draw(self, context):
         layout = self.layout
