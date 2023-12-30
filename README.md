@@ -28,7 +28,7 @@ After installation, setup your `BF2 mod directory` (`Edit -> Preferences -> Add-
 - When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, different bone set needs to be selected).
 
 #### Static modeling:
-Export options will only be avaliable when you have an object active in the viewport. This is written 100% in Python which means the export is painfully slow, be patient! Collmesh export with ~4k tris can take up to 20 minutes, trying to export more complex stuff will be a suicide.
+Export options will only be avaliable when you have an object active in the viewport.
 
 ##### StaticMesh exporting:
   - The active object needs to be the root of the hierarchy, each child of the root object must be a GEOM object (suffixed with `_geom<index>`), each child of the GEOM object must be a LOD object (suffixed with `_lod<index>`) containing mesh data.
@@ -42,6 +42,7 @@ root
 - Inside the `Shader Editor`, assign texture files to the desired texture map types. There should be be 7 `Image Texture` nodes, each corresponding to Base, Detail, Dirt, Crack, Detail Normal, Crack Normal. The last one (SpecularLUT) can be ignored. Detail, Dirt, Crack and their normal maps are optional (can be removed or left unset). There should also be 5 `UV Map` nodes (linked to their corresponding image texture nodes), assign UV layers to them as described below.
 - Each LOD's mesh must have assigned a minimum of 1 and a maximum of 5 UV layers and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps: UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, when Lightmap UV is not present it will be generated.
 - Setting material's Blend Mode to `Alpha Blend` or `Alpha Clip` will export the material with BF2's `Alpha Blend` (not fully supported yet) or `Alpha Test` transparency modes respectively.
+- Export is currently written 100% in Python which means the it is painfully slow, be patient!
 
 ##### CollisionMesh exporting:
   - The active object needs to be the root of the hierarchy, each child of the root object must be a GEOM object (suffixed with `_geom<index>`), each child of the geom object must be a SUBGEOM object (suffixed with `_subgeom<index>`) , each child of the SUBGEOM object must be a LOD object (suffixed with `_lod<index>`) containing mesh data.

@@ -1,8 +1,14 @@
 from typing import Dict, List, Tuple, Optional
 
 from .fileutils import FileUtils
-from .bsp_builder import BspBuilder
+
 from .bf2_common import Vec3, calc_bounds, load_n_elems
+
+try:
+    from ...bsp_builder import BspBuilder
+except ImportError as e:
+    print("Cannot import BSP builder, falling back to slow af python implementation", e)
+    from .py_bsp_builder import BspBuilder
 
 import os
 
@@ -178,25 +184,31 @@ class BSP:
         for face in face_refs:
             f.write_word(faces.index(face))
 
-
     @staticmethod
     def build(verts, faces):
-        builder = BspBuilder(verts, faces)
+        _verts = [(v.x, v.y, v.z) for v in verts]
+        _faces = [f.verts for f in faces]
+        builder = BspBuilder(_verts, _faces)
 
         def _copy(builder_node, parent=None):
             split_plane = builder_node.split_plane
             node = BSP.Node(split_plane.val, split_plane.axis)
             node.parent = parent
-            children = builder_node.get_children()
-            faces = builder_node.get_faces()
+            children = (builder_node.front_node, builder_node.back_node)
+            face_idxs = (builder_node.front_faces, builder_node.back_faces)
 
             for i in range(2):
                 if children[i] is not None:
                     node.children[i] = _copy(children[i], node)
                 else:
                     node.children[i] = None
-                    node.faces[i] = faces[i]
+                    node.faces[i] = [faces[face_idx] for face_idx in face_idxs[i]]
             return node
+
+        if builder.root is None:
+            # might happen when collmesh is very simple
+            print("Cannot build BSP tree, no good enough split plane found")
+            return None
 
         root = _copy(builder.root)
         mins, maxs = calc_bounds(verts)
@@ -273,11 +285,12 @@ class Lod:
             self.min.save(f)
             self.max.save(f)
 
-        f.write_byte(0x31)
+        self.bsp = BSP.build(self.verts, self.faces)
         if self.bsp is None:
-            self.bsp = BSP.build(self.verts, self.faces)
-  
-        self.bsp.save(f, self.faces)
+            f.write_byte(0x30)
+        else:
+            f.write_byte(0x31)
+            self.bsp.save(f, self.faces)
 
 
 class SubGeom:
