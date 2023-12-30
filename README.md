@@ -39,13 +39,12 @@ root
 		└───mesh
 ```
 - To setup StaticMesh material click on `Material Properties` panel, you should see `BF2 Material Tools` panel, expand it and click on `Add Material`.
-- Inside the `Shader Editor`, assign texture files to the desired texture map types. There should be be 7 `Image Texture` nodes, each corresponding to Base, Detail, Dirt, Crack, Detail Normal, Crack Normal, the last one (SpecularLUT) can be ignored. Detail, Dirt, Crack and their normal maps are optional (can be removed or left unset). There should also be 5 `UV Map` nodes (linked to their corresponding image texture nodes) assign UV layers to them as described below.
+- Inside the `Shader Editor`, assign texture files to the desired texture map types. There should be be 7 `Image Texture` nodes, each corresponding to Base, Detail, Dirt, Crack, Detail Normal, Crack Normal. The last one (SpecularLUT) can be ignored. Detail, Dirt, Crack and their normal maps are optional (can be removed or left unset). There should also be 5 `UV Map` nodes (linked to their corresponding image texture nodes), assign UV layers to them as described below.
 - Each LOD's mesh must have assigned a minimum of 1 and a maximum of 5 UV layers and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps: UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, when Lightmap UV is not present it will be generated.
-- Setting material's Blend Mode to `Alpha Blend` or `Alpha Clip` will export the material with BF2's `Alpha Blend` or `Alpha Test` transparency modes respectively.
+- Setting material's Blend Mode to `Alpha Blend` or `Alpha Clip` will export the material with BF2's `Alpha Blend` (not fully supported yet) or `Alpha Test` transparency modes respectively.
 
 ##### CollisionMesh exporting:
-  - The active object needs to be the root of the hierarchy, each child of the root object must be a GEOM object (suffixed with `_geom<index>`), each child of the geom object must be a SUBGEOM object (suffixed with `_subgeom<index>`) , each child of the subgeom object must be a LOD object (suffixed with `_lod<index>`) containing mesh data.
-  - NOTE: currently collisionMesh exports to a slightly older file version (9) than 3DsMax exporter (10), which will make BF2 regenerate some missing data on load time, not a big deal.
+  - The active object needs to be the root of the hierarchy, each child of the root object must be a GEOM object (suffixed with `_geom<index>`), each child of the geom object must be a SUBGEOM object (suffixed with `_subgeom<index>`) , each child of the SUBGEOM object must be a LOD object (suffixed with `_lod<index>`) containing mesh data.
 ```
 root
 └───geom<index>
@@ -55,6 +54,7 @@ root
 ```
 - Each GEOM should have a maximum of 4 LODs where the LOD index corresponds to a specific collision type: Projectile = 0, Vehicle = 1, Soldier = 2, AI (navmesh) = 3.
 - Each LOD's mesh can have an arbitrary number of materials assigned, matterial settings do not matter, only their existance and order.
+- NOTE: currently collisionMesh exports to a slightly older file version (9) than 3DsMax exporter (10), which will make BF2 regenerate some missing data on load time, not a big deal.
 
 If anything described above is unclear just import any mesh and see how everything is set up.
 
