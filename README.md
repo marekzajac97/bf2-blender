@@ -12,7 +12,7 @@ Probably like 15 years too late but anyway, here are some basic tools for import
 - CollisionMesh (`.collisionMesh`) import/export [WIP]
 
 ## Installation
-- To download use [Download ZIP](https://github.com/marekzajac97/bf2-blender/archive/refs/heads/main.zip) option
+- Head over to [Releases](https://github.com/marekzajac97/bf2-blender/releases/) for download
 - To install see [Blender Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html)
 
 ## Usage
