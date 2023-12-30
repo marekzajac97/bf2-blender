@@ -173,6 +173,8 @@ def export_staticmesh(mesh_obj, mesh_file, texture_path='', tangent_uv_map=''):
             # XXX: I have no idea what map is this supposed to be calculated on
             # I assume it must match with tangents which were used to generate the normal map
             # but we don't know this! so its probably needed to be added as an export setting?
+            if not tangent_uv_map:
+                raise ExportException("No UV selected for tangent space generation!")
             mesh.calc_tangents(uvmap=tangent_uv_map)
 
             # map uv channel to uv layer object
@@ -187,6 +189,7 @@ def export_staticmesh(mesh_obj, mesh_file, texture_path='', tangent_uv_map=''):
                 light_uv_layer.active = True
                 bpy.ops.object.select_all(action='DESELECT')
                 lod_obj.select_set(True)
+                bpy.context.view_layer.objects.active = lod_obj
                 bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True, PREF_NEW_UVLAYER=False,
                                          PREF_APPLY_IMAGE=False, PREF_IMG_PX_SIZE=128, PREF_BOX_DIV=12, PREF_MARGIN_DIV=1)
 
@@ -194,7 +197,7 @@ def export_staticmesh(mesh_obj, mesh_file, texture_path='', tangent_uv_map=''):
             mat_idx_to_verts_faces = dict()
             for poly in mesh.polygons:
                 if poly.loop_total > 3:
-                    raise ExportException("Exporter does not support polygons with more than 3 vertices!")
+                    raise ExportException("Exporter does not support polygons with more than 3 vertices! It must be triangulated")
                 if poly.material_index not in mat_idx_to_verts_faces:
                     mat_idx_to_verts_faces[poly.material_index] = (set(), list())
                 vert_set, face_list = mat_idx_to_verts_faces[poly.material_index]

@@ -116,7 +116,7 @@ class EXPORT_OT_bf2_staticmesh(bpy.types.Operator, ExportHelper):
     bl_label = "Export Static Mesh"
     filename_ext = ".staticmesh"
     filter_glob = StringProperty(default="*.staticmesh", options={'HIDDEN'})
-    FILE_DESC = "SkinnedMesh (.skinnedmesh)"
+    FILE_DESC = "StaticMesh (.staticmesh)"
 
     tangent_uv_map : EnumProperty(
         name="Tangent UV",
