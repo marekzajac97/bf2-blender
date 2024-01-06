@@ -169,4 +169,5 @@ def import_skeleton(context, skeleton_file, reload=False):
     # add skeleton metadata to rig
     link_to_skeleton(rig, skeleton)
     camera = _create_camera(rig)
-    context.scene.collection.objects.link(camera)
+    if camera:
+        context.scene.collection.objects.link(camera)

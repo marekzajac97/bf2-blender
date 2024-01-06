@@ -172,10 +172,35 @@ class Vec3:
     def length(self):
         return math.sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
 
+    @staticmethod
+    def distance_squared(v1, v2):
+        dx = v1.x - v2.x
+        dy = v1.y - v2.y
+        dz = v1.z - v2.z
+        return dx * dx + dy * dy + dz * dz
+
+    @staticmethod
+    def distance(v1, v2):
+        return math.sqrt(Vec3.distance_squared(v1, v2))
+
+    @staticmethod
+    def lerp(v1, v2, alpha):
+        x = v1.x + (v2.x - v1.x) * alpha
+        y = v1.y + (v2.y - v1.y) * alpha
+        z = v1.z + (v2.z - v1.z) * alpha
+        return Vec3(x, y, z)
+
     def normalize(self):
         if self.length() == 0.0:
             return self
         return self.scale(1.0 / self.length())
+
+    def rotate(self, m):
+        v_cpy = self.copy()
+        self.x = v_cpy.x * m[0][0] + v_cpy.y * m[1][0] + v_cpy.z * m[2][0]
+        self.y = v_cpy.x * m[0][1] + v_cpy.y * m[1][1] + v_cpy.z * m[2][1]
+        self.z = v_cpy.x * m[0][2] + v_cpy.y * m[1][2] + v_cpy.z * m[2][2]
+        return self
 
     def dot_product(self, a):
         return self.x * a.x + self.y * a.y + self.z * a.z
@@ -214,11 +239,11 @@ class Vec3:
         return False
 
 class Mat4:
-    def __init__(self):
-        self.m = [[1, 0, 0, 0],
-                  [0, 1, 0, 0],
-                  [0, 0, 1, 0],
-                  [0, 0, 0, 1]]
+    def __init__(self, m=None):
+        self.m = m or [[1, 0, 0, 0],
+                       [0, 1, 0, 0],
+                       [0, 0, 1, 0],
+                       [0, 0, 0, 1]]
 
     @classmethod
     def load(cls, f : FileUtils):
@@ -234,6 +259,29 @@ class Mat4:
         f.write_float(self.m[1])
         f.write_float(self.m[2])
         f.write_float(self.m[3])
+
+    @staticmethod
+    def rotation(angle, axis):
+        c = math.cos(angle)
+        s = math.sin(angle)
+        if axis == 'X':
+            m = [[1, 0,  0, 0],
+                 [0, c, -s, 0],
+                 [0, s,  c, 0],
+                 [0, 0,  0, 1]]
+        elif axis == 'Y':
+            m = [[c, 0, s, 0],
+                 [0, 1, 0, 0],
+                 [-s, 0, c, 0],
+                 [0, 0, 0, 1]]
+        elif axis == 'Z':
+            m = [[c, -s, 0, 0],
+                 [s,  c, 0, 0],
+                 [0,  0, 1, 0],
+                 [0,  0, 0, 1]]
+        else:
+            raise ValueError(f"Bad axis {axis}")
+        return Mat4(m)
 
     def __getitem__(self, row):
         return self.m[row]

@@ -3,8 +3,8 @@ import traceback
 from bpy.props import StringProperty, BoolProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from ..core.animation import import_animation, export_animation, get_bones_for_export
-from ..core.skeleton import find_active_skeleton
+from ...core.animation import import_animation, export_animation, get_bones_for_export
+from ...core.skeleton import find_active_skeleton
 
 # -------------------------- Import --------------------------
 

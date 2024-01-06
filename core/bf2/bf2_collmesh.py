@@ -206,25 +206,31 @@ class BSP:
             return node
 
         if builder.root is None:
-            # might happen when collmesh is very simple
-            print("Cannot build BSP tree, no good enough split plane found")
-            return None
+            print(f"Cannot build BSP tree, no good enough split plane found")
+            # happens when collmesh is very simple(e.g. single face) lets build a dummy tree
+            # with just root and all faces on one side (this is also what 3ds max exporter does)
+            # mitht not be optimal!
+            split_plane_val = _verts[0][0]
+            split_plane_axis = 0
+            root = BSP.Node(split_plane_val, split_plane_axis)
+            root.faces[0] = faces
+        else:
+            root = _copy(builder.root)
 
-        root = _copy(builder.root)
         mins, maxs = calc_bounds(verts)
         return BSP(mins, maxs, root)
 
 
-class Lod:
+class Col:
 
-    class CollType:
+    class ColType:
         PROJECTILE = 0
         VEHICLE = 1
         SOLDIER = 2
         AI = 3
 
     def __init__(self):
-        self.coll_type : Lod.CollType = None
+        self.col_type : Col.ColType = None
 
         self.faces : List[Face] = []
         self.verts : List[Vec3] = []
@@ -240,13 +246,13 @@ class Lod:
     @classmethod
     def load(cls, f : FileUtils, version):
         obj = cls()
-        obj.coll_type = f.read_dword()
+        obj.col_type : Col.ColType = f.read_dword()
 
-        obj.faces = load_n_elems(f, Face, count=f.read_dword())
+        obj.faces : List[Face] = load_n_elems(f, Face, count=f.read_dword())
 
         vertnum = f.read_dword()
-        obj.verts = load_n_elems(f, Vec3, count=vertnum)
-        obj.vert_materials = [f.read_word() for _ in range(vertnum)]
+        obj.verts : List[Vec3] = load_n_elems(f, Vec3, count=vertnum)
+        obj.vert_materials : List[int] = [f.read_word() for _ in range(vertnum)]
 
         obj.min = Vec3.load(f)
         obj.max = Vec3.load(f)
@@ -263,7 +269,7 @@ class Lod:
         return obj
 
     def save(self, f : FileUtils, update_bounds=True):
-        f.write_dword(self.coll_type)
+        f.write_dword(self.col_type)
         f.write_dword(len(self.faces))
         for face in self.faces:
             face.save(f)
@@ -293,40 +299,41 @@ class Lod:
             self.bsp.save(f, self.faces)
 
 
-class SubGeom:
+class Geom:
     def __init__(self):
-        self.lods : List[Lod] = []
+        self.cols : List[Col] = []
 
     @classmethod
     def load(cls, f : FileUtils, version):
         obj = cls()
-        obj.lods = load_n_elems(f, Lod, count=f.read_dword(), version=version)
+        obj.cols : List[Col] = load_n_elems(f, Col, count=f.read_dword(), version=version)
         return obj
     
     def save(self, f : FileUtils):
-        f.write_dword(len(self.lods))
-        for lod in self.lods:
-            lod.save(f)
+        f.write_dword(len(self.cols))
+        for col in self.cols:
+            col.save(f)
 
-class Geom:
+
+class GeomPart:
     def __init__(self):
-        self.subgeoms : List[SubGeom] = []
+        self.geoms : List[Geom] = []
 
     @classmethod
     def load(cls, f : FileUtils, version):
         obj = cls()
-        obj.subgeoms = load_n_elems(f, SubGeom, count=f.read_dword(), version=version)
+        obj.geoms : List[Geom] = load_n_elems(f, Geom, count=f.read_dword(), version=version)
         return obj
 
     def save(self, f : FileUtils):
-        f.write_dword(len(self.subgeoms))
-        for subgeom in self.subgeoms:
-            subgeom.save(f)
+        f.write_dword(len(self.geoms))
+        for geom in self.geoms:
+            geom.save(f)
 
 
 class BF2CollMesh:
     def __init__(self, file='', name=''):
-        self.geoms : List[Geom] = []
+        self.geom_parts : List[GeomPart] = [] # each one corresponds to the index of geometry part from the .tweak file
 
         if name:
             self.name = name
@@ -347,7 +354,7 @@ class BF2CollMesh:
             if version[0] != 0 and version[1] < 9 or version[1] > 10:
                 raise BF2CollMeshException(f"Unsupported .collisionmesh version {version}")
 
-            self.geoms = load_n_elems(f, Geom, count=f.read_dword(), version=version)
+            self.geom_parts : List[GeomPart] = load_n_elems(f, GeomPart, count=f.read_dword(), version=version)
 
             if os.fstat(file.fileno()).st_size != file.tell():
                 raise BF2CollMeshException("Corrupted .collisionmesh file? Reading finished and file pointer != filesize")
@@ -357,6 +364,6 @@ class BF2CollMesh:
             f = FileUtils(file)
             f.write_dword(0)
             f.write_dword(9)
-            f.write_dword(len(self.geoms))
-            for geoms in self.geoms:
-                geoms.save(f)
+            f.write_dword(len(self.geom_parts))
+            for geom_part in self.geom_parts:
+                geom_part.save(f)

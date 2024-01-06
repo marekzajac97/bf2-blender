@@ -1,11 +1,12 @@
 import os
 import enum
 import struct
+import math
 from typing import List, Optional, Tuple
 
 from .bf2_types import D3DDECLTYPE, D3DDECLUSAGE, D3DPRIMITIVETYPE, USED, UNUSED
 from ..fileutils import FileUtils
-from ..bf2_common import Vec3, load_n_elems, calc_bounds
+from ..bf2_common import Vec3, Mat4, load_n_elems, calc_bounds
 
 class BF2MeshException(Exception):
     pass
@@ -135,12 +136,20 @@ class Material:
         return self._inum
 
     def calc_bounds(self):
+        if not self.vertices:
+            raise ValueError("Cannot calculate bounds vertices is empty")
         verts = [vertex.position for vertex in self.vertices]
         self._min, self._max = calc_bounds(verts)
         return (self._min, self._max)
 
+class Plane:
+    def __init__(self, point, normal) -> None:
+        self.point = point
+        self.normal = normal
 
 class MaterialWithTransparency(Material):
+
+    ALPHA_BLEND_FACE_SET_COUNT = 8 # same as 3Ds max exporter
 
     class AlphaMode(enum.IntEnum):
         NONE = 0
@@ -182,8 +191,7 @@ class MaterialWithTransparency(Material):
 
     def save_faces(self, index_buffer, istart):         
         if self.alpha_mode == self.AlphaMode.ALPHA_BLEND:
-            # TODO: need to figure out how pre-sorted faces get generated
-            raise NotImplementedError("Exporting materials with alpha blend is not supported as of now")
+            return self._save_faces_alpha_blend(index_buffer, istart)
         else:
             return super().save_faces(index_buffer, istart)
 
@@ -191,6 +199,48 @@ class MaterialWithTransparency(Material):
         f.write_dword(self.alpha_mode)
         super().save(f)
 
+    def _get_sorting_planes(self):
+        planes_count = self.ALPHA_BLEND_FACE_SET_COUNT
+        self.calc_bounds()
+        max_dist = Vec3.distance(Vec3(), self._max)
+        min_dist = Vec3.distance(Vec3(), self._min)
+        max_radius = max(max_dist, min_dist)
+
+        sorting_planes = list()
+        for i in range(planes_count):
+            plane_rotation = 360.0 / (2 * planes_count) + i * (360.0 / planes_count)
+            rot_m = Mat4.rotation(-math.radians(plane_rotation), 'Y')
+            plane_normal = Vec3(0, 0, -1)
+            plane_normal.rotate(rot_m)
+            plane_point = plane_normal.copy().scale(max_radius)
+            sorting_planes.append(Plane(plane_point, plane_normal))
+        return sorting_planes
+
+    def _save_faces_alpha_blend(self, index_buffer, istart):
+        sorting_planes = self._get_sorting_planes()
+        self._inum = len(self.faces) * 3
+        self._istart = istart
+
+        face_mid_points = list()
+        for face in self.faces:
+            face_center = Vec3()
+            for v in face:
+                face_center.add(Vec3(*self.vertices[v].position))
+            face_center.scale(1.0 / 3)
+            face_mid_points.append(face_center)
+
+        for plane in sorting_planes:
+            face_dist_to_plane = list()
+            for face, face_center in zip(self.faces, face_mid_points):
+                delta = face_center.copy().sub(plane.point)
+                dist = abs(delta.dot_product(plane.normal))
+                face_dist_to_plane.append(dist)
+
+            for _, face in sorted(zip(face_dist_to_plane, self.faces)):
+                index_buffer.append(face[0])
+                index_buffer.append(face[1])
+                index_buffer.append(face[2])
+        return self._inum * len(sorting_planes)
 
 class Lod:
     _MATERIAL_TYPE = Material
@@ -399,11 +449,16 @@ class BF2VisibleMesh():
             vertex_buffer : bytearray = bytearray()
             index_buffer : List[int] = list()
 
+            has_alpha_blend_material = False
+
             vstart = 0
             istart = 0
             for geom in self.geoms:
                 for lod in geom.lods:
                     for mat in lod.materials:
+                        if isinstance(mat, MaterialWithTransparency):
+                            is_alpha_blend = mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_BLEND
+                            has_alpha_blend_material |= is_alpha_blend
                         vstart += mat.save_vertices(self.vertex_attributes, vertex_buffer, vstart)
                         istart += mat.save_faces(index_buffer, istart)
 
@@ -412,8 +467,10 @@ class BF2VisibleMesh():
             f.write_dword(len(index_buffer))
             f.write_word(index_buffer)
 
-            if issubclass(self._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE, MaterialWithTransparency):
-                f.write_dword(0) # TODO alpha_blend_indexnum
+            if has_alpha_blend_material:
+                f.write_dword(MaterialWithTransparency.ALPHA_BLEND_FACE_SET_COUNT)
+            else:
+                f.write_dword(0)
 
             for geom in self.geoms:
                 for lod in geom.lods:

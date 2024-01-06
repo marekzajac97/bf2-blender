@@ -3,7 +3,7 @@ import traceback
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 
-from ..core.skeleton import import_skeleton
+from ...core.skeleton import import_skeleton
 
 class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_skeleton.import"

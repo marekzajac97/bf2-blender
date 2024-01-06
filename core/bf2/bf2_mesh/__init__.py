@@ -15,4 +15,4 @@ class BF2Mesh:
         elif ext == BF2BundledMesh._FILE_EXT:
             return BF2BundledMesh(file)
         else:
-            return None
+            raise ValueError(f"unknown mesh type {ext}")

@@ -3,7 +3,7 @@ import traceback
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from ..core.collision_mesh import import_collisionmesh, export_collisionmesh
+from ...core.collision_mesh import import_collisionmesh, export_collisionmesh
 
 class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_collisionmesh.import"
@@ -44,7 +44,8 @@ def draw_import(layout):
     layout.operator(IMPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
 
 def draw_export(layout):
-    layout.operator(EXPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
+    pass
+    # layout.operator(EXPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
 
 def register():
     bpy.utils.register_class(IMPORT_OT_bf2_collisionmesh)

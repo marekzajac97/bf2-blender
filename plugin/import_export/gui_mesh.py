@@ -1,19 +1,18 @@
 import bpy
 import traceback
-from bpy.types import Mesh
 from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 
-from ..core.mesh import (import_mesh,
-                         import_bundledmesh,
-                         import_skinnedmesh,
-                         import_staticmesh,
-                         export_staticmesh,
-                         add_staticmesh_material,
-                         get_uv_layers)
-from ..core.skeleton import find_active_skeleton, ske_is_3p
+from ...core.mesh import (import_mesh,
+                          import_bundledmesh,
+                          import_skinnedmesh,
+                          import_staticmesh,
+                          export_staticmesh,
+                          export_bundledmesh,
+                          collect_uv_layers)
+from ...core.skeleton import find_active_skeleton, ske_is_3p
 
-from .. import PLUGIN_NAME
+from ... import PLUGIN_NAME
 
 class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_mesh.import"
@@ -70,7 +69,8 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
             else:
                 kwargs = {}
 
-            self.__class__.IMPORT_FUNC(context, self.filepath, remove_doubles=self.remove_doubles,
+            self.__class__.IMPORT_FUNC(context, self.filepath,
+                                       remove_doubles=self.remove_doubles,
                                        texture_path=mod_path, **kwargs)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
@@ -104,25 +104,24 @@ class IMPORT_OT_bf2_bundledmesh(IMPORT_OT_bf2_mesh):
     FILE_DESC = "BundledMesh (.bundledmesh)"
 
 
-def add_uvs(self, context):
-    items = []
-    active_obj = context.view_layer.objects.active
-    for uv_channel, uv_layer in get_uv_layers(active_obj).items():
-        items.append((uv_layer, uv_layer, "", uv_channel))
-    return items
+class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
+    bl_idname = "bf2_mesh.export_mesh"
+    bl_label = "Export Mesh"
+    EXPORT_FUNC = None
+    FILE_DESC = None
 
-class EXPORT_OT_bf2_staticmesh(bpy.types.Operator, ExportHelper):
-    bl_idname = "bf2_mesh.export_staticmesh"
-    bl_label = "Export Static Mesh"
-    filename_ext = ".staticmesh"
-    filter_glob = StringProperty(default="*.staticmesh", options={'HIDDEN'})
-    FILE_DESC = "StaticMesh (.staticmesh)"
+    def get_uv_layers(self, context):
+        items = []
+        active_obj = context.view_layer.objects.active
+        for uv_channel, uv_layer in collect_uv_layers(active_obj).items():
+            items.append((uv_layer, uv_layer, "", uv_channel))
+        return items
 
     tangent_uv_map : EnumProperty(
         name="Tangent UV",
         description="UV Layer that you've used to bake the normal map, needed for tangent space generation",
         default=1,
-        items=add_uvs
+        items=get_uv_layers
     )
 
     @classmethod
@@ -133,101 +132,51 @@ class EXPORT_OT_bf2_staticmesh(bpy.types.Operator, ExportHelper):
         active_obj = context.view_layer.objects.active
         mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
         try:
-           export_staticmesh(active_obj, self.filepath, mod_path, self.tangent_uv_map)
+           self.EXPORT_FUNC(active_obj, self.filepath,
+                            texture_path=mod_path,
+                            tangent_uv_map=self.tangent_uv_map)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
-###########################
-######### Materials #######
-###########################
 
-MATERIAL_TYPES = [
-    ('STATICMESH', 'StaticMesh', "", 0),
-]
-   
-ALPHA_MODES = [
-    ('NONE', 'None', "", 0),
-    ('ALPHA_TEST', 'Alpha Test', "", 1)
-    # ('ALPHA_BLEND', 'Alpha Blend', "", 2) # Not supported yet
-]
+class EXPORT_OT_bf2_staticmesh(EXPORT_OT_bf2_mesh):
+    bl_idname = "bf2_mesh.export_staticmesh"
+    bl_label = "Export Static Mesh"
+    filename_ext = ".staticmesh"
+    filter_glob = StringProperty(default="*.staticmesh", options={'HIDDEN'})
+    EXPORT_FUNC = export_staticmesh
+    FILE_DESC = "StaticMesh (.staticmesh)"
 
-class MESH_OT_bf2_add_material(bpy.types.Operator):
-    bl_idname = "bf2_mesh.add_material_staticmesh"
-    bl_label = "Add Static Mesh material"
-
-    meaterial_type : EnumProperty(
-        name="Material type",
-        description="Sets up material nodes to mimic specific BF2 shader",
-        default=0,
-        items=MATERIAL_TYPES
-    )
-
-    alpha_mode : EnumProperty(
-        name="Alpha mode",
-        description="Creates additional transparency BSDF and links it with proper alpha channel",
-        default=0,
-        items=ALPHA_MODES
-    )
-
-    @classmethod
-    def poll(cls, context):
-        active_obj = context.view_layer.objects.active
-        return active_obj is not None and isinstance(active_obj.data, Mesh)
-
-    def execute(self, context):
-        active_obj = context.view_layer.objects.active
-        try:
-           if self.meaterial_type == 'STATICMESH':
-                add_staticmesh_material(active_obj.data, self.alpha_mode)
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-        return {'FINISHED'}
-    
-    def invoke(self, context, event):
-        wm = context.window_manager
-        return wm.invoke_props_dialog(self)
-
-class MESH_PT_bf2_materials(bpy.types.Panel):
-    bl_label = "BF2 Material Tools"
-    bl_idname = "MESH_PT_bf2_materials"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = 'material'
-
-    @classmethod
-    def poll(cls, context):
-        active_obj = context.view_layer.objects.active
-        return active_obj is not None and isinstance(active_obj.data, Mesh)
-
-    def draw(self, context):
-        row = self.layout.row()
-        row.operator(MESH_OT_bf2_add_material.bl_idname, text="Add Material")
+class EXPORT_OT_bf2_bundledmesh(EXPORT_OT_bf2_mesh):
+    bl_idname= "bf2_mesh.export_bundledmesh"
+    bl_label = "Export BundledMesh"
+    filename_ext = ".staticmesh"
+    filter_glob = StringProperty(default="*.bundledmesh", options={'HIDDEN'})
+    EXPORT_FUNC = export_bundledmesh
+    FILE_DESC = "BundledMesh (.bundledmesh)"
 
 def draw_import(layout):
-    # layout.operator(IMPORT_OT_bf2_mesh.bl_idname, text=IMPORT_OT_bf2_mesh.FILE_DESC)
     layout.operator(IMPORT_OT_bf2_staticmesh.bl_idname, text=IMPORT_OT_bf2_staticmesh.FILE_DESC)
     layout.operator(IMPORT_OT_bf2_skinnedmesh.bl_idname, text=IMPORT_OT_bf2_skinnedmesh.FILE_DESC)
     layout.operator(IMPORT_OT_bf2_bundledmesh.bl_idname, text=IMPORT_OT_bf2_bundledmesh.FILE_DESC)
 
 def draw_export(layout):
     layout.operator(EXPORT_OT_bf2_staticmesh.bl_idname, text=EXPORT_OT_bf2_staticmesh.FILE_DESC)
+    layout.operator(EXPORT_OT_bf2_bundledmesh.bl_idname, text=EXPORT_OT_bf2_bundledmesh.FILE_DESC)
 
 def register():
-    # bpy.utils.register_class(IMPORT_OT_bf2_mesh)
+    bpy.utils.register_class(IMPORT_OT_bf2_mesh)
     bpy.utils.register_class(IMPORT_OT_bf2_staticmesh)
     bpy.utils.register_class(IMPORT_OT_bf2_skinnedmesh)
     bpy.utils.register_class(IMPORT_OT_bf2_bundledmesh)
     bpy.utils.register_class(EXPORT_OT_bf2_staticmesh)
-    bpy.utils.register_class(MESH_OT_bf2_add_material)
-    bpy.utils.register_class(MESH_PT_bf2_materials)
+    bpy.utils.register_class(EXPORT_OT_bf2_bundledmesh)
 
 def unregister():
-    bpy.utils.unregister_class(MESH_OT_bf2_add_material)
-    bpy.utils.unregister_class(MESH_PT_bf2_materials)
+    bpy.utils.unregister_class(EXPORT_OT_bf2_bundledmesh)
     bpy.utils.unregister_class(EXPORT_OT_bf2_staticmesh)
     bpy.utils.unregister_class(IMPORT_OT_bf2_bundledmesh)
     bpy.utils.unregister_class(IMPORT_OT_bf2_skinnedmesh)
     bpy.utils.unregister_class(IMPORT_OT_bf2_staticmesh)
-    
-    # bpy.utils.unregister_class(IMPORT_OT_bf2_mesh)
+    bpy.utils.unregister_class(IMPORT_OT_bf2_mesh)

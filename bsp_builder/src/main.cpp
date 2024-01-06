@@ -2,7 +2,6 @@
 #include <pybind11/stl.h>
 #include <vector>
 #include <tuple>
-#include <unordered_set>
 
 typedef std::tuple<int, int, int> Face;
 typedef std::tuple<float, float, float> Vertex;
@@ -208,8 +207,15 @@ typedef std::array<Plane, 3> AxisPlanes;
 
 class BspBuilder {
 public:
-    BspBuilder(const std::vector<Vertex>& verts, const std::vector<Face>& faces)
-        : vert_count(verts.size())
+    BspBuilder(const std::vector<Vertex>& verts, const std::vector<Face>& faces,
+               float coplanar_weight = 0.5f, float intersect_weight = 1.0f,
+               float split_weight = 1.0f, float min_split_metric = 0.5f)
+        :
+        vert_count(verts.size()),
+        coplanar_weight(coplanar_weight),
+        intersect_weight(intersect_weight),
+        split_weight(split_weight),
+        min_split_metric(min_split_metric)
     {
         polys.reserve(faces.size());
         std::vector<size_t> poly_indexes;
@@ -236,6 +242,9 @@ public:
     Node* root = nullptr;
 
     ~BspBuilder() {
+        if (root == nullptr) {
+            return;
+        }
         destroy_bsp_tree(root);
     }
 
@@ -243,6 +252,10 @@ private:
     std::vector<Poly> polys; // lookup for face_idx -> poly
     std::vector<AxisPlanes> planes; // lookup for vert_index -> 3 planes created by this vert
     size_t vert_count;
+    const float coplanar_weight; // puts more emphasis on keeping to minimum coplanar polygons
+    const float intersect_weight; // puts more emphasis on keeping to minimum intersecting polygons
+    const float split_weight; // puts more emphasis on equal split on front / back polygons
+    const float min_split_metric; // minimum acceptable metric, when to stop splitting
 
     Node* build_bsp_tree(std::vector<size_t>& poly_indexes) {
 
@@ -286,11 +299,6 @@ private:
     }
 
     Plane* find_best_split_plane(std::vector<size_t>& poly_indexes) {
-        static constexpr float COPLANAR_WEIGHT = 0.5f; // puts more emphasis on keeping to minimum coplanar polygons
-        static constexpr float INTERSECT_WIEGHT = 1.0f; // puts more emphasis on keeping to minimum intersecting polygons
-        static constexpr float SPLIT_WEIGHT = 1.0f; // puts more emphasis on equal split on front / back polygons
-        static constexpr float MIN_SPLIT_METRIC = 0.5f; // minimum acceptable metric, when to stop splitting
-
         float best_metric = std::numeric_limits<float>::infinity();
         Plane* best_split_plane = nullptr;
 
@@ -345,11 +353,11 @@ private:
                 float intersect_ratio = (float)intersect_count / (float)poly_count;
                 float coplanar_ratio = (float)coplanar_count / (float)poly_count;
 
-                float metric = std::abs(0.5f - split_ratio) * SPLIT_WEIGHT +
-                               intersect_ratio * INTERSECT_WIEGHT +
-                               coplanar_ratio * COPLANAR_WEIGHT;
+                float metric = std::abs(0.5f - split_ratio) * split_weight +
+                               intersect_ratio * intersect_weight +
+                               coplanar_ratio * coplanar_weight;
 
-                if (metric > MIN_SPLIT_METRIC)
+                if (metric > min_split_metric)
                     continue;
 
                 if (metric < best_metric) {
@@ -378,7 +386,12 @@ namespace py = pybind11;
 PYBIND11_MODULE(bsp_builder, m) {
 
     py::class_<BspBuilder>(m, "BspBuilder")
-        .def(py::init<const std::vector<Vertex>&, const std::vector<Face>&>())
+        .def(py::init<const std::vector<Vertex>&, const std::vector<Face>&, float, float, float, float>(),
+            py::arg("verts"), py::arg("faces"),
+            py::arg("coplanar_weight") = 0.5f,
+            py::arg("intersect_weight") = 1.0f,
+            py::arg("split_weight") = 1.0f,
+            py::arg("min_split_metric") = 0.5f)
         .def_readonly("root", &BspBuilder::root);
 
     py::class_<Plane>(m, "Plane")

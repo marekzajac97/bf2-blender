@@ -83,9 +83,16 @@ class Node:
 
 class BspBuilder:
 
-    def __init__(self, verts : Tuple[float], faces : Tuple[int]):
+    def __init__(self, verts : Tuple[float], faces : Tuple[int],
+                 complanar_weigth = 0.5, intersect_weight = 1.0,
+                 split_weight = 1.0, min_split_metric = 0.5):
         self.verts = [Vec3(*v) for v in verts]
         self.faces = faces
+
+        self.complanar_weigth = complanar_weigth # puts more emphasis on keeping to minimum coplanar polygons
+        self.intersect_weight = intersect_weight # puts more emphasis on keeping to minimum intersecting polygons
+        self.split_weight = split_weight # puts more emphasis on equal split on front/back polygons
+        self.min_split_metric = min_split_metric # minimum acceptable metric, when to stop splitting
 
         polys = list()
         for face_idx, face in enumerate(faces):
@@ -103,11 +110,6 @@ class BspBuilder:
             yield Plane(self.verts[vert][i], i)
 
     def _find_best_split_plane(self, polys : List[Poly]):
-        COPLANAR_WEIGHT = 0.5 # puts more emphasis on keeping to minimum coplanar polygons
-        INTERSECT_WIEGHT = 1 # puts more emphasis on keeping to minimum intersecting polygons
-        SPLIT_WEIGHT = 1 # puts more emphasis on equal split on front/back polygons
-        MIN_SPLIT_METRIC = 0.5 # minimum acceptable metric, when to stop splitting
-
         best_metric = float("inf")
         best_split_plane = None
 
@@ -137,11 +139,11 @@ class BspBuilder:
             intersect_ratio = intersect_count / len(polys)
             coplanar_ratio = coplanar_count / len(polys)
 
-            metric = (abs(0.5 - split_ratio) * SPLIT_WEIGHT +
-                      intersect_ratio * INTERSECT_WIEGHT +
-                      coplanar_ratio * COPLANAR_WEIGHT)
+            metric = (abs(0.5 - split_ratio) * self.split_weight +
+                      intersect_ratio * self.intersect_weight +
+                      coplanar_ratio * self.complanar_weigth)
 
-            if metric > MIN_SPLIT_METRIC:
+            if metric > self.min_split_metric:
                 continue
 
             if metric < best_metric:

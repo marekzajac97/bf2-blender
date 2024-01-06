@@ -1,40 +1,18 @@
 import bpy
 import bmesh
-import math
-import struct
 import os
 
 from mathutils import Vector, Matrix
 
 from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
 from .bf2.bf2_common import Vec3, Mat4
-from .bf2.bf2_mesh.bf2_staticmesh import StaticMeshGeom, StaticMeshLod, StaticMeshMaterial
-from .bf2.bf2_mesh.bf2_visiblemesh import MaterialWithTransparency, Vertex, VertexAttribute
+from .bf2.bf2_mesh.bf2_visiblemesh import Material, MaterialWithTransparency, Vertex, VertexAttribute
 from .bf2.bf2_mesh.bf2_types import D3DDECLTYPE, D3DDECLUSAGE
 
 from .exceptions import ImportException, ExportException
-from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists, check_suffix
+from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists, check_prefix
 from .skeleton import find_active_skeleton, ske_get_bone_rot, ske_weapon_part_ids
-
-NODE_WIDTH = 300
-NODE_HEIGHT = 100
-
-STATICMESH_TECHNIQUES = [
-    'Base',
-    'BaseDetail',
-    'BaseDetailNDetail',
-    'BaseDetailCrack',
-    'BaseDetailCrackNCrack',
-    'BaseDetailCrackNDetail',
-    'BaseDetailCrackNDetailNCrack',
-    'BaseDetailDirtNDetail',
-    'BaseDetailDirtCrack',
-    'BaseDetailDirtCrackNCrack',
-    'BaseDetailDirtCrackNDetail',
-    'BaseDetailDirtCrackNDetailNCrack'
-]
-
-STATICMESH_TEXUTRE_MAP_TYPES = ['Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack']
+from .mesh_material import setup_material, get_ordered_staticmesh_maps, get_staticmesh_uv_channels, STATICMESH_TEXUTRE_MAP_TYPES, STANDARD_MAP_TYPES
 
 def import_mesh(context, mesh_file, **kwargs):
     return _import_mesh(context, BF2Mesh.load(mesh_file), **kwargs)
@@ -48,356 +26,424 @@ def import_skinnedmesh(context, mesh_file, **kwargs):
 def import_staticmesh(context, mesh_file, **kwargs):
     return _import_mesh(context, BF2StaticMesh(mesh_file), **kwargs)
 
-def _import_mesh(context, bf2_mesh, geom=None, lod=None, texture_path='', remove_doubles=False, reload=False):
+def _build_mesh_prefix(geom=None, lod=None):
+    if geom is not None and lod is not None:
+        return f'G{geom}L{lod}__'
+    elif geom is not None:
+        return f'G{geom}__'
+    else:
+        return ''
 
-    def _do_mesh_import(_name, _geom, _lod):
-        mesh_obj = _import_mesh_geometry(_name, bf2_mesh, _geom, _lod, texture_path, reload)
-
-        if isinstance(bf2_mesh, BF2SkinnedMesh):
-            _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, _geom, _lod)
-        elif isinstance(bf2_mesh, BF2BundledMesh):
-            _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, _geom, _lod)
-
-        context.scene.collection.objects.link(mesh_obj)
-        if remove_doubles: _remove_double_verts(context, mesh_obj)
-        return mesh_obj
-
+def _import_mesh(context, bf2_mesh, name='', geom=None, lod=None, reload=False, **kwargs):
+    name = name or bf2_mesh.name
     if geom is None and lod is None:
-        if reload: delete_object_if_exists(bf2_mesh.name)
-        root_obj = bpy.data.objects.new(bf2_mesh.name, None)
+        if reload: delete_object_if_exists(name)
+        root_obj = bpy.data.objects.new(name, None)
         context.scene.collection.objects.link(root_obj)
         for geom_idx, _ in enumerate(bf2_mesh.geoms):
-            geom_name = f'{bf2_mesh.name}_geom{geom_idx}'
+            geom_name = _build_mesh_prefix(geom_idx) + name
             if reload: delete_object_if_exists(geom_name)
             geom_obj = bpy.data.objects.new(geom_name, None)
             geom_obj.parent = root_obj
             context.scene.collection.objects.link(geom_obj)
             for lod_idx, _ in enumerate(bf2_mesh.geoms[geom_idx].lods):
-                lod_name = f'{geom_name}_lod{lod_idx}'
-                lod_obj = _do_mesh_import(lod_name, geom_idx, lod_idx)
+                bf2_lod = bf2_mesh.geoms[geom_idx].lods[lod_idx]
+                lod_name = _build_mesh_prefix(geom_idx, lod_idx) + name
+                lod_obj = _import_mesh_lod(context, lod_name, bf2_mesh,
+                                           bf2_lod, reload, **kwargs)
                 lod_obj.parent = geom_obj
+        return root_obj
     else:
-        _do_mesh_import(bf2_mesh.name, geom, lod)
+        bf2_lod = bf2_mesh.geoms[geom].lods[lod]
+        return _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload, **kwargs)
 
-def get_uv_layers(mesh_obj, geom=0, lod=0):
+def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False,
+                     texture_path='', remove_doubles=False):
+
+    mesh_obj = _import_mesh_geometry(name, bf2_mesh, bf2_lod, texture_path, reload)
+
+    if isinstance(bf2_mesh, BF2SkinnedMesh):
+        _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, bf2_lod)
+    elif isinstance(bf2_mesh, BF2BundledMesh):
+        _import_parts_bundled_mesh(context, mesh_obj, bf2_mesh, bf2_lod)
+
+    context.scene.collection.objects.link(mesh_obj)
+    if remove_doubles: _remove_double_verts(context, mesh_obj)
+    return mesh_obj
+
+def collect_uv_layers(mesh_obj, geom=0, lod=0):
     uv_layers = dict()
     if mesh_obj is None:
         return uv_layers
 
     for geom_obj in mesh_obj.children:
-        if geom_obj.name.endswith(f'_geom{geom}'):
+        if geom_obj.name.startswith(f'G{geom}'):
             for lod_obj in geom_obj.children:
-                if lod_obj.name.endswith(f'_lod{lod}'):
+                if lod_obj.name.startswith(f'G{geom}L{lod}'):
                     if lod_obj.data:
                         for uv_chan in range(5):
                             if f'UV{uv_chan}' in lod_obj.data.uv_layers:
                                 uv_layers[uv_chan] = f'UV{uv_chan}'
     return uv_layers
 
-def export_staticmesh(mesh_obj, mesh_file, texture_path='', tangent_uv_map=''):
-    bf2_mesh = BF2StaticMesh(name=mesh_obj.name)
+def export_bundledmesh(mesh_obj, mesh_file, **kwargs):
+    return _export_mesh(mesh_obj, mesh_file, BF2BundledMesh, **kwargs)
 
-    class _VertexData:
-        def __init__(self):
-            self.position = (0, 0, 0)
-            self.normal = (0, 0, 0)
-            self.tangent = (0, 0, 0)
-            self.bitangent_sign = 0
-            self.texcoords = [(0, 0) for _ in range(5)]
+# def export_skinnedmesh(mesh_obj, mesh_file, **kwargs):
+#     return _export_mesh(mesh_obj, mesh_file, BF2SkinnedMesh, **kwargs)
 
-        def compare(self, other):
-            if isinstance(other, _VertexData):
-                if not _is_same_vec(self.position, other.position):
-                    return False
-                if not _is_same_vec(self.normal, other.normal):
-                    return False
-                if not _is_same_vec(self.tangent, other.tangent):
-                        return False
-                if self.bitangent_sign != other.bitangent_sign:
-                        return False
-                for uv_chan in range(5):
-                    if self.texcoords[uv_chan] != other.texcoords[uv_chan]:
-                        return False
-                return True
-            return False
+def export_staticmesh(mesh_obj, mesh_file, **kwargs):
+    return _export_mesh(mesh_obj, mesh_file, BF2StaticMesh, **kwargs)
 
+def _setup_vertex_attributes(bf2_mesh):
+    mesh_type = type(bf2_mesh)
     vert_attrs = bf2_mesh.vertex_attributes
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.NORMAL))
+    if mesh_type == BF2SkinnedMesh:
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT1, D3DDECLUSAGE.BLENDWEIGHT))
+
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.D3DCOLOR, D3DDECLUSAGE.BLENDINDICES))
-    # XXX: do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD0))
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD2))
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD3))
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD4))
+
+    if mesh_type == BF2StaticMesh:
+        # XXX: do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD2))
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD3))
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD4))
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.TANGENT))
 
+def _collect_geoms_lods(mesh_obj):
     if not mesh_obj.children:
         raise ExportException(f"mesh object '{mesh_obj.name}' has no children (geoms)!")
+    geoms = list()
 
-    geoms = dict()
+    mesh_geoms = dict()
     for geom_obj in mesh_obj.children:
-        geom_idx = check_suffix(geom_obj.name, 'geom')
-        if geom_idx in geoms:
-            raise ExportException(f"mesh object '{mesh_obj.name}' has duplicated geom{geom_idx}")
-        geoms[geom_idx] = geom_obj
-    for _, geom_obj in sorted(geoms.items()):
-        geom = StaticMeshGeom()
-        bf2_mesh.geoms.append(geom)
+        geom_idx = check_prefix(geom_obj.name, ('G', ))
+        if geom_idx in mesh_geoms:
+            raise ExportException(f"mesh object '{mesh_obj.name}' has duplicated G{geom_idx}")
+        mesh_geoms[geom_idx] = geom_obj
+    for _, geom_obj in sorted(mesh_geoms.items()):
+        lods = list()
+        geoms.append(lods)
 
         if not geom_obj.children:
             raise ExportException(f"geom '{geom_obj.name}' has no children (lods)!")
 
-        lods = dict()
+        mesh_lods = dict()
         for lod_obj in geom_obj.children:
-            lod_idx = check_suffix(lod_obj.name, 'lod')
-            if lod_idx in lods:
-                raise ExportException(f"geom '{geom_obj.name}' has duplicated lod{lod_idx}")
-            lods[lod_idx] = lod_obj
-        for lod_idx, lod_obj in sorted(lods.items()):
-            lod = StaticMeshLod()
-            geom.lods.append(lod)
-            mesh = lod_obj.data
-            if mesh is None:
+            _, lod_idx = check_prefix(lod_obj.name, ('G', 'L'))
+            if lod_idx in mesh_lods:
+                raise ExportException(f"geom '{geom_obj.name}' has duplicated L{lod_idx}")
+            mesh_lods[lod_idx] = lod_obj
+        for _, lod_obj in sorted(mesh_lods.items()):
+            if lod_obj.data is None:
                 raise ExportException(f"lod '{lod_obj.name}' has no mesh data!")
+            lods.append(lod_obj)
 
-            has_custom_normals = mesh.has_custom_normals
-
-            # temporarly create custom split normals from vertex normals if not present
-            # need them for tangent calculation, otherwise doesn't work for god knows what reason
-            if not has_custom_normals:
-                vertex_normals = [vert.normal for vert in mesh.vertices]
-                mesh.normals_split_custom_set_from_vertices(vertex_normals)
-
-            # XXX: I have no idea what map is this supposed to be calculated on
-            # I assume it must match with tangents which were used to generate the normal map
-            # but we don't know this! so its probably needed to be added as an export setting?
-            if not tangent_uv_map:
-                raise ExportException("No UV selected for tangent space generation!")
-            mesh.calc_tangents(uvmap=tangent_uv_map)
-
-            # map uv channel to uv layer object
-            uv_layers = dict()
-            for uv_chan in range(5):
-                if f'UV{uv_chan}' in mesh.uv_layers:
-                    uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
-
-            # lightmap UV, if not present, generate it
-            if 4 not in uv_layers.keys():
-                light_uv_layer = mesh.uv_layers.new(name='UV4')
-                light_uv_layer.active = True
-                bpy.ops.object.select_all(action='DESELECT')
-                lod_obj.select_set(True)
-                bpy.context.view_layer.objects.active = lod_obj
-                bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True, PREF_NEW_UVLAYER=False,
-                                         PREF_APPLY_IMAGE=False, PREF_IMG_PX_SIZE=128, PREF_BOX_DIV=12, PREF_MARGIN_DIV=1)
-
-            # map materials to verts and faces
-            mat_idx_to_verts_faces = dict()
-            for poly in mesh.polygons:
-                if poly.loop_total > 3:
-                    raise ExportException("Exporter does not support polygons with more than 3 vertices! It must be triangulated")
-                if poly.material_index not in mat_idx_to_verts_faces:
-                    mat_idx_to_verts_faces[poly.material_index] = (set(), list())
-                vert_set, face_list = mat_idx_to_verts_faces[poly.material_index]
-                for v in poly.vertices:
-                    vert_set.add(v)
-                face_list.append(poly)
-
-            # create bf2 materials
-            for blend_mat_idx, (blend_vert_set, blend_faces) in sorted(mat_idx_to_verts_faces.items()):
-                blend_material = mesh.materials[blend_mat_idx]
-
-                bf2_mat = StaticMeshMaterial()
-                lod.materials.append(bf2_mat)
-
-                # map vertices to loop list
-                vert_loops = list()
-                loops_count = 0
-                for vert in sorted(blend_vert_set):
-                    loops = list()
-                    vert_loops.append(loops)
-                    for loop in mesh.loops:
-                        if vert == loop.vertex_index:
-                            loops_count += 1
-                            loops.append(loop)
-
-                # collect a list of unique verts, merge loops if possible
-                vertices = list() 
-                loop_to_vert_idx = [-1] * len(mesh.loops)
-                merged_loops_count = 0
-                for loops in vert_loops:
-                    vert_data_list = list()
-                    merged_loops = dict()
-                    for loop in loops:
-                        vert_data = _VertexData()
-                        vert_data.position = tuple(mesh.vertices[loop.vertex_index].co)
-                        vert_data.normal = tuple(loop.normal)
-                        vert_data.tangent = tuple(loop.tangent)
-                        vert_data.bitangent_sign = loop.bitangent_sign
-                        for uv_chan, uvlayer in uv_layers.items():
-                            vert_data.texcoords[uv_chan] = tuple(uvlayer.data[loop.index].uv)
-
-                        for other_loop_idx, other_vert_data in vert_data_list:
-                            if other_vert_data.compare(vert_data):
-                                merged_loops_count += 1
-                                merged_loops[loop.index] = other_loop_idx
-                                break
-                        else:
-                            vert_data_list.append((loop.index, vert_data))
-
-                    for loop_idx, vert_data in vert_data_list:
-                        loop_to_vert_idx[loop_idx] = len(vertices)
-                        vertices.append(vert_data)
-                    for loop_idx, merged_loop_idx in merged_loops.items():
-                        loop_to_vert_idx[loop_idx] = loop_to_vert_idx[merged_loop_idx]
-
-                stats = f'{lod_obj.name}_material{lod.materials.index(bf2_mat)}:'
-                stats += f'\n\tmerged loops: {merged_loops_count}/{loops_count}'
-                stats += f'\n\tvertices: {len(vertices)}'
-                stats += f'\n\tduplicated vertices: {len(vertices) - len(blend_vert_set)}'
-                stats += f'\n\tfaces: {len(blend_faces)}'
-                print(stats)
-
-                # create vertices
-                for vert_data in vertices:
-                    vert = Vertex()
-                    vert.position = _swap_zy(vert_data.position)
-                    vert.normal = _swap_zy(vert_data.normal)
-                    # third element of blendindices is bitangent sign 0 or 1
-                    # bitangent was caluculated based on UV and because we gotta
-                    # flip it vertically, the sign of the bitangent needs to be inverted as well
-                    bitangent_sign = 0 if vert_data.bitangent_sign > 0 else 1
-                    vert.blendindices = (0, 0, bitangent_sign, 0)
-                    vert.tangent = _swap_zy(vert_data.tangent)
-                    for uv_chan, uv in enumerate(vert_data.texcoords):
-                        _uv = _flip_uv(uv)
-                        setattr(vert, f'texcoord{uv_chan}', _uv)
-                    bf2_mat.vertices.append(vert)
-
-                # create faces
-                for face in blend_faces:
-                    face_verts = tuple(loop_to_vert_idx[face.loop_start:face.loop_start + face.loop_total])
-                    bf2_mat.faces.append( _invert_face(face_verts))
-
-                if blend_material.blend_method == 'BLEND':
-                    bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.ALPHA_BLEND
-                elif blend_material.blend_method == 'CLIP':
-                    bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.ALPHA_TEST
-                elif blend_material.blend_method == 'OPAQUE':
-                    bf2_mat.alpha_mode = StaticMeshMaterial.AlphaMode.NONE
-                else:
-                    raise ExportException(f"Invalid material alpha blend method '{blend_material.blend_method}', must be 'BLEND' (Alpha Blend), 'CLIP' (Alpha Test) or 'OPAQUE' (None)")
-
-                bf2_mat.fxfile = 'StaticMesh.fx'
-
-                # collect texture maps from nodes
-                texture_maps = dict()
-                for node in blend_material.node_tree.nodes:
-                    if node.bl_idname != 'ShaderNodeTexImage':
-                        continue
-                    if node.image is None:
-                        continue
-                    if node.name not in STATICMESH_TEXUTRE_MAP_TYPES:
-                        continue
-                    texture_maps[node.name] = node.image.filepath
-
-                # find matching technique, which only conatins maps from collected set
-                for technique in STATICMESH_TECHNIQUES:
-                    maps = _split_str_from_word_set(technique, texture_maps.keys())
-                    if maps is not None and len(maps) == len(texture_maps.keys()):
-                        bf2_mat.technique = technique
-                        break
-                else:
-                    raise ExportException(f"Could not find a matching shader technique for the detected texture map set: {texture_maps.keys()},"
-                                          "make sure that all of your Image Texture nodes are named correctly and have texture files loaded")
-
-                # add maps in proper order, based on technique
-                ordered_maps = _split_str_from_word_set(technique, texture_maps.keys())
-                for texture_map in ordered_maps:
-                    txt_map_file = texture_maps[texture_map]
-                    if texture_path: # make relative
-                        txt_map_file = os.path.relpath(txt_map_file, start=texture_path)     
-                    bf2_mat.maps.append(txt_map_file.replace('\\', '/').lower())
-
-                bf2_mat.maps.append('Common\Textures\SpecularLUT_pow36.dds') # XXX
-
-                # collect required UV channel indexes
-                uv_channels = set()
-                has_dirt = 'Dirt' in texture_maps.keys()
-                for texture_map in texture_maps.keys():
-                    if texture_map == 'Base':
-                        uv_chan = 0
-                    elif texture_map == 'Detail':
-                        uv_chan = 1
-                    elif texture_map == 'Dirt':
-                        uv_chan = 2
-                    elif texture_map == 'Crack':
-                        uv_chan = 3 if has_dirt else 2
-                    elif texture_map == 'NDetail':
-                        uv_chan = 1
-                    elif texture_map == 'NCrack':
-                        uv_chan = 3 if has_dirt else 2
-                    uv_channels.add(uv_chan)
-
-                # check required UVs are present
-                for uv_chan in uv_channels:
-                    if uv_chan not in uv_layers.keys():
-                        raise ExportException(f"Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
+    return geoms
 
 
-            lod.parts = [Mat4()] # TODO parts
-        
-        if not has_custom_normals:
-            mesh.free_normals_split() # remove custom split normals if we added them
-            mesh.free_tangents()
+def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, **kwargs):
+    bf2_mesh = mesh_type(name=mesh_obj.name)
+    _setup_vertex_attributes(bf2_mesh)
+
+    if mesh_geoms is None:
+        mesh_geoms = _collect_geoms_lods(mesh_obj)
+
+    for geom_obj in mesh_geoms:
+        geom = mesh_type._GEOM_TYPE()
+        bf2_mesh.geoms.append(geom)
+        for lod_obj in geom_obj:
+            lod = mesh_type._GEOM_TYPE._LOD_TYPE()
+            geom.lods.append(lod)
+            _export_mesh_lod(mesh_type, lod, lod_obj, **kwargs)
 
     bf2_mesh.export(mesh_file)
+    return bf2_mesh
 
-def add_staticmesh_material(mesh, alpha_mode, mat_name='StaticMesh'):
-    if mesh is None:
-        return
+def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_map=''):
+    mesh = lod_obj.data
+    has_custom_normals = mesh.has_custom_normals
 
-    material = bpy.data.materials.new(mat_name)
-    mesh.materials.append(material)
-    material.use_nodes = True
-    node_tree = material.node_tree
+    uv_count = 5 if mesh_type == BF2StaticMesh else 1
 
-    has_alpha = False
-    if alpha_mode == 'ALPHA_TEST':
-        has_alpha = True
-        material.blend_method = 'CLIP'
+    # temporarly create custom split normals from vertex normals if not present
+    # need them for tangent calculation, otherwise doesn't work for god knows what reason
+    if not has_custom_normals:
+        vertex_normals = [vert.normal for vert in mesh.vertices]
+        mesh.normals_split_custom_set_from_vertices(vertex_normals)
 
-    # create UV nodes
-    uv_map_nodes = dict()
-    for uv_chan in range(5):
-        uv = node_tree.nodes.new('ShaderNodeUVMap')
-        uv.uv_map = f'UV{uv_chan}'
-        uv.location = (-2 * NODE_WIDTH, -uv_chan * NODE_HEIGHT)
-        uv.hide = True
-        uv_map_nodes[uv_chan] = uv
+    # XXX: I have no idea what map is this supposed to be calculated on
+    # I assume it must match with tangents which were used to generate the normal map
+    # but we don't know this! so its probably needed to be added as an export setting?
+    if not tangent_uv_map:
+        raise ExportException("No UV selected for tangent space generation!")
+    mesh.calc_tangents(uvmap=tangent_uv_map)
 
-    # load textures
-    textute_map_nodes = list()
-    map_types = STATICMESH_TEXUTRE_MAP_TYPES + ['SpecularLUT_pow36']
-    for map_index, texture_map in enumerate(map_types):
-        tex_node = node_tree.nodes.new('ShaderNodeTexImage')
-        textute_map_nodes.append(tex_node)
-        tex_node.label = texture_map
-        tex_node.name = texture_map
-        tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
-        tex_node.hide = True
+    # map uv channel to uv layer object
+    uv_layers = dict()
+    for uv_chan in range(uv_count):
+        if f'UV{uv_chan}' in mesh.uv_layers:
+            uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
 
-    _setup_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes,
-                       'StaticMesh.fx', 'BaseDetailDirtCrackNDetailNCrack', has_alpha=has_alpha)
+    # lightmap UV, if not present, generate it
+    if mesh_type == BF2StaticMesh and 4 not in uv_layers.keys():
+        light_uv_layer = mesh.uv_layers.new(name='UV4')
+        light_uv_layer.active = True
+        bpy.ops.object.select_all(action='DESELECT')
+        lod_obj.select_set(True)
+        bpy.context.view_layer.objects.active = lod_obj
+        bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True, PREF_NEW_UVLAYER=False,
+                                    PREF_APPLY_IMAGE=False, PREF_IMG_PX_SIZE=128, PREF_BOX_DIV=12, PREF_MARGIN_DIV=1)
 
-def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
+    # BundledMesh specific
+    vertex_group_to_part_id = dict()
+    for vg in lod_obj.vertex_groups:
+        group_ok = True
+        if not vg.name.startswith('mesh'):
+            group_ok = False
+        try:
+            part_id = int(vg.name[len('mesh'):]) - 1
+        except ValueError:
+            group_ok = False
+
+        if part_id < 0:
+            group_ok = False
+
+        if not group_ok:
+            raise ExportException("Invalid vertex group, expected 'mesh<index>' where index is a positive integer")
+        vertex_group_to_part_id[vg.index] = part_id
+
+    # map materials to verts and faces
+    mat_idx_to_verts_faces = dict()
+    for poly in mesh.polygons:
+        if poly.loop_total > 3:
+            raise ExportException("Exporter does not support polygons with more than 3 vertices! It must be triangulated")
+        if poly.material_index not in mat_idx_to_verts_faces:
+            mat_idx_to_verts_faces[poly.material_index] = (set(), list())
+        vert_set, face_list = mat_idx_to_verts_faces[poly.material_index]
+        for v in poly.vertices:
+            vert_set.add(v)
+        face_list.append(poly)
+    
+    # map each vert to a list of loops that use this vert
+    vert_loops = dict()
+    for loop in mesh.loops:
+        vert_idx = loop.vertex_index
+        if vert_idx not in vert_loops:
+            loops = list()
+            vert_loops[vert_idx] = loops
+        else:
+            loops = vert_loops[vert_idx]
+        loops.append(loop)
+
+    # create bf2 materials
+    for blend_mat_idx, (blend_vert_set, blend_faces) in sorted(mat_idx_to_verts_faces.items()):
+        blend_material = mesh.materials[blend_mat_idx]
+
+        # validate material has correct settings
+        if not blend_material.is_bf2_material:
+            raise ExportException(f"Material '{blend_material.name}' is not toggled as BF2 material, check material settngs!")  
+        
+        SHADER_TYPE_TO_MESH = {
+            'STATICMESH' : BF2StaticMesh,
+            'BUNDLEDMESH' : BF2BundledMesh,
+            'SKINNEDMESH' : BF2SkinnedMesh
+        }
+
+        if SHADER_TYPE_TO_MESH[blend_material.bf2_shader] != mesh_type:
+            raise ExportException(f"Trying to export '{mesh_type.__name__}' but material '{blend_material.name}'"
+                                  f" shader type is set to '{blend_material.bf2_shader}', check material settings!")
+
+        bf2_mat : Material = mesh_type._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE()
+        bf2_lod.materials.append(bf2_mat)
+
+        # map each loop to vert index in vertex array
+        loop_to_vert_idx = [-1] * len(mesh.loops)
+
+        # merge stats
+        merged_loops_count = 0
+        total_loops_count = 0
+
+        # create material's vertices
+        for vert_idx, loops in vert_loops.items():
+            if vert_idx not in blend_vert_set: # filter only vertices for this material
+                continue
+ 
+            unique_loops = dict() # loop_idx -> vertex
+            merged_loops = dict() # loop_idx -> unique loop idx
+
+            blend_vertex = mesh.vertices[vert_idx]
+            for loop in loops:
+                vert = Vertex()
+                vert.position = _swap_zy(blend_vertex.co)
+                vert.normal = _swap_zy(loop.normal)
+                vert.tangent = _swap_zy(loop.tangent)
+
+                # (BundledMesh) first elem of blendindices is geom part index
+                part_idx = 0
+                if len(blend_vertex.groups) > 1:
+                    raise ExportException(f"Vertex assigned to more than one vertex group!")
+                elif len(blend_vertex.groups) > 0:
+                    vert_group = blend_vertex.groups[0].group
+                    part_idx = vertex_group_to_part_id[vert_group]
+
+                # third element of blendindices is bitangent sign 0 or 1
+                # bitangent was caluculated based on UV and because we flip it vertically
+                # (see below) the sign of the bitangent gotta be inverted as well
+                bitangent_sign = 0 if loop.bitangent_sign > 0 else 1
+                vert.blendindices = (part_idx, 0, bitangent_sign, 0)
+
+                for uv_chan, uvlayer in uv_layers.items():
+                    uv = _flip_uv(uvlayer.data[loop.index].uv)
+                    setattr(vert, f'texcoord{uv_chan}', uv)
+
+                # check if loop can be merged, if so, add reference to the same loop
+                total_loops_count += 1
+                for other_loop_idx, other_vert in unique_loops.items():
+                    if _can_merge_vert(other_vert, vert, uv_count):
+                        merged_loops_count += 1
+                        merged_loops[loop.index] = other_loop_idx
+                        break
+                else:
+                    unique_loops[loop.index] = vert
+
+            # add unique verts to vertex buffer
+            for loop_idx, vert in unique_loops.items():
+                loop_to_vert_idx[loop_idx] = len(bf2_mat.vertices)
+                bf2_mat.vertices.append(vert)
+            # map the loops to other unique verts
+            for loop_idx, unique_loop_idx in merged_loops.items():
+                loop_to_vert_idx[loop_idx] = loop_to_vert_idx[unique_loop_idx]
+
+        # create material's faces
+        for face in blend_faces:
+            face_verts = _invert_face(loop_to_vert_idx[face.loop_start:face.loop_start + face.loop_total])
+            bf2_mat.faces.append(face_verts)
+
+        # print stats
+        stats = f'{lod_obj.name}_material{bf2_lod.materials.index(bf2_mat)}:'
+        stats += f'\n\tmerged loops: {merged_loops_count}/{total_loops_count}'
+        stats += f'\n\tvertices: {len(bf2_mat.vertices)}'
+        stats += f'\n\tduplicated vertices: {len(bf2_mat.vertices) - len(blend_vert_set)}'
+        stats += f'\n\tfaces: {len(bf2_mat.faces)}'
+        print(stats)
+
+        ALPHA_MAPPING = {
+            'ALPHA_BLEND': MaterialWithTransparency.AlphaMode.ALPHA_BLEND,
+            'ALPHA_TEST': MaterialWithTransparency.AlphaMode.ALPHA_TEST,
+            'NONE': MaterialWithTransparency.AlphaMode.NONE,
+        }
+
+        if isinstance(bf2_mat, MaterialWithTransparency):
+            bf2_mat.alpha_mode = ALPHA_MAPPING[blend_material.bf2_alpha_mode]
+        
+        SHADER_MAPPING = {
+            'STATICMESH' : 'StaticMesh.fx',
+            'BUNDLEDMESH' : 'BundledMesh.fx',
+            'SKINNEDMESH' : 'SkinnedMesh.fx'
+        }
+
+        bf2_mat.fxfile = SHADER_MAPPING[blend_material.bf2_shader]
+
+        # collect texture maps from nodes
+        if mesh_type == BF2StaticMesh:
+            valid_maps = STATICMESH_TEXUTRE_MAP_TYPES
+        elif mesh_type == BF2BundledMesh:
+            valid_maps = STANDARD_MAP_TYPES
+        elif mesh_type == BF2SkinnedMesh:
+            valid_maps = STANDARD_MAP_TYPES
+
+        texture_maps = dict()
+        for node in blend_material.node_tree.nodes:
+            if node.bl_idname != 'ShaderNodeTexImage':
+                continue
+            if node.image is None:
+                continue
+            if node.name not in valid_maps:
+                continue
+            texture_maps[node.name] = node.image.filepath
+
+        def _append_texture_map(txt_map_file):
+            if texture_path: # make relative
+                txt_map_file = os.path.relpath(txt_map_file, start=texture_path)     
+            bf2_mat.maps.append(txt_map_file.replace('\\', '/').lower())
+
+        if mesh_type == BF2StaticMesh:
+            staticmesh_maps = get_ordered_staticmesh_maps(texture_maps)
+
+            if staticmesh_maps is None:
+                raise ExportException(f"Could not find a matching shader technique for the detected texture map set: {texture_maps.keys()},"
+                                       "make sure that all of your Image Texture nodes are named correctly and have texture files loaded")
+
+            bf2_mat.technique = ''.join(staticmesh_maps)
+
+            for texture_map in staticmesh_maps:
+                txt_map_file = texture_maps[texture_map]
+                _append_texture_map(txt_map_file)
+
+            # collect required UV channel indexes
+            uv_channels = get_staticmesh_uv_channels(bf2_mat.technique)
+
+            # check required UVs are present
+            for uv_chan in uv_channels:
+                if uv_chan not in uv_layers.keys():
+                    raise ExportException(f"Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
+
+        elif mesh_type == BF2BundledMesh:
+            if not blend_material.bf2_technique:
+                raise ExportException(f"{blend_material.name}: Material is missing technique, check material settings!")
+
+            bf2_mat.technique = blend_material.bf2_technique
+            for m in STANDARD_MAP_TYPES:
+                if m not in texture_maps:
+                    raise ExportException(f"{blend_material.name}: Material is missing '{m}' Image Texture node or has no texture file loaded!")
+            _append_texture_map(texture_maps['Diffuse'])
+            _append_texture_map(texture_maps['Normal'])
+        elif mesh_type == BF2SkinnedMesh:
+            raise NotImplementedError() # TODO
+
+    bf2_mat.maps.append('Common\Textures\SpecularLUT_pow36.dds') # XXX
+
+    if mesh_type == BF2StaticMesh:
+        bf2_lod.parts = [Mat4()] # TODO parts
+    elif mesh_type == BF2BundledMesh:
+        # XXX: some geometry parts migh have no verts assigned at all
+        # so write all groups defined, might do a warning or something in the future
+        bf2_lod.parts_num = len(vertex_group_to_part_id)
+    elif mesh_type == BF2SkinnedMesh:
+        raise NotImplementedError("rigs!!") # TODO
+
+    if not has_custom_normals:
+        mesh.free_normals_split() # remove custom split normals if we added them
+        mesh.free_tangents()
+
+def _can_merge_vert(this, other, uv_count, normal_weld_thres=0.9999, tangent_weld_thres=0.9999):
+    """compare vertex data from two loops"""
+    # EPSILON = 0.0001
+    # if not all([abs(this.normal[i] - other.normal[i]) < EPSILON for i in range(3)]):
+    #     return False
+    # if not all([abs(this.tangent[i] - other.tangent[i]) < EPSILON for i in range(3)]):
+    #     return False
+    if Vector(this.tangent).dot(Vector(other.tangent)) < tangent_weld_thres:
+        return False
+    if Vector(this.normal).dot(Vector(other.normal)) < normal_weld_thres:
+        return False
+    if this.blendindices[2] != other.blendindices[2]: # bitangent sign
+        return False
+    for uv_chan in range(uv_count):
+        uv_attr = f'texcoord{uv_chan}'
+        if getattr(this, uv_attr) != getattr(other, uv_attr):
+            return False
+    return True
+
+def _import_mesh_geometry(name, bf2_mesh, bf2_lod, texture_path, reload):
 
     if reload:
         delete_object_if_exists(name)
-
-    bf2_lod = bf2_mesh.geoms[geom].lods[lod]
 
     verts = list()
     faces = list()
@@ -482,65 +528,33 @@ def _import_mesh_geometry(name, bf2_mesh, geom, lod, texture_path, reload):
         material = bpy.data.materials.new(mat_name)
         mesh.materials.append(material)
 
-        # alpha mode
-        has_alpha = False
+        material.is_bf2_material = True
+        if bf2_mat.fxfile.endswith('.fx'):
+            material.bf2_shader = bf2_mat.fxfile[:-3].upper()
+        else:
+            raise ImportError(f"Bad shader '{bf2_mat.fxfile}'")
+
+        material.bf2_alpha_mode = 'NONE'
+        # XXX: bf2_technique has to be set last, because setting alpha and shader resets it
+        material.bf2_technique = bf2_mat.technique
         if isinstance(bf2_mat, MaterialWithTransparency):
             if bf2_mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_BLEND:
-                has_alpha = True
-                material.blend_method = 'BLEND'
+                material.bf2_alpha_mode = 'ALPHA_BLEND'
             elif bf2_mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_TEST:
-                has_alpha = True
-                material.blend_method = 'CLIP'
-            else:
-                material.blend_method = 'OPAQUE'
+                material.bf2_alpha_mode = 'ALPHA_TEST'
 
-        material.use_nodes = True
-        node_tree = material.node_tree
+        setup_material(material,
+                       texture_maps=bf2_mat.maps,
+                       uvs=uvs.keys(),
+                       texture_path=texture_path)
 
-        # create UV nodes
-        uv_map_nodes = dict()
-        for uv_chan in uvs.keys():
-            uv = node_tree.nodes.new('ShaderNodeUVMap')
-            uv.uv_map = f'UV{uv_chan}'
-            uv.location = (-2 * NODE_WIDTH, -uv_chan * NODE_HEIGHT)
-            uv.hide = True
-            uv_map_nodes[uv_chan] = uv
-
-        # load textures
-        textute_map_nodes = list()
-        for map_index, texture_map in enumerate(bf2_mat.maps):
-            tex_node = node_tree.nodes.new('ShaderNodeTexImage')
-            textute_map_nodes.append(tex_node)
-            if texture_path:
-                # t = os.path.basename(texture_file)
-                # if t in bpy.data.images:
-                #     bpy.data.images.remove(bpy.data.images[t])
-                try:
-                    tex_node.image = bpy.data.images.load(os.path.join(texture_path, texture_map), check_existing=True)
-                    tex_node.image.alpha_mode = 'NONE'
-                except RuntimeError:
-                    pass
-
-            tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
-            tex_node.hide = True
-
-        _setup_mesh_shader(node_tree, textute_map_nodes, uv_map_nodes,
-                           bf2_mat.fxfile, bf2_mat.technique, has_alpha=has_alpha)
-    
     obj = bpy.data.objects.new(name, mesh)
     return obj
 
-def _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, geom, lod):
-    
-    if not find_active_skeleton(context):
-        return # ignore if skeleton not loaded
-    
+def _import_parts_bundled_mesh(context, mesh_obj, bf2_mesh, bf2_lod):
+
     if not bf2_mesh.has_blend_indices():
         return
-
-    rig, skeleton = find_active_skeleton(context)
-
-    bf2_lod = bf2_mesh.geoms[geom].lods[lod]
 
     # find which part vertex belongs to
     vert_part_id = list()
@@ -552,19 +566,24 @@ def _import_rig_bundled_mesh(context, mesh_obj, bf2_mesh, geom, lod):
     # create vertex groups and assing verticies to them
     for vertex in mesh_obj.data.vertices:
         part_id = vert_part_id[vertex.index]
+        # have to be called same as bones
         group_name = f'mesh{part_id + 1}'
         if group_name not in mesh_obj.vertex_groups.keys():
             mesh_obj.vertex_groups.new(name=group_name)
         mesh_obj.vertex_groups[group_name].add([vertex.index], 1.0, "REPLACE")
 
+    # TODO: somehow check whether it is GenericFirearm
+    ske_data = find_active_skeleton(context)
+    if not ske_data:
+        return # ignore if skeleton not loaded
+    rig, skeleton = ske_data
     # parent mesh oject to armature
     mesh_obj.parent = rig
-    
     # add armature modifier to the object
     modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
     modifier.object = rig
 
-def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod):
+def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, bf2_lod):
     
     if not find_active_skeleton(context):
         return # ignore if skeleton not loaded
@@ -582,8 +601,6 @@ def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod):
     
     # we're gona change the 'rest' transforms of the bones
     bpy.ops.object.mode_set(mode='EDIT')
-    
-    bf2_lod = bf2_mesh.geoms[geom].lods[lod]
     
     id_to_bone = dict()
     for i, node in enumerate(skeleton.node_list()):
@@ -635,339 +652,9 @@ def _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, geom, lod):
 
     # parent mesh oject to armature
     mesh_obj.parent = rig
-    
     # add armature modifier to the object
     modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
     modifier.object = rig
-
-def _create_bf2_axes_swap():
-    if 'BF2AxesSwap' in bpy.data.node_groups:
-        return bpy.data.node_groups['BF2AxesSwap']
-    bf2_axes_swap = bpy.data.node_groups.new('BF2AxesSwap', 'ShaderNodeTree')
-
-    group_inputs = bf2_axes_swap.nodes.new('NodeGroupInput')
-    bf2_axes_swap.inputs.new('NodeSocketVector', 'in')
-    group_outputs = bf2_axes_swap.nodes.new('NodeGroupOutput')
-    bf2_axes_swap.outputs.new('NodeSocketVector', 'out')
-
-    # swap Y/Z axes
-    swap_yz_decompose = bf2_axes_swap.nodes.new('ShaderNodeSeparateXYZ')
-    swap_yz_compose = bf2_axes_swap.nodes.new('ShaderNodeCombineXYZ')
-    bf2_axes_swap.links.new(swap_yz_decompose.outputs[0], swap_yz_compose.inputs[0])
-    bf2_axes_swap.links.new(swap_yz_decompose.outputs[2], swap_yz_compose.inputs[1])
-    bf2_axes_swap.links.new(swap_yz_decompose.outputs[1], swap_yz_compose.inputs[2])
-
-    bf2_axes_swap.links.new(group_inputs.outputs['in'], swap_yz_decompose.inputs[0])
-    bf2_axes_swap.links.new(swap_yz_compose.outputs[0], group_outputs.inputs['out'])
-
-    return bf2_axes_swap
-
-def _create_multiply_rgb_shader_node():
-    if 'MultiplyRGB' in bpy.data.node_groups:
-        return bpy.data.node_groups['MultiplyRGB']
-    multi_rgb = bpy.data.node_groups.new('MultiplyRGB', 'ShaderNodeTree')
-
-    group_inputs = multi_rgb.nodes.new('NodeGroupInput')
-    multi_rgb.inputs.new('NodeSocketColor', 'color')
-    group_outputs = multi_rgb.nodes.new('NodeGroupOutput')
-    multi_rgb.outputs.new('NodeSocketFloat', 'value')
-
-    node_separate_color = multi_rgb.nodes.new('ShaderNodeSeparateColor')
-    node_multiply_rg = multi_rgb.nodes.new('ShaderNodeMath')
-    node_multiply_rg.operation = 'MULTIPLY'
-    node_multiply_rgb = multi_rgb.nodes.new('ShaderNodeMath')
-    node_multiply_rgb.operation = 'MULTIPLY'
-
-    multi_rgb.links.new(node_separate_color.outputs[0], node_multiply_rg.inputs[0])
-    multi_rgb.links.new(node_separate_color.outputs[1], node_multiply_rg.inputs[1])
-    multi_rgb.links.new(node_separate_color.outputs[2], node_multiply_rgb.inputs[0])
-    multi_rgb.links.new(node_multiply_rg.outputs[0], node_multiply_rgb.inputs[1])
-
-    multi_rgb.links.new(group_inputs.outputs['color'], node_separate_color.inputs[0])
-    multi_rgb.links.new(node_multiply_rgb.outputs[0], group_outputs.inputs['value'])
-    return multi_rgb
-
-def _setup_transparency(node_tree, src_alpha_out, one_minus_src_alpha=False):
-    principled_BSDF = node_tree.nodes.get('Principled BSDF')
-
-    transparent_BSDF = node_tree.nodes.new('ShaderNodeBsdfTransparent')
-    mix_shader = node_tree.nodes.new('ShaderNodeMixShader')
-
-    if one_minus_src_alpha:
-        one_minus = node_tree.nodes.new('ShaderNodeMath')
-        one_minus.operation = 'SUBTRACT'
-        one_minus.inputs[0].default_value = 1
-        node_tree.links.new(src_alpha_out, one_minus.inputs[1])
-        alpha_output = one_minus.outputs[0]
-    else:
-        alpha_output = src_alpha_out
-
-    node_tree.links.new(principled_BSDF.outputs[0], mix_shader.inputs[2])
-    node_tree.links.new(transparent_BSDF.outputs[0], mix_shader.inputs[1])
-
-    node_tree.links.new(alpha_output, mix_shader.inputs[0])
-    return mix_shader.outputs[0]
-
-def _split_str_from_word_set(s : str, word_set : set):
-    words = list()
-    while s:
-        for word in word_set:
-            if s.startswith(word):
-                words.append(word)
-                s = s[len(word):]
-                break
-        else:
-            return None # contains word not in wordset
-    return words
-
-def _setup_mesh_shader(node_tree, texture_nodes, uv_map_nodes, shader, technique, has_alpha=False):
-    material_output = node_tree.nodes.get('Material Output')
-    principled_BSDF = node_tree.nodes.get('Principled BSDF')
-    shader_base_color = principled_BSDF.inputs[0]
-    shader_specular = principled_BSDF.inputs[7]
-    shader_roughness = principled_BSDF.inputs[9]
-    shader_normal = principled_BSDF.inputs[22]
-
-    shader_roughness.default_value = 1
-    shader_specular.default_value = 0
-
-    if shader.lower() in ('skinnedmesh.fx', 'bundledmesh.fx') :
-        UV_CHANNEL = 0      
-
-        diffuse = texture_nodes[0]
-        normal = texture_nodes[1]
-        diffuse.name = 'Diffuse'
-        normal.name = 'Normal'
-
-        node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], diffuse.inputs[0])
-        node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], normal.inputs[0])
-
-        if normal.image:
-            normal.image.colorspace_settings.name = 'Non-Color'
-
-        # diffuse
-        node_tree.links.new(diffuse.outputs[0], shader_base_color)
-
-        # specular
-        has_specular = shader.lower() != 'skinnedmesh.fx' and not has_alpha
-        if has_specular:
-            node_tree.links.new(diffuse.outputs[1], shader_specular)
-
-        # normal
-        normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
-        normal_node.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
-        normal_node.hide = True
-        node_tree.links.new(normal.outputs[0], normal_node.inputs[1])
-
-        if shader.lower() == 'skinnedmesh.fx':
-            normal_node.space = 'OBJECT'
-            # since this is object space normal we gotta swap Z/Y axes for it to look correct
-            axes_swap = node_tree.nodes.new('ShaderNodeGroup')
-            axes_swap.node_tree = _create_bf2_axes_swap()
-            axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
-            axes_swap.hide = True
-    
-            node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
-            normal_out = axes_swap.outputs[0]
-        else:
-            normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
-            normal_out = normal_node.outputs[0]
-
-        node_tree.links.new(normal_out, shader_normal)
-
-        # transparency
-        if has_alpha:
-            mix_shader_out = _setup_transparency(node_tree, diffuse.outputs[1])
-            node_tree.links.new(mix_shader_out, material_output.inputs[0])
-
-        principled_BSDF.location = (3 * NODE_WIDTH, 0 * NODE_HEIGHT)
-        material_output.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
-
-    elif shader.lower() == 'staticmesh.fx':
-
-        if technique == '':
-            return
-
-        if technique in ('ColormapGloss', 'EnvColormapGloss', 'Alpha_TestColormapGloss', 'Alpha', 'Alpha_Test'):
-            return # TODO
-
-        if technique not in STATICMESH_TECHNIQUES:
-            raise RuntimeError(f'Unsupported techinique "{technique}"')
-
-        maps = _split_str_from_word_set(technique, set(STATICMESH_TEXUTRE_MAP_TYPES))
-
-        if len(texture_nodes) - 1 != len(maps):
-            raise RuntimeError(f'Material techinique ({technique}) doesn\'t match number of texture maps ({len(texture_nodes)})')
-
-        base = None
-        detail = None
-        dirt = None
-        crack = None
-        ndetail = None
-        ncrack = None
-
-        # TODO specular LUT
-
-        for map_name, tex_node in zip(maps, texture_nodes):
-            if map_name == 'Base':
-                base = tex_node
-                uv_chan = 0
-            elif map_name == 'Detail':
-                detail = tex_node
-                uv_chan = 1
-            elif map_name == 'Dirt':
-                dirt = tex_node
-                uv_chan = 2
-            elif map_name == 'Crack':
-                crack = tex_node
-                uv_chan = 3 if dirt else 2
-            elif map_name == 'NDetail':
-                ndetail = tex_node
-                uv_chan = 1
-            elif map_name == 'NCrack':
-                ncrack = tex_node
-                uv_chan = 3 if dirt else 2
-
-            # link UVs with texture nodes
-            if uv_chan in uv_map_nodes:
-                node_tree.links.new(uv_map_nodes[uv_chan].outputs[0], tex_node.inputs[0])
-        
-        # change normal maps color space
-        if ndetail and ndetail.image:
-            ndetail.image.colorspace_settings.name = 'Non-Color'
-        if ncrack and ncrack.image:
-            ncrack.image.colorspace_settings.name = 'Non-Color'
-
-        if base: base.label = base.name = 'Base'
-        if detail: detail.label = detail.name = 'Detail'
-        if dirt: dirt.label = dirt.name = 'Dirt'
-        if crack: crack.label = crack.name = 'Crack'
-        if ndetail: ndetail.label = ndetail.name = 'NDetail'
-        if ncrack: ncrack.label = ncrack.name = 'NCrack'
-
-        # ---- diffuse ----
-        if detail:
-            # multiply detail and base color
-            multiply_detail = node_tree.nodes.new('ShaderNodeMixRGB')
-            multiply_detail.inputs[0].default_value = 1
-            multiply_detail.blend_type = 'MULTIPLY'
-            multiply_detail.location = (0 * NODE_WIDTH, 0 * NODE_HEIGHT)
-            multiply_detail.hide = True
-
-            node_tree.links.new(base.outputs[0], multiply_detail.inputs[1])
-            node_tree.links.new(detail.outputs[0], multiply_detail.inputs[2])
-            detail_out = multiply_detail.outputs[0]
-        else:
-            detail_out = base.outputs[0]
-
-        if crack:
-            # mix detail & crack color based on crack alpha
-            mix_crack = node_tree.nodes.new('ShaderNodeMixRGB')
-            mix_crack.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
-            mix_crack.hide = True
-
-            node_tree.links.new(crack.outputs[1], mix_crack.inputs[0])
-            node_tree.links.new(detail_out, mix_crack.inputs[1])
-            node_tree.links.new(crack.outputs[0], mix_crack.inputs[2])
-            crack_out = mix_crack.outputs[0]
-        else:
-            crack_out =  detail_out
-
-        if dirt:
-            # multiply dirt and diffuse
-            multiply_dirt = node_tree.nodes.new('ShaderNodeMixRGB')
-            multiply_dirt.inputs[0].default_value = 1
-            multiply_dirt.blend_type = 'MULTIPLY'
-            multiply_dirt.location = (2 * NODE_WIDTH, 0 * NODE_HEIGHT)
-            multiply_dirt.hide = True
-
-            node_tree.links.new(crack_out, multiply_dirt.inputs[1])
-            node_tree.links.new(dirt.outputs[0], multiply_dirt.inputs[2])
-            dirt_out = multiply_dirt.outputs[0]
-        else:
-            dirt_out = crack_out
-
-        # finally link to shader
-        node_tree.links.new(dirt_out, shader_base_color)
-
-        # ---- specular ----
-        if dirt:
-            # dirt.r * dirt.g * dirt.b
-            dirt_rgb_mult = node_tree.nodes.new('ShaderNodeGroup')
-            dirt_rgb_mult.node_tree = _create_multiply_rgb_shader_node()
-            dirt_rgb_mult.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
-            dirt_rgb_mult.hide = True
-
-            node_tree.links.new(dirt.outputs[0], dirt_rgb_mult.inputs[0])
-
-            # multiply that with detailmap alpha
-            mult_detaila = node_tree.nodes.new('ShaderNodeMath')
-            mult_detaila.operation = 'MULTIPLY'
-            mult_detaila.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
-            mult_detaila.hide = True
-
-            node_tree.links.new(dirt_rgb_mult.outputs[0], mult_detaila.inputs[1])
-            node_tree.links.new(detail.outputs[1], mult_detaila.inputs[0])
-            dirt_out = mult_detaila.outputs[0]
-        else:
-            dirt_out = detail.outputs[1]
-        
-        if has_alpha:
-            # mult with detaimap normal alpha
-            mult_ndetaila = node_tree.nodes.new('ShaderNodeMath')
-            mult_ndetaila.operation = 'MULTIPLY'
-            mult_ndetaila.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
-            mult_ndetaila.hide = True
-            
-            node_tree.links.new(dirt_out, mult_ndetaila.inputs[1])
-            node_tree.links.new(ndetail.outputs[1], mult_ndetaila.inputs[0])
-            has_alpha_out = mult_ndetaila.outputs[0]
-        else:
-            has_alpha_out = dirt_out
-
-        node_tree.links.new(has_alpha_out, shader_specular)
-
-        # ---- normal  ----
-
-        normal_out = None
-
-        def _create_normal_map_node(nmap, uv_chan):
-            # convert to normal
-            normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
-            normal_node.uv_map = uv_map_nodes[uv_chan].uv_map
-            normal_node.location = (1 * NODE_WIDTH, -1 - uv_chan * NODE_HEIGHT)
-            normal_node.hide = True
-            node_tree.links.new(nmap.outputs[0], normal_node.inputs[1])
-            return normal_node.outputs[0]
-
-        ndetail_out = ndetail and _create_normal_map_node(ndetail, 1)
-        ncrack_out = ncrack and _create_normal_map_node(ncrack, 3 if dirt else 2)
-
-        if ndetail_out and ncrack_out:
-            # mix ndetail & ncrack based on crack alpha
-            mix_normal = node_tree.nodes.new('ShaderNodeMix')
-            mix_normal.data_type = 'VECTOR'
-            mix_normal.location = (3 * NODE_WIDTH, -3 * NODE_HEIGHT)
-            mix_normal.hide = True
-
-            node_tree.links.new(crack.outputs[1], mix_normal.inputs[0])
-            node_tree.links.new(ndetail_out, mix_normal.inputs[4])
-            node_tree.links.new(ncrack_out, mix_normal.inputs[5])
-            normal_out = mix_normal.outputs[1]
-        elif ndetail_out:
-            normal_out = ndetail_out
-
-        if normal_out:
-            node_tree.links.new(normal_out, shader_normal)
-
-        # ---- transparency ------
-        if has_alpha:
-            # TODO alpha blend for statics, is this even used ?
-            mix_shader_out = _setup_transparency(node_tree, detail.outputs[1], one_minus_src_alpha=True)
-            node_tree.links.new(mix_shader_out, material_output.inputs[0])
-
-        principled_BSDF.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
-        material_output.location = (5 * NODE_WIDTH, 0 * NODE_HEIGHT)
 
 # BF2 <-> Blender convertions
 
@@ -982,10 +669,6 @@ def _flip_uv(uv):
     return (u, 1 - v)
 
 # utils
-
-def _is_same_vec(v1, v2):
-    EPSILON = 0.0001
-    return all([abs(v1[i] - v2[i]) < EPSILON for i in range(2)])
 
 def _remove_double_verts(context, obj):
     context.view_layer.objects.active = obj

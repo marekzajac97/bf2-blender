@@ -32,19 +32,19 @@ class D3DDECLTYPE(enum.IntEnum):
     FLOAT3 = 2  # 3D float expanded to (value, value, value, 1.)
     FLOAT4 = 3  # 4D float
     D3DCOLOR = 4  # 4D packed unsigned bytes mapped to 0. to 1. range
-    UBYTE4 = 5,
-    SHORT2 = 6,
-    SHORT4 = 7,
-    UBYTE4N = 8,
-    SHORT2N = 9,
-    SHORT4N = 10,
-    USHORT2N = 11,
-    USHORT4N = 12,
-    UDEC3 = 13,
-    DEC3N = 14,
-    FLOAT16_2 = 15,
-    FLOAT16_4 = 16,
-    UNUSED = 17,  # When the type field in a decl is unused.
+    UBYTE4 = 5
+    SHORT2 = 6
+    SHORT4 = 7
+    UBYTE4N = 8
+    SHORT2N = 9
+    SHORT4N = 10
+    USHORT2N = 11
+    USHORT4N = 12
+    UDEC3 = 13
+    DEC3N = 14
+    FLOAT16_2 = 15
+    FLOAT16_4 = 16
+    UNUSED = 17  # When the type field in a decl is unused.
 
     def get_struct_fmt(self):
         _TYPE_TO_FORMAT = {
