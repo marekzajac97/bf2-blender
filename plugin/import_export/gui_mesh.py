@@ -132,9 +132,9 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
         active_obj = context.view_layer.objects.active
         mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
         try:
-           self.EXPORT_FUNC(active_obj, self.filepath,
-                            texture_path=mod_path,
-                            tangent_uv_map=self.tangent_uv_map)
+           self.__class__.EXPORT_FUNC(active_obj, self.filepath,
+                                      texture_path=mod_path,
+                                      tangent_uv_map=self.tangent_uv_map)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}

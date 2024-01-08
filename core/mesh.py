@@ -164,6 +164,25 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, **kwargs):
     bf2_mesh.export(mesh_file)
     return bf2_mesh
 
+def _get_vertex_group_to_part_id_mapping(obj):
+    vertex_group_to_part_id = dict()
+    for vg in obj.vertex_groups:
+        group_ok = True
+        if not vg.name.startswith('mesh'):
+            group_ok = False
+        try:
+            part_id = int(vg.name[len('mesh'):]) - 1
+        except ValueError:
+            group_ok = False
+
+        if part_id < 0:
+            group_ok = False
+
+        if not group_ok:
+            raise ExportException("Invalid vertex group, expected 'mesh<index>' where index is a positive integer")
+        vertex_group_to_part_id[vg.index] = part_id
+    return vertex_group_to_part_id
+
 def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_map=''):
     mesh = lod_obj.data
     has_custom_normals = mesh.has_custom_normals
@@ -197,25 +216,10 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
         lod_obj.select_set(True)
         bpy.context.view_layer.objects.active = lod_obj
         bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True, PREF_NEW_UVLAYER=False,
-                                    PREF_APPLY_IMAGE=False, PREF_IMG_PX_SIZE=128, PREF_BOX_DIV=12, PREF_MARGIN_DIV=1)
+                                    PREF_APPLY_IMAGE=False, PREF_IMG_PX_SIZE=128, PREF_BOX_DIV=12, PREF_MARGIN_DIV=0.2)
 
     # BundledMesh specific
-    vertex_group_to_part_id = dict()
-    for vg in lod_obj.vertex_groups:
-        group_ok = True
-        if not vg.name.startswith('mesh'):
-            group_ok = False
-        try:
-            part_id = int(vg.name[len('mesh'):]) - 1
-        except ValueError:
-            group_ok = False
-
-        if part_id < 0:
-            group_ok = False
-
-        if not group_ok:
-            raise ExportException("Invalid vertex group, expected 'mesh<index>' where index is a positive integer")
-        vertex_group_to_part_id[vg.index] = part_id
+    vertex_group_to_part_id = _get_vertex_group_to_part_id_mapping(lod_obj)
 
     # map materials to verts and faces
     mat_idx_to_verts_faces = dict()

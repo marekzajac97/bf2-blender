@@ -5,10 +5,10 @@ from getpass import getuser
 from .bf2.bf2_engine.components import (BF2Engine, ObjectTemplate,
                                         GeometryTemplate, CollisionMeshTemplate)
 from .mesh import (import_mesh, export_bundledmesh, export_staticmesh,
-                   _build_mesh_prefix, _collect_geoms_lods)
+                   _build_mesh_prefix, _collect_geoms_lods, _get_vertex_group_to_part_id_mapping)
 from .collision_mesh import import_collisionmesh, export_collisionmesh
 
-from .utils import delete_object_if_exists, delete_object, check_suffix
+from .utils import delete_object, check_suffix
 from .exceptions import ImportException, ExportException
 
 NONVIS_PRFX = 'NONVIS_'
@@ -70,6 +70,7 @@ def import_object(context, con_filepath, import_collmesh=False, reload=False, **
                 geom_parts = _split_mesh_by_vertex_groups(context, lod_obj)
             new_lod = _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom_idx, lod_idx)
             new_lod.parent = geom_obj
+            _fix_unassigned_parts(geom_obj, new_lod)
             _delete_hierarchy_if_has_no_meshes(new_lod)
             _cleanup_unused_materials(new_lod)
 
@@ -110,7 +111,7 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
         os.makedirs(os.path.join(con_dir, 'Meshes'), exist_ok=True)
 
     geometry_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.geom.name}.{geometry_type.lower()}')
-    
+
     export_func = None
     if geometry_type == 'BundledMesh':
         export_func = export_bundledmesh
@@ -135,7 +136,7 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
 
         if geom_export:
             print(f"Exporting geometry to '{geometry_filepath}'")
-            export_func(mesh_obj, geometry_filepath, mesh_geoms=mesh_geoms, **kwargs)
+            export_func(mesh_obj, geometry_filepath, mesh_geoms=temp_mesh_geoms, **kwargs)
     except Exception:
         raise
     finally:
@@ -176,7 +177,7 @@ def _collect_geometry_parts(obj, geom_parts, obj_to_part_id):
     obj_to_part_id[object_name] = part_id
     geom_parts.append(obj)
     # process childs
-    for child_obj in obj.children:
+    for _, child_obj in sorted([(child.name, child) for child in obj.children]):
         if not _is_colmesh_dummy(child_obj):
             _collect_geometry_parts(child_obj, geom_parts, obj_to_part_id)
     return geom_parts
@@ -263,13 +264,18 @@ def _verify_lods_consistency(main_lod_obj, lod_obj):
 
     for child_obj in lod_obj.children:
         child_name = _strip_prefix(child_obj.name)
+        if _is_colmesh_dummy(child_obj):
+            continue
         if child_name not in main_lod_children:
             raise ExportException(f"Unexpected object '{child_obj.name}' found, hierarchy does not match with other LOD(s)")
-        else:
-            prev_lod_child = main_lod_children[child_name]
-            _verify_lods_consistency(prev_lod_child, child_obj)
+
+        prev_lod_child = main_lod_children[child_name]
+        _verify_lods_consistency(prev_lod_child, child_obj)
 
 def _create_object_template(obj, obj_to_geom_part_id, obj_to_col_part_id, is_vehicle=None) -> ObjectTemplate:
+    if obj.bf2_object_type == '': # special case, geom part which has no object template (see GenericFirearm)
+        return None
+
     obj_name = _strip_prefix(obj.name)
     obj_template = ObjectTemplate(obj.bf2_object_type, obj_name)
 
@@ -277,7 +283,7 @@ def _create_object_template(obj, obj_to_geom_part_id, obj_to_col_part_id, is_veh
         # TODO: no idea how to properly detect whether the exported object
         # should or should not have mobile physics
         is_vehicle = obj_template.type.lower() == 'PlayerControlObject'.lower()
-    
+
     obj_template.has_mobile_physics = is_vehicle
 
     if obj_name in obj_to_col_part_id:
@@ -292,6 +298,8 @@ def _create_object_template(obj, obj_to_geom_part_id, obj_to_col_part_id, is_veh
         if _is_colmesh_dummy(child_obj): # skip collmeshes
             continue
         child_template = _create_object_template(child_obj, obj_to_geom_part_id, obj_to_col_part_id, is_vehicle)
+        if child_template is None:
+            continue
         child_object = ObjectTemplate.ChildObject(child_template.name)
         child_object.template = child_template
         child_object.position = _swap_zy(child_obj.location)
@@ -322,26 +330,74 @@ def _delete_hierarchy_if_has_no_meshes(obj):
         for child_obj in obj.children:
             _delete_hierarchy_if_has_no_meshes(child_obj)
 
+def _fix_unassigned_parts(geom_obj, lod_obj):
+    # parts unassigned to any object template (e.g. GenericFirearm) 
+    # will be parented to geom, so just add numeric suffix
+    # and reparent them to LOD
+    i = 1
+    for child in geom_obj.children:
+        if child.name.startswith(lod_obj.name) and child.name != lod_obj.name:
+            child.parent = lod_obj
+            n = lod_obj.name + f'_{i}'
+            child.name = n
+            child.data.name = n
+            child.bf2_object_type = ''
+            i += 1
+
 def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom, lod):
     prfx = _build_mesh_prefix(geom, lod)
     add_col = coll_parts and lod == 0 # Add colistion only for LOD 0
 
-    def fix_geom_parts(obj_template, geom_parent=None, position=(0, 0, 0), rotation=(0, 0, 0)):
+    def _fix_geom_parts(obj_template, geom_parent=None, position=(0, 0, 0), rotation=(0, 0, 0)):
         geom_part_id = obj_template.geom_part
         vertex_group_name = f'mesh{geom_part_id + 1}'
         part_name = f'{prfx}{obj_template.name}'
+        part_rotation = _swap_zy(rotation)
+        part_position = _swap_zy(position)
+
         if vertex_group_name in geom_parts:
             geometry_part_obj = geom_parts[vertex_group_name]
-            geometry_part_obj.name = part_name
-            geometry_part_obj.data.name = part_name
+
+            if vertex_group_name in geometry_part_obj.vertex_groups.keys():
+                # this geom part shares some faces with another geom part
+                # so this is a possibly a bone of another part
+                geometry_part_vg = geometry_part_obj.vertex_groups[vertex_group_name]
+
+                if not _has_obj_in_hierarchy_up(geom_parent, search_obj=geometry_part_obj):
+                    # this is root object that has been weighted to bones (other vertex_groups)
+                    geometry_part_obj.name = part_name
+                    geometry_part_obj.data.name = part_name
+                else:
+                    # this is a bone, create new dummy for it, it will not hold visible mesh data
+                    # the root object will instead (to keep faces intact!)
+                    # need this dummy for two things: holding object type and collmesh
+
+                    # but first transform verts of the root object
+                    _transform_verts(geometry_part_obj, vertex_group_name, part_position, part_rotation)
+                    # it might happen that direct parent (geom_parent) does not have mesh with this vertex group
+                    # in this case we need to apply transforms of all parents to be relative to geometry_part_obj
+                    parents_to_root = list()
+                    _get_parent_list(geom_parent, geometry_part_obj, parents_to_root)
+                    for parent in parents_to_root:
+                        _transform_verts(geometry_part_obj, vertex_group_name, parent.location, parent.rotation_euler)
+
+                    # next override geometry_part_obj with a dummy
+                    geometry_part_obj = bpy.data.objects.new(part_name, None)
+                    context.scene.collection.objects.link(geometry_part_obj)
+
+                geometry_part_vg.name = part_name 
+            else:
+                # normal case, all vertices for all faces have the same part id
+                geometry_part_obj.name = part_name
+                geometry_part_obj.data.name = part_name
         else:
             # might happen that some lod does not have geometry for some parts
             # but this part's children do, so we gotta create a dummy parent for them
             geometry_part_obj = bpy.data.objects.new(part_name, None)
             context.scene.collection.objects.link(geometry_part_obj)
 
-        geometry_part_obj.rotation_euler = _swap_zy(rotation)
-        geometry_part_obj.location = _swap_zy(position)
+        geometry_part_obj.rotation_euler = part_rotation
+        geometry_part_obj.location = part_position
         geometry_part_obj.parent = geom_parent
         geometry_part_obj.bf2_object_type = obj_template.type # custom property
 
@@ -358,11 +414,39 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
                 context.scene.collection.objects.link(collmesh_obj)
 
         for child in obj_template.children:
-            fix_geom_parts(child.template, geometry_part_obj, child.position, child.rotation)
+            _fix_geom_parts(child.template, geometry_part_obj, child.position, child.rotation)
 
         return geometry_part_obj
 
-    return fix_geom_parts(root_template)
+    return _fix_geom_parts(root_template)
+
+def _transform_verts(geometry_part_obj, vertex_group, part_position, part_rotation):
+    bpy.context.view_layer.objects.active = geometry_part_obj
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.object.vertex_group_set_active(group=vertex_group)
+    bpy.ops.mesh.select_all(action='DESELECT')
+    bpy.ops.object.vertex_group_select()
+    bpy.ops.transform.rotate(value=part_rotation[0], orient_axis='X')
+    bpy.ops.transform.rotate(value=part_rotation[1], orient_axis='Y')
+    bpy.ops.transform.rotate(value=part_rotation[2], orient_axis='Z')
+    bpy.ops.transform.translate(value=part_position)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+def _has_obj_in_hierarchy_up(obj, search_obj):
+    if obj is None:
+        return False
+    if obj.name == search_obj.name:
+        return obj
+    return _has_obj_in_hierarchy_up(obj.parent, search_obj)
+
+def _get_parent_list(obj, stop_at, parent_list):
+    if obj is None:
+        return parent_list
+    if obj.name == stop_at.name:
+        return parent_list
+    parent_list.append(obj)
+    return _get_parent_list(obj.parent, stop_at, parent_list)
 
 def _delete_material(mesh, mat_to_del):
     for mat_idx, mat in enumerate(mesh.materials):
@@ -386,14 +470,33 @@ def _cleanup_unused_materials(obj):
     for child_obj in obj.children:
         _cleanup_unused_materials(child_obj)
 
+def _find_unsplittable_groups(mesh_obj):
+    unsplittable_groups = set()
+
+    for poly in mesh_obj.data.polygons:
+        poly_groups = set()
+        for vertex_index in poly.vertices:
+            vertex = mesh_obj.data.vertices[vertex_index]
+            vert_group = vertex.groups[0].group
+            poly_groups.add(vert_group)
+            if len(poly_groups) != 1:
+                unsplittable_groups.update(poly_groups)
+    return unsplittable_groups
+
 def _split_mesh_by_vertex_groups(context, mesh_obj):
     splitted_parts = dict()
+    not_splitted_parts = set()
 
+    unsplittable_groups = _find_unsplittable_groups(mesh_obj)
     context.view_layer.objects.active = mesh_obj
-    for v_group_name in mesh_obj.vertex_groups.keys():
+    for v_group in mesh_obj.vertex_groups:
+        if v_group.index in unsplittable_groups:
+            not_splitted_parts.add(v_group.name)
+            continue
+
         bpy.ops.object.select_all(action='DESELECT')
         bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.object.vertex_group_set_active(group=v_group_name)
+        bpy.ops.object.vertex_group_set_active(group=v_group.name)
         bpy.ops.mesh.select_all(action='DESELECT')
         bpy.ops.object.vertex_group_select()
         bpy.ops.mesh.separate(type='SELECTED')
@@ -402,16 +505,30 @@ def _split_mesh_by_vertex_groups(context, mesh_obj):
         for o in context.selected_objects:
             if o.name == mesh_obj.name:
                 continue
-            new_name = f'{mesh_obj.name}_{v_group_name}'
+            new_name = f'{mesh_obj.name}_{v_group.name}'
             o.name = new_name
             o.data.name = new_name
             o.vertex_groups.clear()
-            splitted_parts[v_group_name] = o
+            splitted_parts[v_group.name] = o
             break
 
-    # delete object with unasigned verts after splitting
-    delete_object_if_exists(mesh_obj.name)
+    # delete object if no unasigned verts left after splitting
+    if mesh_obj.data is None or len(mesh_obj.data.vertices) == 0:
+        delete_object(mesh_obj)
+        return splitted_parts
+
+    # assing one remaining object to unsplittable groups
+    for v_group_name in not_splitted_parts:
+        splitted_parts[v_group_name] = mesh_obj
     
+    # remove groups from the object that were split (don't have verts)
+    vgs_assigned = list()
+    for vg in mesh_obj.vertex_groups:
+        if vg.name not in not_splitted_parts:
+            vgs_assigned.append(vg)
+    for vg in vgs_assigned:
+        mesh_obj.vertex_groups.remove(vg)
+
     return splitted_parts
 
 def _create_mesh_vertex_group(obj, obj_to_geom_part_id, empty_groups):
