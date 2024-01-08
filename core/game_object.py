@@ -100,6 +100,8 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
     collmesh_parts, obj_to_col_part_id = _find_collmeshes(mesh_geoms)
 
     root_obj_template = _create_object_template(main_lod, obj_to_geom_part_id, obj_to_col_part_id)
+    if root_obj_template is None:
+        raise ExportException(f"root object '{main_lod.name}' is missing ObjectTemplate type, check object properties!")
     root_obj_template.save_in_separate_file = True
     root_obj_template.creator_name = getuser()
     root_obj_template.geom = GeometryTemplate(geometry_type, obj_name)
