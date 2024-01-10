@@ -12,7 +12,7 @@ I'm probably like 15 years too late but anyway, here are some tools for importin
 - CollisionMesh (`.collisionMesh`) import/export
 
 ## Limitations:
-- Exporting skinned parts (e.g. tank tracks) for BundledMesh not yet supported
+- Exporting deforming parts (e.g. tank tracks) for BundledMesh not yet supported
 - Exporting animated UVs for BundledMesh not yet supported
 - collision mesh exports to a slightly older file version (9) than 3DsMax exporter (10), which will make BF2 regenerate some missing data on load time, not a big deal.
 - Generating `.samples` for static meshes is not yet supported, use [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/)!
@@ -42,7 +42,7 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - Each child of the Geom object must be an object that corresponds to Lod (prefixed with `G<index>L<index>__`) containing mesh data. Each Lod should be a simplified version of the previous one. There must be at least one Lod.
 - Each Lod may contain multiple child objects that will be exported as separate ObjectTemplates using different geometry parts, each Lod must contain the same hierarchy of them. StaticMeshes usually don't have any parts, so Lod will be just a single object, but for BundledMeshes you might want to have multiple geometry parts (e.g. "hull" as root and a "turret" and "motor" as its child objects). Those objects cannot be empty, each one must contain mesh data to export properly! However, if you just want them to export as invisible but separate logical objects (e.g. the `Engine` ObjectTemplate of the vehicle) you can delete all geometry (verts/faces) from the mesh object.
 - Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set (e.g. `Bundle`, `PlayerControlObject` etc). You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. However, you may want some meshes to export as separate geometry parts but at the same time don't export as separate ObjectTemplates (e.g. an animatable magazine that is a part of `GenericFirearm`) in such case simply leave this property empty.
-- Each object may contain collision mesh data. To add it, you need to define an empty object prefixed with `NONVIS__`. The object should have a maximum of 4 child objects (suffixed with `__COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added to object's Geom1/Lod0 or Geom2/Lod0 hierarchies.
+- Each object may contain collision mesh data. To add it, you need to define an empty object prefixed with `NONVIS__`. The object should have a maximum of 4 child objects (suffixed with `__COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added to object's Lod0 hierchies.
 - Each COL can have an arbitrary number of materials assigned, no special material settings are required, the material mapping will be dumped to the `.con` file.
 - Each material that is assigned to any visible mesh must be set up for export. To setup BF2 material go to `Material Properties`, you should see `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate settings: `Alpha Mode`, `Shader` and `Technique` (for BundledMesh only). Click on `Apply Material`, which will change some material settings and build a tree of Shader Nodes that try to mimic BF2 rendering.
 - Inside the `Shader Editor`, assign texture files to the desired texture map types:
@@ -50,7 +50,7 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
     - For BundledMesh: There should be 3 `Image Texture` nodes, each corresponding to Diffuse, Normal, and Shadow (optional). There should also be 1 `UV Map` node.
 - Each LOD's mesh must have assigned a minimum of 1 and a maximum of 5 UV layers and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
     - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, when Lightmap UV is not present it will be generated.
-    - For BundledMesh there's only UV0, exporting BundledMeshes with more than one UV layer is not supported right now.
+    - For BundledMesh there's only UV0 for all texture maps.
 - Export requires one UV map to be chosen for tangent space calculation, this must be the same UV that was used to bake the normal map, for static meshes (which reuse textures) it should likely be UV1 (Detail Normal).
 
 ### Example object hierarchies

@@ -387,8 +387,7 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
             if texture_path: # make relative
                 txt_map_file = os.path.relpath(txt_map_file, start=texture_path)
             # conv to linux path and lowercase
-            txt_map_file.replace('\\', '/').lower()
-            texture_maps[node.name] = txt_map_file
+            texture_maps[node.name] = txt_map_file.replace('\\', '/').lower()
 
         if mesh_type == BF2StaticMesh:
             staticmesh_maps = get_ordered_staticmesh_maps(texture_maps)
