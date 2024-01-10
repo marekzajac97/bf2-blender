@@ -12,7 +12,14 @@ from .bf2.bf2_mesh.bf2_types import D3DDECLTYPE, D3DDECLUSAGE
 from .exceptions import ImportException, ExportException
 from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists, check_prefix
 from .skeleton import find_active_skeleton, ske_get_bone_rot, ske_weapon_part_ids
-from .mesh_material import setup_material, get_ordered_staticmesh_maps, get_staticmesh_uv_channels, STATICMESH_TEXUTRE_MAP_TYPES, STANDARD_MAP_TYPES
+from .mesh_material import (setup_material,
+                            get_ordered_staticmesh_maps, 
+                            get_staticmesh_uv_channels,
+                            STATICMESH_TEXUTRE_MAP_TYPES,
+                            BUNDLEDMESH_TEXTURE_MAP_TYPES,
+                            SKINNEDMESH_TEXTURE_MAP_TYPES)
+
+SPECULAR_LUT = 'Common\Textures\SpecularLUT_pow36.dds'
 
 def import_mesh(context, mesh_file, **kwargs):
     return _import_mesh(context, BF2Mesh.load(mesh_file), **kwargs)
@@ -167,19 +174,16 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, **kwargs):
 def _get_vertex_group_to_part_id_mapping(obj):
     vertex_group_to_part_id = dict()
     for vg in obj.vertex_groups:
-        group_ok = True
-        if not vg.name.startswith('mesh'):
-            group_ok = False
-        try:
-            part_id = int(vg.name[len('mesh'):]) - 1
-        except ValueError:
-            group_ok = False
+        part_id = None
+        if vg.name.startswith('mesh'):
+            try:
+                part_id = int(vg.name[len('mesh'):]) - 1
+            except ValueError:
+                pass
 
-        if part_id < 0:
-            group_ok = False
+        if part_id is None or part_id < 0:
+            raise ExportException(f"Invalid vertex group '{vg.name}', expected 'mesh<index>' where index is a positive integer")
 
-        if not group_ok:
-            raise ExportException("Invalid vertex group, expected 'mesh<index>' where index is a positive integer")
         vertex_group_to_part_id[vg.index] = part_id
     return vertex_group_to_part_id
 
@@ -220,6 +224,15 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
 
     # BundledMesh specific
     vertex_group_to_part_id = _get_vertex_group_to_part_id_mapping(lod_obj)
+
+    if mesh_type == BF2StaticMesh:
+        bf2_lod.parts = [Mat4()] # TODO parts
+    elif mesh_type == BF2BundledMesh:
+        # XXX: some geometry parts migh have no verts assigned at all
+        # so write all groups defined, might do a warning or something in the future
+        bf2_lod.parts_num = len(vertex_group_to_part_id)
+    elif mesh_type == BF2SkinnedMesh:
+        raise NotImplementedError("rigs!!") # TODO
 
     # map materials to verts and faces
     mat_idx_to_verts_faces = dict()
@@ -357,9 +370,9 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
         if mesh_type == BF2StaticMesh:
             valid_maps = STATICMESH_TEXUTRE_MAP_TYPES
         elif mesh_type == BF2BundledMesh:
-            valid_maps = STANDARD_MAP_TYPES
+            valid_maps = BUNDLEDMESH_TEXTURE_MAP_TYPES
         elif mesh_type == BF2SkinnedMesh:
-            valid_maps = STANDARD_MAP_TYPES
+            valid_maps = SKINNEDMESH_TEXTURE_MAP_TYPES
 
         texture_maps = dict()
         for node in blend_material.node_tree.nodes:
@@ -369,12 +382,13 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
                 continue
             if node.name not in valid_maps:
                 continue
-            texture_maps[node.name] = node.image.filepath
-
-        def _append_texture_map(txt_map_file):
+            
+            txt_map_file = node.image.filepath
             if texture_path: # make relative
-                txt_map_file = os.path.relpath(txt_map_file, start=texture_path)     
-            bf2_mat.maps.append(txt_map_file.replace('\\', '/').lower())
+                txt_map_file = os.path.relpath(txt_map_file, start=texture_path)
+            # conv to linux path and lowercase
+            txt_map_file.replace('\\', '/').lower()
+            texture_maps[node.name] = txt_map_file
 
         if mesh_type == BF2StaticMesh:
             staticmesh_maps = get_ordered_staticmesh_maps(texture_maps)
@@ -387,7 +401,8 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
 
             for texture_map in staticmesh_maps:
                 txt_map_file = texture_maps[texture_map]
-                _append_texture_map(txt_map_file)
+                bf2_mat.maps.append(txt_map_file)
+            bf2_mat.maps.append(SPECULAR_LUT)
 
             # collect required UV channel indexes
             uv_channels = get_staticmesh_uv_channels(bf2_mat.technique)
@@ -396,30 +411,24 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
             for uv_chan in uv_channels:
                 if uv_chan not in uv_layers.keys():
                     raise ExportException(f"Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
-
+            
         elif mesh_type == BF2BundledMesh:
             if not blend_material.bf2_technique:
                 raise ExportException(f"{blend_material.name}: Material is missing technique, check material settings!")
 
             bf2_mat.technique = blend_material.bf2_technique
-            for m in STANDARD_MAP_TYPES:
+            for m in ['Diffuse', 'Normal']: # TODO: is normal map required?
                 if m not in texture_maps:
                     raise ExportException(f"{blend_material.name}: Material is missing '{m}' Image Texture node or has no texture file loaded!")
-            _append_texture_map(texture_maps['Diffuse'])
-            _append_texture_map(texture_maps['Normal'])
+            bf2_mat.maps.append(texture_maps['Diffuse'])
+            bf2_mat.maps.append(texture_maps['Normal'])
+            bf2_mat.maps.append(SPECULAR_LUT)
+            if 'Shadow' in texture_maps: # TODO: 3ds max exports shadow as last texture which seems weird, maybe because it is optional? check if the order matters
+                bf2_mat.maps.append(texture_maps['Shadow'])
         elif mesh_type == BF2SkinnedMesh:
             raise NotImplementedError() # TODO
 
-    bf2_mat.maps.append('Common\Textures\SpecularLUT_pow36.dds') # XXX
-
-    if mesh_type == BF2StaticMesh:
-        bf2_lod.parts = [Mat4()] # TODO parts
-    elif mesh_type == BF2BundledMesh:
-        # XXX: some geometry parts migh have no verts assigned at all
-        # so write all groups defined, might do a warning or something in the future
-        bf2_lod.parts_num = len(vertex_group_to_part_id)
-    elif mesh_type == BF2SkinnedMesh:
-        raise NotImplementedError("rigs!!") # TODO
+        
 
     if not has_custom_normals:
         mesh.free_normals_split() # remove custom split normals if we added them

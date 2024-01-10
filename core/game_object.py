@@ -1,6 +1,8 @@
 import bpy
 import os
 from getpass import getuser
+from mathutils import Matrix, Vector, Euler
+from bpy.types import Mesh, Armature
 
 from .bf2.bf2_engine.components import (BF2Engine, ObjectTemplate,
                                         GeometryTemplate, CollisionMeshTemplate)
@@ -14,6 +16,7 @@ from .exceptions import ImportException, ExportException
 NONVIS_PRFX = 'NONVIS_'
 COL_SUFFIX = '__COL'
 TMP_PREFIX = 'TMP__'
+SKIN_PREFIX = 'SKIN__'
 
 def import_object(context, con_filepath, import_collmesh=False, reload=False, **kwargs):
     BF2Engine().shutdown() # clear previous state
@@ -245,8 +248,8 @@ def _verify_lods_consistency(main_lod_obj, lod_obj):
     if any([c.isspace() for c in lod_obj.name]):
             raise ExportException(f"'{child_obj.name}' name contain spaces!")
 
-    if lod_obj.data is None and len(lod_obj.children) == 0: # leaf with no meshes
-        raise ExportException(f"Object '{child_obj.name}' has no mesh data")
+    if lod_obj.data is None:
+        raise ExportException(f"Object '{lod_obj.name}' has no mesh data! If you don't want it to contain any, simply make it a mesh object and delete all vertices")
 
     def _inconsistency(item, val, exp_val):
         raise ExportException(f"{lod_obj.name}: Inconsistent {item} for different LODs, got '{val}' but expected '{exp_val}'")
@@ -316,21 +319,28 @@ def _strip_prefix(s):
             return s[char_idx+2:]
     return ExportException(f"'{s}' has no GxLx__ prefix!")
 
-def _object_hierarchy_has_any_meshes(obj):
-    if obj.data:
+def _object_hierarchy_has_any_meshes(obj, parent_bones):
+    if obj.data and isinstance(obj.data, Mesh) and len(obj.data.vertices):
         return True
+    if obj.name in parent_bones:
+        # empty object but refers to parent vertex group, keep this
+        return True
+    if obj.data and isinstance(obj.data, Armature):
+        return True # skin, keep this
+
     for child_obj in obj.children:
-        if child_obj.data:
-            return True
-        return _object_hierarchy_has_any_meshes(child_obj)
+        return _object_hierarchy_has_any_meshes(child_obj, parent_bones)
     return False
 
-def _delete_hierarchy_if_has_no_meshes(obj):
-    if not _object_hierarchy_has_any_meshes(obj):
+def _delete_hierarchy_if_has_no_meshes(obj, parent_bones=None):
+    if parent_bones is None: parent_bones = set()
+
+    parent_bones.update(obj.vertex_groups.keys())
+    if not _object_hierarchy_has_any_meshes(obj, parent_bones):
         delete_object(obj, recursive=True)
     else:
         for child_obj in obj.children:
-            _delete_hierarchy_if_has_no_meshes(child_obj)
+            _delete_hierarchy_if_has_no_meshes(child_obj, parent_bones)
 
 def _fix_unassigned_parts(geom_obj, lod_obj):
     # parts unassigned to any object template (e.g. GenericFirearm) 
@@ -349,6 +359,8 @@ def _fix_unassigned_parts(geom_obj, lod_obj):
 def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom, lod):
     prfx = _build_mesh_prefix(geom, lod)
     add_col = coll_parts and lod == 0 # Add colistion only for LOD 0
+
+    skinned_objects = dict()
 
     def _fix_geom_parts(obj_template, geom_parent=None, position=(0, 0, 0), rotation=(0, 0, 0)):
         geom_part_id = obj_template.geom_part
@@ -369,25 +381,45 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
                     # this is root object that has been weighted to bones (other vertex_groups)
                     geometry_part_obj.name = part_name
                     geometry_part_obj.data.name = part_name
+                    # delete the group
+                    geometry_part_obj.vertex_groups.remove(geometry_part_vg)
                 else:
                     # this is a bone, create new dummy for it, it will not hold visible mesh data
                     # the root object will instead (to keep faces intact!)
                     # need this dummy for two things: holding object type and collmesh
+                    if geometry_part_obj.name not in skinned_objects:
+                        skinned_objects[geometry_part_obj.name] = (geometry_part_obj, list())
+                    _, bones = skinned_objects[geometry_part_obj.name]
 
                     # but first transform verts of the root object
-                    _transform_verts(geometry_part_obj, vertex_group_name, part_position, part_rotation)
+                    transform = Euler(part_rotation, 'XYZ').to_matrix()
+                    transform.resize_4x4()
+                    transform.translation = part_position
+
                     # it might happen that direct parent (geom_parent) does not have mesh with this vertex group
                     # in this case we need to apply transforms of all parents to be relative to geometry_part_obj
                     parents_to_root = list()
                     _get_parent_list(geom_parent, geometry_part_obj, parents_to_root)
                     for parent in parents_to_root:
-                        _transform_verts(geometry_part_obj, vertex_group_name, parent.location, parent.rotation_euler)
+                        parent_transform = Euler(parent.rotation_euler, 'XYZ').to_matrix()
+                        parent_transform.resize_4x4()
+                        parent_transform.translation = parent.location
+                        transform @= parent_transform
+
+                    rot = transform.to_euler('XYZ')
+                    pos = transform.translation
+
+                    _transform_verts(geometry_part_obj, vertex_group_name, pos, rot)
 
                     # next override geometry_part_obj with a dummy
-                    geometry_part_obj = bpy.data.objects.new(part_name, None)
+                    dummy_mesh = bpy.data.meshes.new(part_name)
+                    geometry_part_obj = bpy.data.objects.new(part_name, dummy_mesh)
                     context.scene.collection.objects.link(geometry_part_obj)
 
-                geometry_part_vg.name = part_name 
+                    # add to set of bones
+                    bones.append((geometry_part_obj, pos, rot))
+
+                    geometry_part_vg.name = part_name 
             else:
                 # normal case, all vertices for all faces have the same part id
                 geometry_part_obj.name = part_name
@@ -395,7 +427,8 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
         else:
             # might happen that some lod does not have geometry for some parts
             # but this part's children do, so we gotta create a dummy parent for them
-            geometry_part_obj = bpy.data.objects.new(part_name, None)
+            dummy_mesh = bpy.data.meshes.new(part_name)
+            geometry_part_obj = bpy.data.objects.new(part_name, dummy_mesh)
             context.scene.collection.objects.link(geometry_part_obj)
 
         geometry_part_obj.rotation_euler = part_rotation
@@ -420,7 +453,39 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
 
         return geometry_part_obj
 
-    return _fix_geom_parts(root_template)
+    root_geom_part_obj = _fix_geom_parts(root_template)
+
+    # Add armature, create real bones and bind it to the dummy bone objects using constraint
+    # for skinned_obj_name, (skinned_obj, bones) in skinned_objects.items():
+    #     armature = bpy.data.armatures.new(SKIN_PREFIX + skinned_obj_name)
+    #     armature_obj = bpy.data.objects.new(SKIN_PREFIX + skinned_obj_name, armature)
+    #     armature_obj.parent = skinned_obj
+
+    #     context.scene.collection.objects.link(armature_obj)
+    #     context.view_layer.objects.active = armature_obj
+    #     bpy.ops.object.mode_set(mode='EDIT')
+
+    #     # add armature modifier to the object
+    #     modifier = skinned_obj.modifiers.new(type='ARMATURE', name="Armature")
+    #     modifier.object = armature_obj
+
+    #     for bone_dummy_obj, pos, rot in bones:
+    #         bone = armature.edit_bones.new(bone_dummy_obj.name)
+
+    #         # transform is in armature space, so first need to move bone to origin
+    #         bone.head = pos
+    #         bone.tail = pos
+    #         bone.tail[2] += 0.2
+
+    #     bpy.ops.object.mode_set(mode='POSE')
+
+    #     for bone_dummy_obj, pos, rot in bones:
+    #         child_of = armature_obj.pose.bones[bone_dummy_obj.name].constraints.new(type='CHILD_OF')
+    #         child_of.target = bone_dummy_obj
+
+    #     bpy.ops.object.mode_set(mode='OBJECT')
+
+    return root_geom_part_obj
 
 def _transform_verts(geometry_part_obj, vertex_group, part_position, part_rotation):
     bpy.context.view_layer.objects.active = geometry_part_obj
@@ -457,7 +522,7 @@ def _delete_material(mesh, mat_to_del):
             return
 
 def _cleanup_unused_materials(obj):
-    if obj.data:
+    if obj.data and isinstance(obj.data, Mesh):
         mesh = obj.data
         used_material_indexes = set()
         for poly in mesh.polygons:
@@ -533,49 +598,100 @@ def _split_mesh_by_vertex_groups(context, mesh_obj):
 
     return splitted_parts
 
-def _create_mesh_vertex_group(obj, obj_to_geom_part_id, empty_groups):
+def _find_child(obj, child_name):
+    org_obj_name = obj.name[len(TMP_PREFIX):]
+    if org_obj_name == child_name:
+        return obj
+    for child in obj.children:
+        c = _find_child(child, child_name)
+        if c: return c  
+    return None
+
+def _create_mesh_vertex_group(obj, obj_to_vertex_group):
+    org_obj_name = obj.name[len(TMP_PREFIX):]
+    obj_name = _strip_prefix(org_obj_name)
+    group_name = obj_to_vertex_group[obj_name]
+
+    # reset object location
+    obj.location = (0, 0, 0)
+    obj.rotation_euler = (0, 0, 0)
+
+    child_groups = set()
+    for group in obj.vertex_groups:
+        if group_name == group.name:
+            raise ExportException(f"{org_obj_name}: '{group_name}' vertex group should not exist")
+        # check if vertex group links to a child object
+        child_obj = _find_child(obj, group.name)
+        if not child_obj:
+            raise ExportException(f"{org_obj_name}: has got a vertex group called '{group.name}', but such child object does not exist")
+
+        parents_to_root = list()
+        _get_parent_list(child_obj, obj, parents_to_root)
+
+        transform = Matrix.Identity(4)
+        for parent in parents_to_root:
+            parent_transform = Euler(parent.rotation_euler, 'XYZ').to_matrix()
+            parent_transform.resize_4x4()
+            parent_transform.translation = parent.location
+            transform @= parent_transform
+
+        transform.invert()
+        rot = transform.to_euler('XYZ')
+        pos = transform.translation
+
+        _transform_verts(obj, group.name, pos, rot)
+
+        child_groups.add(group.index)
+        child_name = _strip_prefix(group.name)
+        child_group_name = obj_to_vertex_group[child_name]
+        # rename this group to child group
+        # after joining objects both groups will be merged into one
+        # this is exactly what we want
+        group.name = child_group_name
+
+    # add main group
+    obj.vertex_groups.new(name=group_name)
+    for vertex in obj.data.vertices:
+        if len(vertex.groups) > 1:
+            raise ExportException(f"{org_obj_name} has vertex assigned to multiple vertex groups"
+                                    f", this is not allowed! found groups: {vertex.groups.keys()}")
+        if len(vertex.groups) and vertex.groups[0].group in child_groups:
+            continue # this vert will  be "transfered" to child geom part
+        obj.vertex_groups[group_name].add([vertex.index], 1.0, "REPLACE")
+
+    for child_obj in obj.children:
+        if not _is_colmesh_dummy(child_obj):
+            _create_mesh_vertex_group(child_obj, obj_to_vertex_group)
+
+def _map_objects_to_vertex_groups(obj, obj_to_geom_part_id, obj_to_vertex_group):
     org_obj_name = obj.name[len(TMP_PREFIX):]
     obj_name = _strip_prefix(org_obj_name)
     part_id = obj_to_geom_part_id[obj_name]
     group_name = f'mesh{part_id + 1}'
-    if obj.data:
-        if group_name in obj.vertex_groups.keys():
-            raise ExportException(f"{org_obj_name}: '{group_name}' vertex group should not exist")
-        obj.vertex_groups.new(name=group_name)
-        for vertex in obj.data.vertices:
-            obj.vertex_groups[group_name].add([vertex.index], 1.0, "REPLACE")
-    else:
-        # might happen that geometry part has no mesh, it's valid!
-        # have to add this empty vertex group after merging
-        # can't do that if object has no mesh!
-        empty_groups.add(group_name)
+    obj_to_vertex_group[obj_name] = group_name
 
     for child_obj in obj.children:
         if not _is_colmesh_dummy(child_obj):
-            _create_mesh_vertex_group(child_obj, obj_to_geom_part_id, empty_groups)
+            _map_objects_to_vertex_groups(child_obj, obj_to_geom_part_id, obj_to_vertex_group)
 
-def _select_all_geometry_parts_and_reset_positions(obj):
-    obj.location = (0, 0, 0)
-    obj.rotation_euler = (0, 0, 0)
+def _select_all_geometry_parts(obj):
     obj.select_set(True)
-
     for child_obj in obj.children:
         if not _is_colmesh_dummy(child_obj):
-            _select_all_geometry_parts_and_reset_positions(child_obj)
+            _select_all_geometry_parts(child_obj)
 
 def _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part_id):
     # first, assign one vertex group for each mesh which corresponds to geom part id
-    empty_groups = set()
-    _create_mesh_vertex_group(lod_obj, obj_to_geom_part_id, empty_groups)
+    obj_to_vertex_group = dict()
+    _map_objects_to_vertex_groups(lod_obj, obj_to_geom_part_id, obj_to_vertex_group)
+    _create_mesh_vertex_group(lod_obj, obj_to_vertex_group)
 
     # select all geom parts with meshes
     bpy.context.view_layer.objects.active = lod_obj
     bpy.ops.object.select_all(action='DESELECT')
-    _select_all_geometry_parts_and_reset_positions(lod_obj)
+    _select_all_geometry_parts(lod_obj)
     bpy.ops.object.join()
 
-    for group_name in empty_groups:
-        lod_obj.vertex_groups.new(name=group_name)
 
 def _join_lods(mesh_geoms, obj_to_geom_part_id):
     for geom_obj in mesh_geoms:

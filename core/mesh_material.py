@@ -20,7 +20,8 @@ STATICMESH_TECHNIQUES = [
 ]
 
 STATICMESH_TEXUTRE_MAP_TYPES = ['Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack']
-STANDARD_MAP_TYPES = ['Diffuse', 'Normal']
+BUNDLEDMESH_TEXTURE_MAP_TYPES = ['Diffuse', 'Normal', 'Shadow']
+SKINNEDMESH_TEXTURE_MAP_TYPES = ['Diffuse', 'Normal']
 
 def _create_bf2_axes_swap():
     if 'BF2AxesSwap' in bpy.data.node_groups:
@@ -141,8 +142,10 @@ def _default_texture_maps(shader, technique):
     if shader == 'STATICMESH':
         maps = _split_str_from_word_set(technique, STATICMESH_TEXUTRE_MAP_TYPES)
         return [''] * len(maps)
-    elif shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
-        return [''] * len(STANDARD_MAP_TYPES)
+    elif shader == 'BUNDLEDMESH':
+        return [''] * len(BUNDLEDMESH_TEXTURE_MAP_TYPES)
+    elif  shader == 'SKINNEDMESH':
+        return [''] * len(SKINNEDMESH_TEXTURE_MAP_TYPES)
     else:
         raise ValueError()
 
@@ -226,22 +229,58 @@ def setup_material(material, texture_maps=None, uvs=None, texture_path=''):
 
         diffuse = texture_nodes[0]
         normal = texture_nodes[1]
+        shadow = None
+        if len(texture_nodes) > 2:
+            shadow = texture_nodes[2]
+
         diffuse.label = diffuse.name = 'Diffuse'
         normal.label = normal.name = 'Normal'
+        if shadow: shadow.label = shadow.name = 'Shadow'
 
         node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], diffuse.inputs[0])
         node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], normal.inputs[0])
+        if shadow:
+            node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], shadow.inputs[0])
 
         if normal.image:
             normal.image.colorspace_settings.name = 'Non-Color'
 
         # diffuse
-        node_tree.links.new(diffuse.outputs[0], shader_base_color)
+        if shadow:
+            # multiply diffuse and shadow
+            multiply_diffuse = node_tree.nodes.new('ShaderNodeMixRGB')
+            multiply_diffuse.inputs[0].default_value = 1
+            multiply_diffuse.blend_type = 'MULTIPLY'
+            multiply_diffuse.location = (1 * NODE_WIDTH, -3 * NODE_HEIGHT)
+            multiply_diffuse.hide = True
+
+            node_tree.links.new(shadow.outputs[0], multiply_diffuse.inputs[1])
+            node_tree.links.new(diffuse.outputs[0], multiply_diffuse.inputs[2])
+            shadow_out = multiply_diffuse.outputs[0]
+        else:
+            shadow_out = diffuse.outputs[0]
+
+        node_tree.links.new(shadow_out, shader_base_color)
 
         # specular
         has_specular = material.bf2_shader != 'SKINNEDMESH' and not has_alpha
         if has_specular:
-            node_tree.links.new(diffuse.outputs[1], shader_specular)
+
+            if shadow:
+                # multiply diffuse and shadow
+                multiply_diffuse = node_tree.nodes.new('ShaderNodeMixRGB')
+                multiply_diffuse.inputs[0].default_value = 1
+                multiply_diffuse.blend_type = 'MULTIPLY'
+                multiply_diffuse.location = (1 * NODE_WIDTH, -2 * NODE_HEIGHT)
+                multiply_diffuse.hide = True
+
+                node_tree.links.new(shadow.outputs[0], multiply_diffuse.inputs[1])
+                node_tree.links.new(diffuse.outputs[1], multiply_diffuse.inputs[2])
+                shadow_spec_out = multiply_diffuse.outputs[0]
+            else:
+                shadow_spec_out = diffuse.outputs[1]
+
+            node_tree.links.new(shadow_spec_out, shader_specular)
 
         # normal
         normal_node = node_tree.nodes.new('ShaderNodeNormalMap')

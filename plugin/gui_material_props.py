@@ -100,7 +100,7 @@ def _update_techinique_default_value(material):
         if material.bf2_alpha_mode == 'ALPHA_BLEND':
             material.bf2_technique = 'Alpha'
         elif material.bf2_alpha_mode == 'ALPHA_TEST':
-            material.bf2_technique = 'Alpha_TestColormapGloss'
+            material.bf2_technique = 'Alpha_Test'
         else:
             material.bf2_technique = 'ColormapGloss'
 

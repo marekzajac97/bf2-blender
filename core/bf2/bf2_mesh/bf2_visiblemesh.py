@@ -467,10 +467,11 @@ class BF2VisibleMesh():
             f.write_dword(len(index_buffer))
             f.write_word(index_buffer)
 
-            if has_alpha_blend_material:
-                f.write_dword(MaterialWithTransparency.ALPHA_BLEND_FACE_SET_COUNT)
-            else:
-                f.write_dword(0)
+            if issubclass(self._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE, MaterialWithTransparency):
+                if has_alpha_blend_material:
+                    f.write_dword(MaterialWithTransparency.ALPHA_BLEND_FACE_SET_COUNT)
+                else:
+                    f.write_dword(0)
 
             for geom in self.geoms:
                 for lod in geom.lods:

@@ -206,7 +206,6 @@ class BSP:
             return node
 
         if builder.root is None:
-            print(f"Cannot build BSP tree, no good enough split plane found")
             # happens when collmesh is very simple(e.g. single face) lets build a dummy tree
             # with just root and all faces on one side (this is also what 3ds max exporter does)
             # mitht not be optimal!

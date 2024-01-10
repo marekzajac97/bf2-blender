@@ -14,7 +14,8 @@ I'm probably like 15 years too late but anyway, here are some tools for importin
 ## Limitations:
 - Exporting skinned parts (e.g. tank tracks) for BundledMesh not yet supported
 - Exporting animated UVs for BundledMesh not yet supported
-- collisionMesh exports to a slightly older file version (9) than 3DsMax exporter (10), which will make BF2 regenerate some missing data on load time, not a big deal.
+- collision mesh exports to a slightly older file version (9) than 3DsMax exporter (10), which will make BF2 regenerate some missing data on load time, not a big deal.
+- Generating `.samples` for static meshes is not yet supported, use [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/)!
 
 ## Installation
 - Head over to [Releases](https://github.com/marekzajac97/bf2-blender/releases/) for download
@@ -33,23 +34,23 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
 
 ### Object exporting
-- Always use `Export -> ObjecTemplate (.con)` for exporting objects (like 3ds Max exporter, it spits out `.con` file + visible mesh + collision mesh), other options from `Export` menu for specific mesh types can only be used when you imported the mesh using a corresponding option from the `Import` menu.
-- The setup process is quite similar to the 3ds Max exporting. Export options will only be available when you have an object active in the viewport. I advise you to import any mesh first, and look at how everything is set up and make these steps easier to follow.
+- Always use `Export -> ObjecTemplate (.con)` for exporting objects (like 3ds Max exporter, it spits out `.con` file + visible mesh + collision mesh), other options from the `Export` menu for specific mesh types can only be used when you imported the mesh using a corresponding option from the `Import` menu.
+- The setup process is quite similar to the 3ds Max exporting. Export options will only be available when you have an object active in the viewport. I advise you to import any mesh first, and look at how everything is set up to make below steps easier to follow.
 - The active object needs to be the root of the hierarchy. The root needs to be prefixed with the geometry type: `StaticMesh` or `BundledMesh`, followed by an underscore and the name of the root ObjectTemplate. Each child of the root object must be an empty object that corresponds to Geom (prefixed with `G<index>__`):
     - for StaticMeshes: Geom0 = main, Geom1 = destoryed
     - for BundledMeshes: Geom0 = 1P, Geom1 = 3P, Geom2 = wreck.
 - Each child of the Geom object must be an object that corresponds to Lod (prefixed with `G<index>L<index>__`) containing mesh data. Each Lod should be a simplified version of the previous one. There must be at least one Lod.
-- Each Lod may contain multiple child objects that will be exported as separate ObjectTemplates using different geometry parts, each Lod must contain the same hierarchy of them. StaticMeshes usually don't have any parts, so Lod will be just a single object, but for BundledMeshes you might want multiple geometry parts like a "hull" as root and "turret" as its child etc. Those objects may be empty (contain no mesh data) if you just want them to export as invisible but separate logical objects (e.g. the `Engine` ObjectTemplate).
-- Each object should have its corresponding BF2 ObjectTemplate type set (e.g. `Bundle`, `PlayerControlObject` etc). You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. You may want some meshes to export as separate geometry parts but at the same time don't export as separate ObjectTemplates e.g. an animatable magazine of the `GenericFirearm`, in such case simply leave this property empty.
-- Each object may contain collision mesh data. To add it, you need to define an empty object prefixed with `NONVIS__`. The object should have a maximum of 4 child objects (suffixed with `__COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3.
+- Each Lod may contain multiple child objects that will be exported as separate ObjectTemplates using different geometry parts, each Lod must contain the same hierarchy of them. StaticMeshes usually don't have any parts, so Lod will be just a single object, but for BundledMeshes you might want to have multiple geometry parts (e.g. "hull" as root and a "turret" and "motor" as its child objects). Those objects cannot be empty, each one must contain mesh data to export properly! However, if you just want them to export as invisible but separate logical objects (e.g. the `Engine` ObjectTemplate of the vehicle) you can delete all geometry (verts/faces) from the mesh object.
+- Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set (e.g. `Bundle`, `PlayerControlObject` etc). You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. However, you may want some meshes to export as separate geometry parts but at the same time don't export as separate ObjectTemplates (e.g. an animatable magazine that is a part of `GenericFirearm`) in such case simply leave this property empty.
+- Each object may contain collision mesh data. To add it, you need to define an empty object prefixed with `NONVIS__`. The object should have a maximum of 4 child objects (suffixed with `__COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added to object's Geom1/Lod0 or Geom2/Lod0 hierarchies.
 - Each COL can have an arbitrary number of materials assigned, no special material settings are required, the material mapping will be dumped to the `.con` file.
 - Each material that is assigned to any visible mesh must be set up for export. To setup BF2 material go to `Material Properties`, you should see `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate settings: `Alpha Mode`, `Shader` and `Technique` (for BundledMesh only). Click on `Apply Material`, which will change some material settings and build a tree of Shader Nodes that try to mimic BF2 rendering.
 - Inside the `Shader Editor`, assign texture files to the desired texture map types:
     - For StaticMesh: There should be 6 `Image Texture` nodes, each corresponding to Base, Detail, Dirt, Crack, Detail Normal, and Crack Normal. Only Base texture is mandatory, if others are not meant to be used delete them, otherwise the mesh will appear all black! There should also be 5 `UV Map` nodes (linked to their corresponding image texture nodes), assign UV layers to them as described in the next bullet point.
-    - For BundledMesh: There should be 2 `Image Texture` nodes, each corresponding to Diffuse and Normal, There should also be 1 `UV Map` node.
+    - For BundledMesh: There should be 3 `Image Texture` nodes, each corresponding to Diffuse, Normal, and Shadow (optional). There should also be 1 `UV Map` node.
 - Each LOD's mesh must have assigned a minimum of 1 and a maximum of 5 UV layers and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
     - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, when Lightmap UV is not present it will be generated.
-    - For BundledMesh there's only UV0 = Diffuse, exporting BundledMeshes with more than one UV layer is not supported right now.
+    - For BundledMesh there's only UV0, exporting BundledMeshes with more than one UV layer is not supported right now.
 - Export requires one UV map to be chosen for tangent space calculation, this must be the same UV that was used to bake the normal map, for static meshes (which reuse textures) it should likely be UV1 (Detail Normal).
 
 ### Example object hierarchies
@@ -62,11 +63,11 @@ StatcMesh
 StaticMesh_house
 └─G0__car
   ├─G0L0__house [m]
-  │ ├─NONVIS__G1L0__house
-  │ ├─G1L0__house__COL0 [m]
-  │ ├─G1L0__house__COL1 [m]
-  │ ├─G1L0__house__COL2 [m]
-  │ └─G1L0__house__COL3 [m]
+  │ └─NONVIS__G1L0__house
+  │   ├─G1L0__house__COL0 [m]
+  │   ├─G1L0__house__COL1 [m]
+  │   ├─G1L0__house__COL2 [m]
+  │   └─G1L0__house__COL3 [m]
   ├─G0L1__house [m]
   └─G0L2__house [m]
 ```
@@ -77,21 +78,21 @@ BunldedMesh_gun
 ├─G0__gun
 │ └─G0L0__gun [m]
 │   ├─G0L0__gun_1_mag
-│   └─G0L0__gun_1_bolt
+│   └─G0L0__gun_2_bolt
 └─G1__gun
   ├─G1L0__gun [m]
   │ ├─G1L0__gun_1_mag
-  │ ├─G1L0__gun_1_bolt
+  │ ├─G1L0__gun_2_bolt
   │ └─NONVIS__G1L0__gun
   │   ├─G1L0__gun__COL0 [m]
   │   ├─G1L0__gun__COL1 [m]
   │   └─G1L0__gun__COL2 [m]
   ├─G1L1__gun [m]
   │ ├─G1L1__gun_1_mag
-  │ ├─G1L1__gun_1_bolt
+  │ ├─G1L1__gun_2_bolt
   └─G1L2__gun [m]
     ├─G1L2__gun_1_mag
-    └─G1L2__gun_1_bolt
+    └─G1L2__gun_2_bolt
 ```
 
 BunldedMesh (a simple vehicle)
@@ -114,16 +115,16 @@ BundledMesh_car
 │ │   │     └─G1L0__car_whlFL__COL1 [m]
 │ │   ├─G1L0__car_navFR [m]
 │ │   │ └─G1L0__car_whlFR [m]
-│ │   │   └─NONVIS__G1L0__car
+│ │   │   └─NONVIS__G1L0__car_whlFR
 │ │   │     ├─G1L0__car_whlFR__COL0 [m]
 │ │   │     └─G1L0__car_whlFR__COL1 [m]
 │ │   ├─G1L0__car_whlRL [m]
-│ │   │ └─NONVIS__G1L0__car
+│ │   │ └─NONVIS__G1L0__car_whlRL
 │ │   │   ├─G1L0__car_whlRL__COL0 [m]
 │ │   │   └─G1L0__car_whlRL__COL1 [m]
 │ │   │   
 │ │   └─G1L0__car_whlRR [m]
-│ │     └─NONVIS__G1L0__car
+│ │     └─NONVIS__G1L0__car_whlRR
 │ │       ├─G1L0__car_whlRR__COL0 [m]
 │ │       └─G1L0__car_whlRR__COL1 [m]
 │ ├─G1L1__car [m]
