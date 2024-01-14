@@ -21,6 +21,10 @@ I'm probably like 15 years too late but anyway, here are some tools for importin
 - Head over to [Releases](https://github.com/marekzajac97/bf2-blender/releases/) for download
 - To install see [Blender Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html)
 
+## Compatibilty
+- Compatible only with Blender 4.0
+- pure-python implementation of collision mesh export is painfully slow, thus this part of export will require a pre-compiled module `bsp_builder`. For now, pre-build binaries are only avalible for Windows x64, for macOS/Linux you have to build them yourself!
+
 ## Usage
 
 After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) it's mandatory to load textures and export texture paths! Then you can use `BF2` submenu in `File -> Import/Export`.
@@ -44,10 +48,10 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set (e.g. `Bundle`, `PlayerControlObject` etc). You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. However, you may want some meshes to export as separate geometry parts but at the same time don't export as separate ObjectTemplates (e.g. an animatable magazine that is a part of `GenericFirearm`) in such case simply leave this property empty.
 - Each object may contain collision mesh data. To add it, you need to define an empty object prefixed with `NONVIS__`. The object should have a maximum of 4 child objects (suffixed with `__COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added to object's Lod0 hierchies.
 - Each COL can have an arbitrary number of materials assigned, no special material settings are required, the material mapping will be dumped to the `.con` file.
-- Each material that is assigned to any visible mesh must be set up for export. To setup BF2 material go to `Material Properties`, you should see `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate settings: `Alpha Mode`, `Shader` and `Technique` (for BundledMesh only). Click on `Apply Material`, which will change some material settings and build a tree of Shader Nodes that try to mimic BF2 rendering.
-- Inside the `Shader Editor`, assign texture files to the desired texture map types:
-    - For StaticMesh: There should be 6 `Image Texture` nodes, each corresponding to Base, Detail, Dirt, Crack, Detail Normal, and Crack Normal. Only Base texture is mandatory, if others are not meant to be used delete them, otherwise the mesh will appear all black! There should also be 5 `UV Map` nodes (linked to their corresponding image texture nodes), assign UV layers to them as described in the next bullet point.
-    - For BundledMesh: There should be 3 `Image Texture` nodes, each corresponding to Diffuse, Normal, and Shadow (optional). There should also be 1 `UV Map` node.
+- Each material that is assigned to any visible mesh must be set up for export. To setup BF2 material go to `Material Properties`, you should see `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate settings: `Alpha Mode`, `Shader` and `Technique` (applies for BundledMesh only) as well as desired texture maps to load.
+    - For StaticMesh: There will be 6 texture slots for Base, Detail, Dirt, Crack, Detail Normal, and Crack Normal. Only Base texture is mandatory, if others are not meant to be used, leave them empty.
+    - For BundledMesh: There should be 3 texture slots for Diffuse, Normal, and Shadow. Only Diffuse texture is mandatory, if others are not meant to be used, leave them empty.
+- Clicking on `Apply Material` changes some material settings, loads textures and builds a tree of Shader Nodes that try to mimic BF2 rendering.
 - Each LOD's mesh must have assigned a minimum of 1 and a maximum of 5 UV layers and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
     - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, when Lightmap UV is not present it will be generated.
     - For BundledMesh there's only UV0 for all texture maps.

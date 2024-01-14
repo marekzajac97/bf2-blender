@@ -1,5 +1,8 @@
 import bpy
 import os
+from collections import OrderedDict
+
+from .exceptions import ImportException
 
 NODE_WIDTH = 300
 NODE_HEIGHT = 100
@@ -12,6 +15,7 @@ STATICMESH_TECHNIQUES = [
     'BaseDetailCrackNCrack',
     'BaseDetailCrackNDetail',
     'BaseDetailCrackNDetailNCrack',
+    'BaseDetailDirt',
     'BaseDetailDirtNDetail',
     'BaseDetailDirtCrack',
     'BaseDetailDirtCrackNCrack',
@@ -29,9 +33,9 @@ def _create_bf2_axes_swap():
     bf2_axes_swap = bpy.data.node_groups.new('BF2AxesSwap', 'ShaderNodeTree')
 
     group_inputs = bf2_axes_swap.nodes.new('NodeGroupInput')
-    bf2_axes_swap.inputs.new('NodeSocketVector', 'in')
+    bf2_axes_swap.interface.new_socket(name="in", in_out='INPUT', socket_type='NodeSocketVector')
     group_outputs = bf2_axes_swap.nodes.new('NodeGroupOutput')
-    bf2_axes_swap.outputs.new('NodeSocketVector', 'out')
+    bf2_axes_swap.interface.new_socket(name="out", in_out='OUTPUT', socket_type='NodeSocketVector')
 
     # swap Y/Z axes
     swap_yz_decompose = bf2_axes_swap.nodes.new('ShaderNodeSeparateXYZ')
@@ -51,9 +55,9 @@ def _create_multiply_rgb_shader_node():
     multi_rgb = bpy.data.node_groups.new('MultiplyRGB', 'ShaderNodeTree')
 
     group_inputs = multi_rgb.nodes.new('NodeGroupInput')
-    multi_rgb.inputs.new('NodeSocketColor', 'color')
+    multi_rgb.interface.new_socket(name="color", in_out='INPUT', socket_type='NodeSocketColor')
     group_outputs = multi_rgb.nodes.new('NodeGroupOutput')
-    multi_rgb.outputs.new('NodeSocketFloat', 'value')
+    multi_rgb.interface.new_socket(name="value", in_out='OUTPUT', socket_type='NodeSocketFloat')
 
     node_separate_color = multi_rgb.nodes.new('ShaderNodeSeparateColor')
     node_multiply_rg = multi_rgb.nodes.new('ShaderNodeMath')
@@ -70,27 +74,6 @@ def _create_multiply_rgb_shader_node():
     multi_rgb.links.new(node_multiply_rgb.outputs[0], group_outputs.inputs['value'])
     return multi_rgb
 
-def _setup_transparency(node_tree, src_alpha_out, one_minus_src_alpha=False):
-    principled_BSDF = node_tree.nodes.get('Principled BSDF')
-
-    transparent_BSDF = node_tree.nodes.new('ShaderNodeBsdfTransparent')
-    mix_shader = node_tree.nodes.new('ShaderNodeMixShader')
-
-    if one_minus_src_alpha:
-        one_minus = node_tree.nodes.new('ShaderNodeMath')
-        one_minus.operation = 'SUBTRACT'
-        one_minus.inputs[0].default_value = 1
-        node_tree.links.new(src_alpha_out, one_minus.inputs[1])
-        alpha_output = one_minus.outputs[0]
-    else:
-        alpha_output = src_alpha_out
-
-    node_tree.links.new(principled_BSDF.outputs[0], mix_shader.inputs[2])
-    node_tree.links.new(transparent_BSDF.outputs[0], mix_shader.inputs[1])
-
-    node_tree.links.new(alpha_output, mix_shader.inputs[0])
-    return mix_shader.outputs[0]
-
 def _split_str_from_word_set(s : str, word_set : set):
     words = list()
     while s:
@@ -103,8 +86,7 @@ def _split_str_from_word_set(s : str, word_set : set):
             return None # contains word not in wordset
     return words
 
-def get_staticmesh_uv_channels(technique):
-    maps = _split_str_from_word_set(technique, STATICMESH_TEXUTRE_MAP_TYPES)
+def get_staticmesh_uv_channels(maps):
     uv_channels = set()
     has_dirt = 'Dirt' in maps
     for texture_map in maps:
@@ -123,33 +105,59 @@ def get_staticmesh_uv_channels(technique):
         uv_channels.add(uv_chan)
     return uv_channels
 
-DEFAULT_TECHNIQUE = {
-    'STATICMESH': 'BaseDetailDirtCrackNDetailNCrack',
-    'BUNDLEDMESH': 'ColormapGloss',
-    'SKINNEDMESH': '' # TODO
+def get_staticmesh_technique_from_maps(material):
+    map_type_to_file = get_material_maps(material)
+    technique = ''.join(map_type_to_file.keys())
+    if technique in STATICMESH_TECHNIQUES:
+        return technique
+    return '' # invalid
+
+TEXTURE_MAPS = {
+    'STATICMESH': STATICMESH_TEXUTRE_MAP_TYPES,
+    'BUNDLEDMESH': BUNDLEDMESH_TEXTURE_MAP_TYPES,
+    'SKINNEDMESH': SKINNEDMESH_TEXTURE_MAP_TYPES
 }
 
-def _default_uvs(shader, technique):
-    if shader == 'STATICMESH':
-        return get_staticmesh_uv_channels(technique)
-    elif shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
-        return {0} # TODO: BundledMesh can have 2 UVs (animated UV for the tracks I think)
-    else:
-        raise ValueError()
+def get_material_maps(material):
+    texture_maps = OrderedDict()
+    for i, map_type in enumerate(TEXTURE_MAPS[material.bf2_shader]):
+        map_filepath = getattr(material, f"texture_slot_{i}")
+        if map_filepath:
+            map_filepath = bpy.path.abspath(map_filepath)
+            texture_maps[map_type] = map_filepath
+    return texture_maps
 
-# empty texture sets
-def _default_texture_maps(shader, technique):
-    if shader == 'STATICMESH':
-        maps = _split_str_from_word_set(technique, STATICMESH_TEXUTRE_MAP_TYPES)
-        return [''] * len(maps)
-    elif shader == 'BUNDLEDMESH':
-        return [''] * len(BUNDLEDMESH_TEXTURE_MAP_TYPES)
-    elif  shader == 'SKINNEDMESH':
-        return [''] * len(SKINNEDMESH_TEXTURE_MAP_TYPES)
-    else:
-        raise ValueError()
+def get_tex_type_to_file_mapping(shader, techinique, texture_files, texture_path=''):
+    texture_files = list(filter(lambda x: 'SpecularLUT_pow36' not in x, texture_files))
 
-def setup_material(material, texture_maps=None, uvs=None, texture_path=''):
+    map_name_to_file = dict()
+    if shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
+        map_name_to_file['Diffuse'] = texture_files[0]
+        if len(texture_files) > 1:
+            map_name_to_file['Normal'] = texture_files[1]
+        if len(texture_files) > 2:
+            map_name_to_file['Shadow'] = texture_files[2]
+    elif shader == 'STATICMESH':
+        if techinique not in STATICMESH_TECHNIQUES:
+            raise ImportException(f'Unsupported staticmesh technique "{techinique}"')
+        maps = _split_str_from_word_set(techinique, set(STATICMESH_TEXUTRE_MAP_TYPES))
+        if len(texture_files) != len(maps):
+            raise ImportException(f'Material technique ({techinique}) doesn\'t match number of texture maps ({len(texture_files)})')
+        for map_name, tex_node in zip(maps, texture_files):
+            map_name_to_file[map_name] = tex_node
+
+    # convert to absolute paths:
+    if texture_path:
+        for map_type, texture_map_file in map_name_to_file.items():
+            if not os.path.isabs(texture_map_file):
+                # not an absolute path but we have base path
+                map_name_to_file[map_type] = os.path.join(texture_path, texture_map_file)
+    else:
+        pass # TODO: Add warning that texture_path is not defined
+
+    return map_name_to_file
+
+def setup_material(material, uvs=None):
     material.use_nodes = True
     node_tree = material.node_tree
     node_tree.nodes.clear()
@@ -159,14 +167,13 @@ def setup_material(material, texture_maps=None, uvs=None, texture_path=''):
     principled_BSDF.name = principled_BSDF.label = 'Principled BSDF'
     node_tree.links.new(principled_BSDF.outputs[0], material_output.inputs[0])
 
-    if material.bf2_technique == '':
-        material.bf2_technique = DEFAULT_TECHNIQUE[material.bf2_shader]
-
-    if texture_maps is None:
-        texture_maps = _default_texture_maps(material.bf2_shader, material.bf2_technique)
+    texture_maps = get_material_maps(material)
 
     if uvs is None:
-        uvs = _default_uvs(material.bf2_shader, material.bf2_technique)
+        if material.bf2_shader == 'STATICMESH':
+            uvs = get_staticmesh_uv_channels(texture_maps.keys())
+        elif material.bf2_shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
+            uvs = {0}
 
     # alpha mode
     has_alpha = False
@@ -191,58 +198,47 @@ def setup_material(material, texture_maps=None, uvs=None, texture_path=''):
         uv_map_nodes[uv_chan] = uv
 
     # load textures
-    texture_nodes = list()
-    for map_index, texture_map in enumerate(texture_maps):
-
-        if texture_map and 'SpecularLUT_pow36' in texture_map:
-            continue
-
+    texture_nodes = dict()
+    for map_index, (texture_map_type, texture_map_file) in enumerate(texture_maps.items()):
         tex_node = node_tree.nodes.new('ShaderNodeTexImage')
+        tex_node.label = tex_node.name = texture_map_type
         tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
         tex_node.hide = True
-        texture_nodes.append(tex_node)
+        texture_nodes[texture_map_type] = tex_node
 
-        if not texture_map or not texture_path:
-            continue
-
-        # t = os.path.basename(texture_file)
-        # if t in bpy.data.images:
-        #     bpy.data.images.remove(bpy.data.images[t])
         try:
-            tex_node.image = bpy.data.images.load(os.path.join(texture_path, texture_map), check_existing=True)
+            tex_node.image = bpy.data.images.load(texture_map_file, check_existing=True)
             tex_node.image.alpha_mode = 'NONE'
         except RuntimeError:
-            pass
+            pass # ignore if file not found
 
     shader_base_color = principled_BSDF.inputs[0]
-    shader_specular = principled_BSDF.inputs[7]
-    shader_roughness = principled_BSDF.inputs[9]
-    shader_normal = principled_BSDF.inputs[22]
+    shader_specular = principled_BSDF.inputs[12]
+    shader_roughness = principled_BSDF.inputs[2]
+    shader_normal = principled_BSDF.inputs[5]
+    shader_alpha = principled_BSDF.inputs[4]
 
     shader_roughness.default_value = 1
     shader_specular.default_value = 0
 
-    if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH') :
+    if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         UV_CHANNEL = 0
 
-        # TODO SETUP it properly based on techinique ('ColormapGloss', 'EnvColormapGloss', 'Alpha_TestColormapGloss', 'Alpha', 'Alpha_Test')
+        # TODO SETUP it properly based on techinique
 
-        diffuse = texture_nodes[0]
-        normal = texture_nodes[1]
-        shadow = None
-        if len(texture_nodes) > 2:
-            shadow = texture_nodes[2]
+        has_envmap = 'envmap' in material.bf2_technique.lower()
 
-        diffuse.label = diffuse.name = 'Diffuse'
-        normal.label = normal.name = 'Normal'
-        if shadow: shadow.label = shadow.name = 'Shadow'
+        diffuse = texture_nodes['Diffuse']
+        normal = texture_nodes.get('Normal')
+        shadow = texture_nodes.get('Shadow')
 
         node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], diffuse.inputs[0])
-        node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], normal.inputs[0])
+        if normal:
+            node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], normal.inputs[0])
         if shadow:
             node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], shadow.inputs[0])
 
-        if normal.image:
+        if normal and normal.image:
             normal.image.colorspace_settings.name = 'Non-Color'
 
         # diffuse
@@ -283,88 +279,74 @@ def setup_material(material, texture_maps=None, uvs=None, texture_path=''):
             node_tree.links.new(shadow_spec_out, shader_specular)
 
         # normal
-        normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
-        normal_node.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
-        normal_node.hide = True
-        node_tree.links.new(normal.outputs[0], normal_node.inputs[1])
+        if normal:
+            normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
+            normal_node.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
+            normal_node.hide = True
+            node_tree.links.new(normal.outputs[0], normal_node.inputs[1])
 
-        if material.bf2_shader == 'SKINNEDMESH':
-            normal_node.space = 'OBJECT'
-            # since this is object space normal we gotta swap Z/Y axes for it to look correct
-            axes_swap = node_tree.nodes.new('ShaderNodeGroup')
-            axes_swap.node_tree = _create_bf2_axes_swap()
-            axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
-            axes_swap.hide = True
-    
-            node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
-            normal_out = axes_swap.outputs[0]
-        else:
-            normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
-            normal_out = normal_node.outputs[0]
+            if material.bf2_shader == 'SKINNEDMESH':
+                normal_node.space = 'OBJECT'
+                # since this is object space normal we gotta swap Z/Y axes for it to look correct
+                axes_swap = node_tree.nodes.new('ShaderNodeGroup')
+                axes_swap.node_tree = _create_bf2_axes_swap()
+                axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                axes_swap.hide = True
+        
+                node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
+                normal_out = axes_swap.outputs[0]
+            else:
+                normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
+                normal_out = normal_node.outputs[0]
 
-        node_tree.links.new(normal_out, shader_normal)
+            node_tree.links.new(normal_out, shader_normal)
 
         # transparency
         if has_alpha:
-            mix_shader_out = _setup_transparency(node_tree, diffuse.outputs[1])
-            node_tree.links.new(mix_shader_out, material_output.inputs[0])
+            node_tree.links.new(diffuse.outputs[1], shader_alpha)
+
+        # envmap reflections
+        if has_envmap:
+            glossy_BSDF = node_tree.nodes.new('ShaderNodeBsdfGlossy')
+            glossy_BSDF.inputs[1].default_value = 0.1 # roughness
+            mix_envmap = node_tree.nodes.new('ShaderNodeMixShader')
+
+            node_tree.links.new(principled_BSDF.outputs[0], mix_envmap.inputs[2])
+            node_tree.links.new(glossy_BSDF.outputs[0], mix_envmap.inputs[1])
+            mix_envmap_out = mix_envmap.outputs[0]
+        else:
+            mix_envmap_out = principled_BSDF.outputs[0]
+
+        node_tree.links.new(mix_envmap_out, material_output.inputs[0])
 
         principled_BSDF.location = (3 * NODE_WIDTH, 0 * NODE_HEIGHT)
         material_output.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
 
     elif material.bf2_shader == 'STATICMESH':
 
-        if material.bf2_technique not in STATICMESH_TECHNIQUES:
-            raise RuntimeError(f'Unsupported staticmesh technique "{material.bf2_technique}"')
+        def _link_uv_chan(uv_chan, tex_node):
+            node_tree.links.new(uv_map_nodes[uv_chan].outputs[0], tex_node.inputs[0])
 
-        maps = _split_str_from_word_set(material.bf2_technique, set(STATICMESH_TEXUTRE_MAP_TYPES))
+        base = texture_nodes['Base']
+        detail = texture_nodes.get('Detail')
+        dirt = texture_nodes.get('Dirt')
+        crack = texture_nodes.get('Crack')
+        ndetail = texture_nodes.get('NDetail')
+        ncrack = texture_nodes.get('NCrack')
 
-        if len(texture_nodes) != len(maps):
-            raise RuntimeError(f'Material technique ({material.bf2_technique}) doesn\'t match number of texture maps ({len(texture_nodes)})')
+        # link uv nodes with textures
+        _link_uv_chan(0, base)
+        if detail:  _link_uv_chan(1, detail)
+        if dirt:    _link_uv_chan(2, dirt)
+        if crack:   _link_uv_chan(3 if dirt else 2, crack)
+        if ndetail: _link_uv_chan(1, ndetail)
+        if ncrack:  _link_uv_chan(3 if dirt else 2, ncrack)
 
-        base = None
-        detail = None
-        dirt = None
-        crack = None
-        ndetail = None
-        ncrack = None
-
-        for map_name, tex_node in zip(maps, texture_nodes):
-            if map_name == 'Base':
-                base = tex_node
-                uv_chan = 0
-            elif map_name == 'Detail':
-                detail = tex_node
-                uv_chan = 1
-            elif map_name == 'Dirt':
-                dirt = tex_node
-                uv_chan = 2
-            elif map_name == 'Crack':
-                crack = tex_node
-                uv_chan = 3 if dirt else 2
-            elif map_name == 'NDetail':
-                ndetail = tex_node
-                uv_chan = 1
-            elif map_name == 'NCrack':
-                ncrack = tex_node
-                uv_chan = 3 if dirt else 2
-
-            # link UVs with texture nodes
-            if uv_chan in uv_map_nodes:
-                node_tree.links.new(uv_map_nodes[uv_chan].outputs[0], tex_node.inputs[0])
-        
         # change normal maps color space
         if ndetail and ndetail.image:
             ndetail.image.colorspace_settings.name = 'Non-Color'
         if ncrack and ncrack.image:
             ncrack.image.colorspace_settings.name = 'Non-Color'
-
-        if base: base.label = base.name = 'Base'
-        if detail: detail.label = detail.name = 'Detail'
-        if dirt: dirt.label = dirt.name = 'Dirt'
-        if crack: crack.label = crack.name = 'Crack'
-        if ndetail: ndetail.label = ndetail.name = 'NDetail'
-        if ncrack: ncrack.label = ncrack.name = 'NCrack'
 
         # ---- diffuse ----
         if detail:
@@ -497,16 +479,16 @@ def setup_material(material, texture_maps=None, uvs=None, texture_path=''):
                 src_alpha_out = base.outputs[1]
                 one_minus_src_alpha = False
 
-            mix_shader_out = _setup_transparency(node_tree, src_alpha_out, one_minus_src_alpha=one_minus_src_alpha)
-            node_tree.links.new(mix_shader_out, material_output.inputs[0])
+            if one_minus_src_alpha:
+                one_minus_node = node_tree.nodes.new('ShaderNodeMath')
+                one_minus_node.operation = 'SUBTRACT'
+                one_minus_node.inputs[0].default_value = 1
+                node_tree.links.new(src_alpha_out, one_minus_node.inputs[1])
+                alpha_output = one_minus_node.outputs[0]
+            else:
+                alpha_output = src_alpha_out
+
+            node_tree.links.new(alpha_output, shader_alpha)
 
         principled_BSDF.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
         material_output.location = (5 * NODE_WIDTH, 0 * NODE_HEIGHT)
-
-def get_ordered_staticmesh_maps(texture_maps):
-    # find matching technique, which only conatins maps from collected set
-    for technique in STATICMESH_TECHNIQUES:
-        maps = _split_str_from_word_set(technique, texture_maps.keys())
-        if maps is not None and len(maps) == len(texture_maps.keys()):
-            return maps
-    return None

@@ -54,8 +54,7 @@ def import_object(context, con_filepath, import_collmesh=False, reload=False, **
     root_geometry_obj = import_mesh(context, geometry_filepath, name=root_template.name, reload=reload, **kwargs)
     root_geometry_obj.name = f'{geometry_type}_{root_template.name}'
 
-    if geometry_type == 'SkinnedMesh': # XXX
-        return
+    # TODO: add warning if skinnedmesh is loaded without a skeleton firts
 
     coll_parts = None
     if collmesh_template and import_collmesh:
@@ -67,8 +66,8 @@ def import_object(context, con_filepath, import_collmesh=False, reload=False, **
 
     for geom_idx, geom_obj in enumerate(root_geometry_obj.children):
         for lod_idx, lod_obj in enumerate(geom_obj.children):
-            if geometry_type == 'StaticMesh':
-                geom_parts = {'mesh1': lod_obj} # XXX hack, no need to split staticmehes
+            if geometry_type != 'BundledMesh':
+                geom_parts = {'mesh1': lod_obj} # XXX hack
             else:
                 geom_parts = _split_mesh_by_vertex_groups(context, lod_obj)
             new_lod = _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom_idx, lod_idx)

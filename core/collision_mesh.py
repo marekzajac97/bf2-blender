@@ -188,17 +188,18 @@ def _collect_collisionmesh_nodes_geoms_lods(collmesh_obj):
     return geom_parts
 
 def _collect_collisionmesh_dummy_materials(geom_parts):
-    materials = set()
+    # important to preserve material order as they appear in cols
+    # for compatibility with 3ds max!
+    material_to_index = dict()
     for geompart in geom_parts:
         for geom in geompart:
-            for col_obj in geom.values():
+            for _, col_obj in sorted(geom.items()):
                 mesh = col_obj.data
                 for p in mesh.polygons:
                     mat_name = mesh.materials[p.material_index].name
-                    materials.add(mat_name)
-    material_to_index = dict()
-    for i, mat in enumerate(materials):
-        material_to_index[mat] = i
+                    if mat_name in material_to_index:
+                        continue
+                    material_to_index[mat_name] = len(material_to_index)
     return material_to_index
 
 def export_collisionmesh(root_obj, mesh_file, geom_parts=None):

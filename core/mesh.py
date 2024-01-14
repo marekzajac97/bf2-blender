@@ -2,6 +2,7 @@ import bpy
 import bmesh
 import os
 
+from itertools import chain
 from mathutils import Vector, Matrix
 
 from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
@@ -13,11 +14,11 @@ from .exceptions import ImportException, ExportException
 from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists, check_prefix
 from .skeleton import find_active_skeleton, ske_get_bone_rot, ske_weapon_part_ids
 from .mesh_material import (setup_material,
-                            get_ordered_staticmesh_maps, 
+                            get_staticmesh_technique_from_maps, 
                             get_staticmesh_uv_channels,
-                            STATICMESH_TEXUTRE_MAP_TYPES,
-                            BUNDLEDMESH_TEXTURE_MAP_TYPES,
-                            SKINNEDMESH_TEXTURE_MAP_TYPES)
+                            get_tex_type_to_file_mapping,
+                            get_material_maps,
+                            TEXTURE_MAPS)
 
 SPECULAR_LUT = 'Common\Textures\SpecularLUT_pow36.dds'
 
@@ -41,7 +42,7 @@ def _build_mesh_prefix(geom=None, lod=None):
     else:
         return ''
 
-def _import_mesh(context, bf2_mesh, name='', geom=None, lod=None, reload=False, **kwargs):
+def _import_mesh(context, bf2_mesh, name='', geom=None, lod=None, reload=False, remove_doubles=False, **kwargs):
     name = name or bf2_mesh.name
     if geom is None and lod is None:
         if reload: delete_object_if_exists(name)
@@ -58,25 +59,14 @@ def _import_mesh(context, bf2_mesh, name='', geom=None, lod=None, reload=False, 
                 lod_name = _build_mesh_prefix(geom_idx, lod_idx) + name
                 lod_obj = _import_mesh_lod(context, lod_name, bf2_mesh,
                                            bf2_lod, reload, **kwargs)
+                if remove_doubles: _remove_double_verts(context, lod_obj)
                 lod_obj.parent = geom_obj
         return root_obj
     else:
         bf2_lod = bf2_mesh.geoms[geom].lods[lod]
-        return _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload, **kwargs)
-
-def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False,
-                     texture_path='', remove_doubles=False):
-
-    mesh_obj = _import_mesh_geometry(name, bf2_mesh, bf2_lod, texture_path, reload)
-
-    if isinstance(bf2_mesh, BF2SkinnedMesh):
-        _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, bf2_lod)
-    elif isinstance(bf2_mesh, BF2BundledMesh):
-        _import_parts_bundled_mesh(context, mesh_obj, bf2_mesh, bf2_lod)
-
-    context.scene.collection.objects.link(mesh_obj)
-    if remove_doubles: _remove_double_verts(context, mesh_obj)
-    return mesh_obj
+        lod_obj = _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload, **kwargs)
+        if remove_doubles: _remove_double_verts(context, lod_obj)
+        return lod_obj
 
 def collect_uv_layers(mesh_obj, geom=0, lod=0):
     uv_layers = dict()
@@ -366,68 +356,54 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
 
         bf2_mat.fxfile = SHADER_MAPPING[blend_material.bf2_shader]
 
-        # collect texture maps from nodes
-        if mesh_type == BF2StaticMesh:
-            valid_maps = STATICMESH_TEXUTRE_MAP_TYPES
-        elif mesh_type == BF2BundledMesh:
-            valid_maps = BUNDLEDMESH_TEXTURE_MAP_TYPES
-        elif mesh_type == BF2SkinnedMesh:
-            valid_maps = SKINNEDMESH_TEXTURE_MAP_TYPES
+        texture_maps = get_material_maps(blend_material)
 
-        texture_maps = dict()
-        for node in blend_material.node_tree.nodes:
-            if node.bl_idname != 'ShaderNodeTexImage':
-                continue
-            if node.image is None:
-                continue
-            if node.name not in valid_maps:
-                continue
-            
-            txt_map_file = node.image.filepath
+        # convert pahts to relative and linux format (game will not find them otherwise)
+        for txt_map_type, txt_map_file in texture_maps.items():
             if texture_path: # make relative
                 txt_map_file = os.path.relpath(txt_map_file, start=texture_path)
-            # conv to linux path and lowercase
-            texture_maps[node.name] = txt_map_file.replace('\\', '/').lower()
+            else:
+                pass # TODO: add warning
+            texture_maps[txt_map_type] = txt_map_file.replace('\\', '/').lower()
 
         if mesh_type == BF2StaticMesh:
-            staticmesh_maps = get_ordered_staticmesh_maps(texture_maps)
+            bf2_mat.technique = get_staticmesh_technique_from_maps(blend_material)
 
-            if staticmesh_maps is None:
-                raise ExportException(f"Could not find a matching shader technique for the detected texture map set: {texture_maps.keys()},"
-                                       "make sure that all of your Image Texture nodes are named correctly and have texture files loaded")
+            if not bf2_mat.technique:
+                raise ExportException(f"Could not find a matching shader technique for texture maps: {texture_maps.keys()} "
+                                      f" defined for material {blend_material.name}:")
 
-            bf2_mat.technique = ''.join(staticmesh_maps)
-
-            for texture_map in staticmesh_maps:
-                txt_map_file = texture_maps[texture_map]
-                bf2_mat.maps.append(txt_map_file)
+            for texture_map in texture_maps.values():
+                bf2_mat.maps.append(texture_map)
             bf2_mat.maps.append(SPECULAR_LUT)
 
-            # collect required UV channel indexes
-            uv_channels = get_staticmesh_uv_channels(bf2_mat.technique)
-
             # check required UVs are present
-            for uv_chan in uv_channels:
-                if uv_chan not in uv_layers.keys():
-                    raise ExportException(f"Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
-            
+            for uv_chan in get_staticmesh_uv_channels(texture_maps.keys()):
+                if uv_chan not in uv_layers:
+                    # TODO: replace with warning
+                    raise ExportException(f"{lod_obj.name}: Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
+
         elif mesh_type == BF2BundledMesh:
             if not blend_material.bf2_technique:
                 raise ExportException(f"{blend_material.name}: Material is missing technique, check material settings!")
 
             bf2_mat.technique = blend_material.bf2_technique
-            for m in ['Diffuse', 'Normal']: # TODO: is normal map required?
-                if m not in texture_maps:
-                    raise ExportException(f"{blend_material.name}: Material is missing '{m}' Image Texture node or has no texture file loaded!")
+            if 'Diffuse' not in texture_maps:
+                raise ExportException(f"{blend_material.name}: Material is missing 'Diffuse' Texture map, check material settings!")
             bf2_mat.maps.append(texture_maps['Diffuse'])
-            bf2_mat.maps.append(texture_maps['Normal'])
+            if 'Normal' in texture_maps:
+                bf2_mat.maps.append(texture_maps['Normal'])
             bf2_mat.maps.append(SPECULAR_LUT)
             if 'Shadow' in texture_maps: # TODO: 3ds max exports shadow as last texture which seems weird, maybe because it is optional? check if the order matters
                 bf2_mat.maps.append(texture_maps['Shadow'])
+
+            # check required UVs are present
+            if 0 not in uv_layers:
+                # TODO: replace with warning
+                raise ExportException(f"{lod_obj.name}: Missing required UV layer 'UV0', make sure it exists and the name is correct")
+
         elif mesh_type == BF2SkinnedMesh:
             raise NotImplementedError() # TODO
-
-        
 
     if not has_custom_normals:
         mesh.free_normals_split() # remove custom split normals if we added them
@@ -452,7 +428,7 @@ def _can_merge_vert(this, other, uv_count, normal_weld_thres=0.9999, tangent_wel
             return False
     return True
 
-def _import_mesh_geometry(name, bf2_mesh, bf2_lod, texture_path, reload):
+def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_path=''):
 
     if reload:
         delete_object_if_exists(name)
@@ -495,39 +471,67 @@ def _import_mesh_geometry(name, bf2_mesh, bf2_lod, texture_path, reload):
     bm.to_mesh(mesh)
     bm.free()
 
-    # load vertex normals
-    if bf2_mesh.has_normal():
-        vertex_normals = list()
+    has_anim_uv = isinstance(bf2_mesh, BF2BundledMesh) and bf2_mesh.has_uv(1) and bf2_mesh.has_blend_indices()
+    has_normals = bf2_mesh.has_normal()
 
-        for mat in bf2_lod.materials:
-            for vert in mat.vertices:
+    uv_count = 5 if isinstance(bf2_mesh, BF2StaticMesh) else 1
+    uvs = dict()
+    for uv_chan in range(uv_count):
+        if not bf2_mesh.has_uv(uv_chan):
+            continue
+        uvs[uv_chan] = list()
+
+    vertex_normals = list()
+    # vertex_animuv_rot_center = list()
+    # vertex_animuv_matrix_index = list()
+
+    for mat in bf2_lod.materials:
+        for vert in mat.vertices:
+            # Normals
+            if has_normals:
                 vertex_normals.append(_swap_zy(vert.normal))
+                # XXX: Blender does NOT support custom tangents import
 
-        # apply normals
+            # UVs
+            uv_matrix_idx = vert.blendindices[3]
+            for uv_chan, vertex_uv in uvs.items():
+                uv = getattr(vert, f'texcoord{uv_chan}')
+                # if has_anim_uv and uv_matrix_idx != 0:
+                #     # FIX UVs for animated parts
+                #     # UV1 is actual UV, UV0 is just center of UV rotation / shift
+                #     anim_uv_center = vert.texcoord1
+                #     uv = (uv[0] + anim_uv_center[0] * 0.5, # XXX: no idea why but I have to do this, probably needs to account for texture ratio?
+                #           uv[1] + anim_uv_center[1])
+                uv = _flip_uv(uv)
+                vertex_uv.append(uv)
+
+            # # Animated UVs data
+            # if has_anim_uv:
+            #     if uv_matrix_idx != 0:
+            #         vertex_animuv_rot_center.append(Vector(vert.texcoord0))
+            #     else:
+            #         vertex_animuv_rot_center.append(Vector((0, 0)))
+            #     vertex_animuv_matrix_index.append(uv_matrix_idx)
+
+    # apply normals
+    if has_normals:
         mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
         mesh.normals_split_custom_set_from_vertices(vertex_normals)
         mesh.use_auto_smooth = True
 
-    # XXX: Blender does NOT support custom tangents import
+    # apply Animated UVs data
+    # if has_anim_uv:
+    #     animuv_matrix_index = mesh.attributes.new('animuv_matrix_index', 'INT8', 'POINT')
+    #     animuv_matrix_index.data.foreach_set('value', vertex_animuv_matrix_index)
 
-    # load UVs
-    uvs = dict()
-    for uv_chan in range(5):
-        if not bf2_mesh.has_uv(uv_chan):
-            continue
-        vert_uv = list()
-        uvs[uv_chan] = vert_uv
-        for mat in bf2_lod.materials:
-            for vert in mat.vertices:
-                uv = getattr(vert, f'texcoord{uv_chan}')
-                uv = _flip_uv(uv)
-                vert_uv.append(uv)
+    #     animuv_rot_center = mesh.color_attributes.new('animuv_rot_center', type='FLOAT2', domain='POINT')
+    #     animuv_rot_center.data.foreach_set('vector', list(chain(*vertex_animuv_rot_center)))
 
     # apply UVs
-    for uv_chan, vert_uv in uvs.items():
+    for uv_chan, vertex_uv in uvs.items():
         uvlayer = mesh.uv_layers.new(name=f'UV{uv_chan}')
         for l in mesh.loops:
-            uvlayer.data[l.index].uv = vert_uv[l.vertex_index]
+            uvlayer.data[l.index].uv = vertex_uv[l.vertex_index]
 
     # create materials
     for i, bf2_mat in enumerate(bf2_lod.materials):
@@ -546,22 +550,33 @@ def _import_mesh_geometry(name, bf2_mesh, bf2_lod, texture_path, reload):
         else:
             raise ImportError(f"Bad shader '{bf2_mat.fxfile}'")
 
-        material.bf2_alpha_mode = 'NONE'
-        # XXX: bf2_technique has to be set last, because setting alpha and shader resets it
         material.bf2_technique = bf2_mat.technique
+
+        texture_map_types = TEXTURE_MAPS[material.bf2_shader]
+        texture_maps = get_tex_type_to_file_mapping(material.bf2_shader, material.bf2_technique,
+                                                    bf2_mat.maps, texture_path=texture_path)
+        for map_type, map_file in texture_maps.items():
+            type_index = texture_map_types.index(map_type)
+            setattr(material, f"texture_slot_{type_index}", map_file)
+
+        material.bf2_alpha_mode = 'NONE'
         if isinstance(bf2_mat, MaterialWithTransparency):
             if bf2_mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_BLEND:
                 material.bf2_alpha_mode = 'ALPHA_BLEND'
             elif bf2_mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_TEST:
                 material.bf2_alpha_mode = 'ALPHA_TEST'
 
-        setup_material(material,
-                       texture_maps=bf2_mat.maps,
-                       uvs=uvs.keys(),
-                       texture_path=texture_path)
+        setup_material(material, uvs=uvs.keys())
 
-    obj = bpy.data.objects.new(name, mesh)
-    return obj
+    mesh_obj = bpy.data.objects.new(name, mesh)
+    context.scene.collection.objects.link(mesh_obj)
+
+    if isinstance(bf2_mesh, BF2SkinnedMesh):
+        _import_rig_skinned_mesh(context, mesh_obj, bf2_mesh, bf2_lod)
+    elif isinstance(bf2_mesh, BF2BundledMesh):
+        _import_parts_bundled_mesh(context, mesh_obj, bf2_mesh, bf2_lod)
+
+    return mesh_obj
 
 def _import_parts_bundled_mesh(context, mesh_obj, bf2_mesh, bf2_lod):
 
@@ -584,11 +599,10 @@ def _import_parts_bundled_mesh(context, mesh_obj, bf2_mesh, bf2_lod):
             mesh_obj.vertex_groups.new(name=group_name)
         mesh_obj.vertex_groups[group_name].add([vertex.index], 1.0, "REPLACE")
 
-    # TODO: somehow check whether it is GenericFirearm
     ske_data = find_active_skeleton(context)
     if not ske_data:
         return # ignore if skeleton not loaded
-    rig, skeleton = ske_data
+    rig, _ = ske_data
     # parent mesh oject to armature
     mesh_obj.parent = rig
     # add armature modifier to the object

@@ -4,6 +4,7 @@ import math
 from mathutils import Matrix
 from .bf2.bf2_skeleton import BF2Skeleton
 from .utils import to_matrix, convert_bf2_pos_rot, delete_object, delete_object_if_exists
+from .exceptions import ImportException
 
 def ske_set_bone_rot(bone, deg, axis):
     bone['bf2_rot_fix'] = Matrix.Rotation(math.radians(deg), 4, axis)
@@ -12,7 +13,7 @@ def ske_get_bone_rot(bone):
     return Matrix(bone['bf2_rot_fix'])
 
 def ske_is_3p(skeleton):
-    return skeleton.name.startswith('3p')
+    return skeleton.name.lower().startswith('3p')
 
 def ske_weapon_part_ids(skeleton):
     ids = list()
@@ -93,6 +94,9 @@ def _create_camera(rig):
 
 def import_skeleton(context, skeleton_file, reload=False):
     skeleton = BF2Skeleton(skeleton_file)
+
+    if skeleton.name.lower()[0:2] not in ('3p', '1p'):
+        raise ImportException(f"Skeleton name is required to be prefixed with '1p' or '3p' but got '{skeleton.name}'")
 
     if reload and find_active_skeleton(context):
         obj, _ = find_active_skeleton(context)

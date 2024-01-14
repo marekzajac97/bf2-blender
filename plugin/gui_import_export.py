@@ -9,7 +9,6 @@ from .import_export import gui_game_object
 class IMPORT_MT_bf2_submenu(bpy.types.Menu):
     bl_idname = "IMPORT_MT_bf2_submenu"
     bl_label = "Battlefield 2"
-    bl_options = {'REGISTER', 'UNDO'}
 
     def draw(self, context):
         gui_animation.draw_import(self.layout)
@@ -25,7 +24,6 @@ def menu_func_import(self, context):
 class EXPORT_MT_bf2_submenu(bpy.types.Menu):
     bl_idname = "EXPORT_MT_bf2_submenu"
     bl_label = "Battlefield 2"
-    bl_options = {'REGISTER', 'UNDO'}
 
     def draw(self, context):
         gui_animation.draw_export(self.layout)

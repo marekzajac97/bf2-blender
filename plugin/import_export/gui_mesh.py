@@ -151,7 +151,7 @@ class EXPORT_OT_bf2_staticmesh(EXPORT_OT_bf2_mesh):
 class EXPORT_OT_bf2_bundledmesh(EXPORT_OT_bf2_mesh):
     bl_idname= "bf2_mesh.export_bundledmesh"
     bl_label = "Export BundledMesh"
-    filename_ext = ".staticmesh"
+    filename_ext = ".bundledmesh"
     filter_glob = StringProperty(default="*.bundledmesh", options={'HIDDEN'})
     EXPORT_FUNC = export_bundledmesh
     FILE_DESC = "BundledMesh (.bundledmesh)"
