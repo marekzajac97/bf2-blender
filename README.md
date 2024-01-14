@@ -23,7 +23,7 @@ I'm probably like 15 years too late but anyway, here are some tools for importin
 
 ## Compatibilty
 - Compatible only with Blender 4.0
-- pure-python implementation of collision mesh export is painfully slow, thus this part of export will require a pre-compiled module `bsp_builder`. For now, pre-build binaries are only avalible for Windows x64, for macOS/Linux you have to build them yourself!
+- pure-python implementation of collision mesh export is painfully slow, thus this part of export will require a pre-compiled module `bsp_builder`. For now, pre-build binaries are only available for Windows x64, for macOS/Linux you have to build them yourself!
 
 ## Usage
 
@@ -65,7 +65,7 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 StatcMesh
 ```
 StaticMesh_house
-└─G0__car
+└─G0__house
   ├─G0L0__house [m]
   │ └─NONVIS__G1L0__house
   │   ├─G1L0__house__COL0 [m]
