@@ -1,6 +1,7 @@
 import bpy
 import bmesh
 import os
+import enum
 
 from itertools import chain
 from mathutils import Vector, Matrix
@@ -9,6 +10,7 @@ from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
 from .bf2.bf2_common import Vec3, Mat4
 from .bf2.bf2_mesh.bf2_visiblemesh import Material, MaterialWithTransparency, Vertex, VertexAttribute
 from .bf2.bf2_mesh.bf2_types import D3DDECLTYPE, D3DDECLUSAGE
+from .bf2.fileutils import FileUtils
 
 from .exceptions import ImportException, ExportException
 from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists, check_prefix
@@ -21,6 +23,17 @@ from .mesh_material import (setup_material,
                             TEXTURE_MAPS)
 
 SPECULAR_LUT = 'Common\Textures\SpecularLUT_pow36.dds'
+
+class AnimUv(enum.IntEnum):
+    NONE = 0
+    L_WHEEL_ROTATION = 1
+    L_WHEEL_TRANLATION = 2
+    R_WHEEL_ROTATION = 3
+    L_WHEEL_TRANSLATION = 4
+    R_TRACK_TRANLSATION = 5
+    L_TRACK_TRANSLATION = 6
+
+ANIM_UV_ROTATION_MATRICES = (AnimUv.L_WHEEL_ROTATION, AnimUv.R_WHEEL_ROTATION)
 
 def import_mesh(context, mesh_file, **kwargs):
     return _import_mesh(context, BF2Mesh.load(mesh_file), **kwargs)
@@ -92,7 +105,7 @@ def export_bundledmesh(mesh_obj, mesh_file, **kwargs):
 def export_staticmesh(mesh_obj, mesh_file, **kwargs):
     return _export_mesh(mesh_obj, mesh_file, BF2StaticMesh, **kwargs)
 
-def _setup_vertex_attributes(bf2_mesh):
+def _setup_vertex_attributes(bf2_mesh, has_uv1=False):
     mesh_type = type(bf2_mesh)
     vert_attrs = bf2_mesh.vertex_attributes
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
@@ -102,6 +115,8 @@ def _setup_vertex_attributes(bf2_mesh):
 
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.D3DCOLOR, D3DDECLUSAGE.BLENDINDICES))
     vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD0))
+    if mesh_type == BF2BundledMesh and has_uv1:
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
 
     if mesh_type == BF2StaticMesh:
         # XXX: do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
@@ -145,10 +160,11 @@ def _collect_geoms_lods(mesh_obj):
 
 def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, **kwargs):
     bf2_mesh = mesh_type(name=mesh_obj.name)
-    _setup_vertex_attributes(bf2_mesh)
 
     if mesh_geoms is None:
         mesh_geoms = _collect_geoms_lods(mesh_obj)
+    
+    _setup_vertex_attributes(bf2_mesh, _has_anim_uv(mesh_geoms))
 
     for geom_obj in mesh_geoms:
         geom = mesh_type._GEOM_TYPE()
@@ -160,6 +176,13 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, **kwargs):
 
     bf2_mesh.export(mesh_file)
     return bf2_mesh
+
+def _has_anim_uv(mesh_geoms):
+    for geom_obj in mesh_geoms:
+        for lod_obj in geom_obj:
+            if 'animuv_rot_center' in lod_obj.data.attributes:
+                return True
+    return False
 
 def _get_vertex_group_to_part_id_mapping(obj):
     vertex_group_to_part_id = dict()
@@ -182,6 +205,12 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
     has_custom_normals = mesh.has_custom_normals
 
     uv_count = 5 if mesh_type == BF2StaticMesh else 1
+
+    animuv_matrix_index = mesh.attributes.get('animuv_matrix_index')
+    animuv_rot_center = mesh.attributes.get('animuv_rot_center')
+    if mesh_type != BF2BundledMesh: # just in case someone does this...
+        animuv_matrix_index = None
+        animuv_rot_center = None
 
     # temporarly create custom split normals from vertex normals if not present
     # need them for tangent calculation, otherwise doesn't work for god knows what reason
@@ -268,6 +297,16 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
         bf2_mat : Material = mesh_type._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE()
         bf2_lod.materials.append(bf2_mat)
 
+        # get textures
+        texture_maps = get_material_maps(blend_material)
+
+        if animuv_rot_center:
+            try:
+                u_ratio, v_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], texture_path)
+            except ValueError as e:
+                raise ExportException(str(e))
+            # letting FileNotFoundError 
+
         # map each loop to vert index in vertex array
         loop_to_vert_idx = [-1] * len(mesh.loops)
 
@@ -286,6 +325,7 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
             blend_vertex = mesh.vertices[vert_idx]
             for loop in loops:
                 vert = Vertex()
+
                 vert.position = _swap_zy(blend_vertex.co)
                 vert.normal = _swap_zy(loop.normal)
                 vert.tangent = _swap_zy(loop.tangent)
@@ -302,11 +342,32 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
                 # bitangent was caluculated based on UV and because we flip it vertically
                 # (see below) the sign of the bitangent gotta be inverted as well
                 bitangent_sign = 0 if loop.bitangent_sign > 0 else 1
-                vert.blendindices = (part_idx, 0, bitangent_sign, 0)
 
+                # (BundledMesh) fourth elem of blendindices is matrix index of the animated UV
+                vert_animuv_mat_idx = 0
+                if animuv_matrix_index:
+                    vert_animuv_mat_idx = AnimUv(animuv_matrix_index.data[vert_idx].value)
+
+                vert.blendindices = (part_idx, 0, bitangent_sign, vert_animuv_mat_idx)
+
+                # UVs
                 for uv_chan, uvlayer in uv_layers.items():
                     uv = _flip_uv(uvlayer.data[loop.index].uv)
                     setattr(vert, f'texcoord{uv_chan}', uv)
+
+                # animated UVs
+                if animuv_rot_center:
+                    if vert_animuv_mat_idx in ANIM_UV_ROTATION_MATRICES:
+                        # take the original UV and substract rotation center
+                        # scale by texture size ratio, move to TEXCOORD1
+                        # keeping only the center of rotation in TEXCOORD0
+                        uv = vert.texcoord0
+                        vert_animuv_center = animuv_rot_center.data[vert_idx].value
+                        vert.texcoord1 = ((uv[0] - vert_animuv_center[0]) / u_ratio,
+                                        (uv[1] - vert_animuv_center[1]) / v_ratio)
+                        vert.texcoord0 = vert_animuv_center
+                    else:
+                        vert.texcoord1 = (0, 0) # unused
 
                 # check if loop can be merged, if so, add reference to the same loop
                 total_loops_count += 1
@@ -355,8 +416,6 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
         }
 
         bf2_mat.fxfile = SHADER_MAPPING[blend_material.bf2_shader]
-
-        texture_maps = get_material_maps(blend_material)
 
         # convert pahts to relative and linux format (game will not find them otherwise)
         for txt_map_type, txt_map_file in texture_maps.items():
@@ -472,6 +531,7 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
     bm.free()
 
     has_anim_uv = isinstance(bf2_mesh, BF2BundledMesh) and bf2_mesh.has_uv(1) and bf2_mesh.has_blend_indices()
+
     has_normals = bf2_mesh.has_normal()
 
     uv_count = 5 if isinstance(bf2_mesh, BF2StaticMesh) else 1
@@ -482,10 +542,18 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
         uvs[uv_chan] = list()
 
     vertex_normals = list()
-    # vertex_animuv_rot_center = list()
-    # vertex_animuv_matrix_index = list()
+    vertex_animuv_rot_center = list()
+    vertex_animuv_matrix_index = list()
 
     for mat in bf2_lod.materials:
+
+        if has_anim_uv and mat.maps:
+            try:
+                u_ratio, v_ratio = _get_anim_uv_ratio(mat.maps[0], texture_path)
+            except Exception:
+                u_ratio = v_ratio = 1.0
+                pass # TODO: warning
+
         for vert in mat.vertices:
             # Normals
             if has_normals:
@@ -496,22 +564,23 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
             uv_matrix_idx = vert.blendindices[3]
             for uv_chan, vertex_uv in uvs.items():
                 uv = getattr(vert, f'texcoord{uv_chan}')
-                # if has_anim_uv and uv_matrix_idx != 0:
-                #     # FIX UVs for animated parts
-                #     # UV1 is actual UV, UV0 is just center of UV rotation / shift
-                #     anim_uv_center = vert.texcoord1
-                #     uv = (uv[0] + anim_uv_center[0] * 0.5, # XXX: no idea why but I have to do this, probably needs to account for texture ratio?
-                #           uv[1] + anim_uv_center[1])
+                if has_anim_uv and uv_matrix_idx in ANIM_UV_ROTATION_MATRICES:
+                    # FIX UVs for animated parts
+                    # UV1 is actual UV, UV0 is just center of UV rotation / shift
+                    # and needs to be corected by texture size ratio as well
+                    vert_animuv_center = vert.texcoord1
+                    uv = (uv[0] + vert_animuv_center[0] * u_ratio,
+                          uv[1] + vert_animuv_center[1] * v_ratio)
                 uv = _flip_uv(uv)
                 vertex_uv.append(uv)
 
             # # Animated UVs data
-            # if has_anim_uv:
-            #     if uv_matrix_idx != 0:
-            #         vertex_animuv_rot_center.append(Vector(vert.texcoord0))
-            #     else:
-            #         vertex_animuv_rot_center.append(Vector((0, 0)))
-            #     vertex_animuv_matrix_index.append(uv_matrix_idx)
+            if has_anim_uv:
+                if uv_matrix_idx in ANIM_UV_ROTATION_MATRICES:
+                    vertex_animuv_rot_center.append(Vector(vert.texcoord0))
+                else:
+                    vertex_animuv_rot_center.append(Vector((0, 0)))
+                vertex_animuv_matrix_index.append(uv_matrix_idx)
 
     # apply normals
     if has_normals:
@@ -520,12 +589,12 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
         mesh.use_auto_smooth = True
 
     # apply Animated UVs data
-    # if has_anim_uv:
-    #     animuv_matrix_index = mesh.attributes.new('animuv_matrix_index', 'INT8', 'POINT')
-    #     animuv_matrix_index.data.foreach_set('value', vertex_animuv_matrix_index)
+    if has_anim_uv:
+        animuv_matrix_index = mesh.attributes.new('animuv_matrix_index', 'INT8', 'POINT')
+        animuv_matrix_index.data.foreach_set('value', vertex_animuv_matrix_index)
 
-    #     animuv_rot_center = mesh.color_attributes.new('animuv_rot_center', type='FLOAT2', domain='POINT')
-    #     animuv_rot_center.data.foreach_set('vector', list(chain(*vertex_animuv_rot_center)))
+        animuv_rot_center = mesh.color_attributes.new('animuv_rot_center', type='FLOAT2', domain='POINT')
+        animuv_rot_center.data.foreach_set('vector', list(chain(*vertex_animuv_rot_center)))
 
     # apply UVs
     for uv_chan, vertex_uv in uvs.items():
@@ -695,6 +764,31 @@ def _flip_uv(uv):
     return (u, 1 - v)
 
 # utils
+
+def _get_texture_size(texture_file):
+    with open(texture_file, "rb") as file:
+        f = FileUtils(file)
+        magic = f.read_dword()
+        if magic != 0x20534444:
+            raise ValueError(f"{texture_file} not a DDS file!")
+        size = f.read_dword()
+        flags = f.read_dword()
+        height = f.read_dword()
+        width = f.read_dword()
+        return height, width
+
+def _get_anim_uv_ratio(texture_map_file, texture_path):
+    u_ratio = 1.0
+    v_ratio = 1.0
+    if texture_path and not os.path.isabs(texture_map_file):
+        texture_map_file = os.path.join(texture_path, texture_map_file)
+    texture_size = _get_texture_size(texture_map_file)
+    tex_height, tex_width = texture_size
+    if tex_width > tex_height:
+        u_ratio = tex_height / tex_width
+    elif tex_height > tex_width:
+        v_ratio = tex_width / tex_height
+    return u_ratio, v_ratio
 
 def _remove_double_verts(context, obj):
     context.view_layer.objects.active = obj

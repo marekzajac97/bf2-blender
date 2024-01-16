@@ -92,8 +92,12 @@ class GeometryTemplate(Template):
         else:
             raise ValueError(f"Unknown geometry type {geometry_type}")
 
+        self.nr_of_animated_uv_matrix = 0
+
     def make_script(self, f):
         f.write(f'GeometryTemplate.create {self.geometry_type} {self.name}\n')
+        if self.nr_of_animated_uv_matrix:
+            f.write(f'GeometryTemplate.nrOfAnimatedUVMatrix {self.nr_of_animated_uv_matrix}\n')
 
 
 class CollisionMeshTemplate(Template):

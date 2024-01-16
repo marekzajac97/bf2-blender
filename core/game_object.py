@@ -131,6 +131,8 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
         if geometry_type == 'BundledMesh':
             print(f"joining LODs...")
             _join_lods(temp_mesh_geoms, obj_to_geom_part_id)
+            
+            root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
 
         if apply_modifiers:
             _apply_modifiers(temp_mesh_geoms)
@@ -597,8 +599,13 @@ def _split_mesh_by_vertex_groups(context, mesh_obj):
 
     return splitted_parts
 
+def _strip_tmp_prefix(name):
+    if name.startswith(TMP_PREFIX):
+        return name[len(TMP_PREFIX):]
+    return name
+
 def _find_child(obj, child_name):
-    org_obj_name = obj.name[len(TMP_PREFIX):]
+    org_obj_name = _strip_tmp_prefix(obj.name)
     if org_obj_name == child_name:
         return obj
     for child in obj.children:
@@ -607,7 +614,7 @@ def _find_child(obj, child_name):
     return None
 
 def _create_mesh_vertex_group(obj, obj_to_vertex_group):
-    org_obj_name = obj.name[len(TMP_PREFIX):]
+    org_obj_name = _strip_tmp_prefix(obj.name)
     obj_name = _strip_prefix(org_obj_name)
     group_name = obj_to_vertex_group[obj_name]
 
@@ -663,7 +670,7 @@ def _create_mesh_vertex_group(obj, obj_to_vertex_group):
             _create_mesh_vertex_group(child_obj, obj_to_vertex_group)
 
 def _map_objects_to_vertex_groups(obj, obj_to_geom_part_id, obj_to_vertex_group):
-    org_obj_name = obj.name[len(TMP_PREFIX):]
+    org_obj_name = _strip_tmp_prefix(obj.name)
     obj_name = _strip_prefix(org_obj_name)
     part_id = obj_to_geom_part_id[obj_name]
     group_name = f'mesh{part_id + 1}'
@@ -748,6 +755,20 @@ def _triangulate(mesh_geoms):
             bpy.ops.mesh.select_all(action='SELECT')
             bpy.ops.mesh.quads_convert_to_tris()
             bpy.ops.object.mode_set(mode='OBJECT')
+
+def _get_nr_of_animted_uvs(mesh_geoms):
+    matrix_set = set()
+    for geom_obj in mesh_geoms:
+        for lod_obj in geom_obj:
+            if 'animuv_matrix_index' in lod_obj.data.attributes:
+                animuv_matrix_index = lod_obj.data.attributes['animuv_matrix_index']
+                vert_matrix = len(animuv_matrix_index.data) * [None]
+                animuv_matrix_index.data.foreach_get('value', vert_matrix)
+                matrix_set.update(set(vert_matrix))
+    if matrix_set:
+        return max(matrix_set)
+    else:
+        return 0
 
 def _dump_con_file(root_obj_template, con_file):
     with open(con_file, 'w') as f:
