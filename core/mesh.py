@@ -13,7 +13,11 @@ from .bf2.bf2_mesh.bf2_types import D3DDECLTYPE, D3DDECLUSAGE
 from .bf2.fileutils import FileUtils
 
 from .exceptions import ImportException, ExportException
-from .utils import to_matrix, convert_bf2_pos_rot, delete_object_if_exists, check_prefix
+from .utils import (to_matrix,
+                    convert_bf2_pos_rot,
+                    delete_object_if_exists,
+                    check_prefix,
+                    DEFAULT_REPORTER)
 from .skeleton import find_active_skeleton, ske_get_bone_rot, ske_weapon_part_ids
 from .mesh_material import (setup_material,
                             get_staticmesh_technique_from_maps, 
@@ -27,10 +31,10 @@ SPECULAR_LUT = 'Common\Textures\SpecularLUT_pow36.dds'
 class AnimUv(enum.IntEnum):
     NONE = 0
     L_WHEEL_ROTATION = 1
-    L_WHEEL_TRANLATION = 2
+    L_WHEEL_TRANSLATION = 2
     R_WHEEL_ROTATION = 3
-    L_WHEEL_TRANSLATION = 4
-    R_TRACK_TRANLSATION = 5
+    R_WHEEL_TRANSLATION = 4
+    R_TRACK_TRANSLATION = 5
     L_TRACK_TRANSLATION = 6
 
 ANIM_UV_ROTATION_MATRICES = (AnimUv.L_WHEEL_ROTATION, AnimUv.R_WHEEL_ROTATION)
@@ -55,7 +59,7 @@ def _build_mesh_prefix(geom=None, lod=None):
     else:
         return ''
 
-def _import_mesh(context, bf2_mesh, name='', geom=None, lod=None, reload=False, remove_doubles=False, **kwargs):
+def _import_mesh(context, bf2_mesh, name='', geom=None, lod=None, reload=False, **kwargs):
     name = name or bf2_mesh.name
     if geom is None and lod is None:
         if reload: delete_object_if_exists(name)
@@ -72,13 +76,11 @@ def _import_mesh(context, bf2_mesh, name='', geom=None, lod=None, reload=False, 
                 lod_name = _build_mesh_prefix(geom_idx, lod_idx) + name
                 lod_obj = _import_mesh_lod(context, lod_name, bf2_mesh,
                                            bf2_lod, reload, **kwargs)
-                if remove_doubles: _remove_double_verts(context, lod_obj)
                 lod_obj.parent = geom_obj
         return root_obj
     else:
         bf2_lod = bf2_mesh.geoms[geom].lods[lod]
         lod_obj = _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload, **kwargs)
-        if remove_doubles: _remove_double_verts(context, lod_obj)
         return lod_obj
 
 def collect_uv_layers(mesh_obj, geom=0, lod=0):
@@ -590,7 +592,7 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
 
     # apply Animated UVs data
     if has_anim_uv:
-        animuv_matrix_index = mesh.attributes.new('animuv_matrix_index', 'INT8', 'POINT')
+        animuv_matrix_index = mesh.attributes.new('animuv_matrix_index', 'INT', 'POINT')
         animuv_matrix_index.data.foreach_set('value', vertex_animuv_matrix_index)
 
         animuv_rot_center = mesh.color_attributes.new('animuv_rot_center', type='FLOAT2', domain='POINT')
@@ -789,12 +791,3 @@ def _get_anim_uv_ratio(texture_map_file, texture_path):
     elif tex_height > tex_width:
         v_ratio = tex_width / tex_height
     return u_ratio, v_ratio
-
-def _remove_double_verts(context, obj):
-    context.view_layer.objects.active = obj
-    bpy.ops.object.mode_set(mode='EDIT') 
-    bpy.ops.mesh.select_mode(type='VERT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.remove_doubles(threshold=0.0001, use_sharp_edge_from_normals=True)
-    bpy.ops.mesh.select_all(action='DESELECT')
-    bpy.ops.object.mode_set(mode='OBJECT')

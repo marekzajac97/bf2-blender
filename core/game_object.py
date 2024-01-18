@@ -476,7 +476,7 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
     #         # transform is in armature space, so first need to move bone to origin
     #         bone.head = pos
     #         bone.tail = pos
-    #         bone.tail[2] += 0.2
+    #         bone.tail[2] += 0.4
 
     #     bpy.ops.object.mode_set(mode='POSE')
 

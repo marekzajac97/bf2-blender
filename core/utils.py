@@ -2,6 +2,27 @@ import bpy
 from bpy.types import Mesh, Armature, Camera
 from .exceptions import ExportException
 
+class Reporter:
+    def __init__(self, report_func) -> None:
+        self.report_func = report_func
+
+    def _report(self, level, msg):
+        if self.report_func:
+            self.report_func({level}, msg)
+        else:
+            print(f"{level}: {msg}")
+
+    def warning(self, msg):
+        self._report("WARNING", msg)
+
+    def error(self, msg):
+        self._report("ERROR", msg)
+
+    def info(self, msg):
+        self._report("INFO", msg)
+
+DEFAULT_REPORTER = Reporter(None)
+
 def to_matrix(pos, rot):
     matrix = rot.to_matrix()
     matrix.resize_4x4()

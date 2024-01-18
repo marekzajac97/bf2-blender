@@ -42,12 +42,6 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         default=False
     )
 
-    remove_doubles: BoolProperty(
-        name="Merge double verts",
-        description="Try to remove vertices that were duplicated during export to preserve split per-vertex normals",
-        default=False
-    )
-
     def invoke(self, context, _event):
         try:
             # suggest to load only single LOD whe skeleton got imported previoulsy
@@ -70,7 +64,6 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
                 kwargs = {}
 
             self.__class__.IMPORT_FUNC(context, self.filepath,
-                                       remove_doubles=self.remove_doubles,
                                        texture_path=mod_path, **kwargs)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
