@@ -223,15 +223,15 @@ def _collect_collmesh_parts(obj, collmesh_parts, obj_to_part_id):
         if _is_colmesh_dummy(child_obj):
             # map object template name to collistion part
             part_id = len(collmesh_parts)
-            object_name = _strip_prefix(child_obj.name)
+            object_name = _strip_prefix(obj.name)
             obj_to_part_id[object_name] = part_id
-
             # map collision part to collision meshes
             cols = dict()
             collmesh_parts.append(cols)
             for col_obj in child_obj.children:
                 col_idx = check_suffix(col_obj.name, COL_SUFFIX)
                 cols[col_idx] = col_obj
+            break
 
     # process childs
     for child_obj in obj.children:
