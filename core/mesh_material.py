@@ -473,20 +473,9 @@ def setup_material(material, uvs=None):
         if has_alpha:
             # TODO alpha blend for statics, is this even used ?
             if detail:
-                src_alpha_out = detail.outputs[1]
-                one_minus_src_alpha = True
+                alpha_output = detail.outputs[1]
             else:
-                src_alpha_out = base.outputs[1]
-                one_minus_src_alpha = False
-
-            if one_minus_src_alpha:
-                one_minus_node = node_tree.nodes.new('ShaderNodeMath')
-                one_minus_node.operation = 'SUBTRACT'
-                one_minus_node.inputs[0].default_value = 1
-                node_tree.links.new(src_alpha_out, one_minus_node.inputs[1])
-                alpha_output = one_minus_node.outputs[0]
-            else:
-                alpha_output = src_alpha_out
+                alpha_output = base.outputs[1]
 
             node_tree.links.new(alpha_output, shader_alpha)
 
