@@ -70,6 +70,12 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         items=get_uv_layers
     )
 
+    gen_lightmap_uv: BoolProperty(
+        name="Lightmap UV",
+        description="Generate StaticMesh Lightmap UV",
+        default=False
+    )
+
     export_geometry: BoolProperty(
         name="Export Geometry",
         description="Export visible mesh geometry to a file",
@@ -107,6 +113,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
                          colmesh_export=self.export_collmesh,
                          triangluate=self.triangulate,
                          apply_modifiers=self.apply_modifiers,
+                         gen_lightmap_uv=self.gen_lightmap_uv,
                          texture_path=mod_path,
                          tangent_uv_map=self.tangent_uv_map)
         except Exception as e:

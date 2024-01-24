@@ -202,7 +202,7 @@ def _get_vertex_group_to_part_id_mapping(obj):
         vertex_group_to_part_id[vg.index] = part_id
     return vertex_group_to_part_id
 
-def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_map=''):
+def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=False, texture_path='', tangent_uv_map=''):
     mesh = lod_obj.data
     has_custom_normals = mesh.has_custom_normals
 
@@ -234,14 +234,17 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, texture_path='', tangent_uv_ma
             uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
 
     # lightmap UV, if not present, generate it
-    if mesh_type == BF2StaticMesh and 4 not in uv_layers.keys():
-        light_uv_layer = mesh.uv_layers.new(name='UV4')
+    if mesh_type == BF2StaticMesh and gen_lightmap_uv:
+        if 4 in uv_layers:
+            light_uv_layer = mesh.uv_layers['UV4']
+        else:
+            light_uv_layer = mesh.uv_layers.new(name='UV4')
+
         light_uv_layer.active = True
         bpy.ops.object.select_all(action='DESELECT')
         lod_obj.select_set(True)
         bpy.context.view_layer.objects.active = lod_obj
-        bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True, PREF_NEW_UVLAYER=False,
-                                    PREF_APPLY_IMAGE=False, PREF_IMG_PX_SIZE=128, PREF_BOX_DIV=12, PREF_MARGIN_DIV=0.2)
+        bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True, PREF_NEW_UVLAYER=False, PREF_BOX_DIV=12, PREF_MARGIN_DIV=0.2)
 
     # BundledMesh specific
     vertex_group_to_part_id = _get_vertex_group_to_part_id_mapping(lod_obj)

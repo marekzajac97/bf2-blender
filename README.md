@@ -19,7 +19,7 @@ I'm probably like 15 years late but anyway, here are some tools for importing/ex
 - To install see [Blender Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html)
 
 ## Usage
-- Head over to the documentation for details on how to use this Add-on [Documentation](https://github.com/marekzajac97/bf2-blender/blob/main/docs/README.md)
+- Head over to the [documentation](https://github.com/marekzajac97/bf2-blender/blob/main/docs/README.md) for details on how to use this add-on
 
 ## Compatibility
 - The Add-on is compatible with Blender 4.0 only. It is fully cross-platform, however the pure-python implementation of the collision mesh export is painfully slow, thus this part of export will require a module `bsp_builder` compiled into a `.pyd` file. For now, the pre-build binary is only available for Windows (x64), for macOS/Linux you will have to build that yourself!

@@ -26,7 +26,7 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
     - For BundledMesh: There should be 3 texture slots for Diffuse, Normal, and Shadow. Only Diffuse texture is mandatory, if others are not meant to be used, leave them empty.
 - Clicking on `Apply Material` changes some material settings, loads textures and builds a tree of Shader Nodes that try to mimic BF2 rendering.
 - Each LOD's mesh must have assigned a minimum of 1 and a maximum of 5 UV layers and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
-    - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, when Lightmap UV is not present it will be generated.
+    - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, which can also be auto-generated when toggled in the export options.
     - For BundledMesh there's only UV0 for all texture maps.
 - Export requires one UV map to be chosen for tangent space calculation, this must be the same UV that was used to bake the normal map, for static meshes (which reuse textures) it should likely be UV1 (Detail Normal).
 
