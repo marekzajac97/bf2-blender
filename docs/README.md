@@ -51,10 +51,10 @@ StaticMesh_house
 └─G0__house
   ├─G0L0__house [m]
   │ └─NONVIS__G1L0__house
-  │   ├─G1L0__house__COL0 [m]
-  │   ├─G1L0__house__COL1 [m]
-  │   ├─G1L0__house__COL2 [m]
-  │   └─G1L0__house__COL3 [m]
+  │   ├─G0L0__house__COL0 [m]
+  │   ├─G0L0__house__COL1 [m]
+  │   ├─G0L0__house__COL2 [m]
+  │   └─G0L0__house__COL3 [m]
   ├─G0L1__house [m]
   └─G0L2__house [m]
 ```

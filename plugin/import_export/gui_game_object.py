@@ -72,8 +72,8 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     gen_lightmap_uv: BoolProperty(
         name="Lightmap UV",
-        description="Generate StaticMesh Lightmap UV",
-        default=False
+        description="Generate StaticMesh Lightmap UVs if not present",
+        default=True
     )
 
     export_geometry: BoolProperty(

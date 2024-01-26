@@ -107,27 +107,6 @@ def export_bundledmesh(mesh_obj, mesh_file, **kwargs):
 def export_staticmesh(mesh_obj, mesh_file, **kwargs):
     return _export_mesh(mesh_obj, mesh_file, BF2StaticMesh, **kwargs)
 
-def _setup_vertex_attributes(bf2_mesh, has_uv1=False):
-    mesh_type = type(bf2_mesh)
-    vert_attrs = bf2_mesh.vertex_attributes
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.NORMAL))
-    if mesh_type == BF2SkinnedMesh:
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT1, D3DDECLUSAGE.BLENDWEIGHT))
-
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.D3DCOLOR, D3DDECLUSAGE.BLENDINDICES))
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD0))
-    if mesh_type == BF2BundledMesh and has_uv1:
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
-
-    if mesh_type == BF2StaticMesh:
-        # XXX: do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD2))
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD3))
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD4))
-    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.TANGENT))
-
 def _collect_geoms_lods(mesh_obj):
     if not mesh_obj.children:
         raise ExportException(f"mesh object '{mesh_obj.name}' has no children (geoms)!")
@@ -159,14 +138,32 @@ def _collect_geoms_lods(mesh_obj):
 
     return geoms
 
-
-def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, **kwargs):
+def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, gen_lightmap_uv=True, **kwargs):
     bf2_mesh = mesh_type(name=mesh_obj.name)
 
     if mesh_geoms is None:
         mesh_geoms = _collect_geoms_lods(mesh_obj)
-    
-    _setup_vertex_attributes(bf2_mesh, _has_anim_uv(mesh_geoms))
+
+    # settup attributes
+    vert_attrs = bf2_mesh.vertex_attributes
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.NORMAL))
+    if mesh_type == BF2SkinnedMesh:
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT1, D3DDECLUSAGE.BLENDWEIGHT))
+
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.D3DCOLOR, D3DDECLUSAGE.BLENDINDICES))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD0))
+    if mesh_type == BF2BundledMesh and _has_anim_uv(mesh_geoms):
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
+
+    elif mesh_type == BF2StaticMesh:
+        # XXX: do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD2))
+        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD3))
+        if gen_lightmap_uv or _has_lightmap_uv(mesh_geoms):
+            vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD4))
+    vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.TANGENT))
 
     for geom_obj in mesh_geoms:
         geom = mesh_type._GEOM_TYPE()
@@ -174,7 +171,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, **kwargs):
         for lod_obj in geom_obj:
             lod = mesh_type._GEOM_TYPE._LOD_TYPE()
             geom.lods.append(lod)
-            _export_mesh_lod(mesh_type, lod, lod_obj, **kwargs)
+            _export_mesh_lod(mesh_type, lod, lod_obj, gen_lightmap_uv=gen_lightmap_uv, **kwargs)
 
     bf2_mesh.export(mesh_file)
     return bf2_mesh
@@ -183,6 +180,13 @@ def _has_anim_uv(mesh_geoms):
     for geom_obj in mesh_geoms:
         for lod_obj in geom_obj:
             if 'animuv_rot_center' in lod_obj.data.attributes:
+                return True
+    return False
+
+def _has_lightmap_uv(mesh_geoms):
+    for geom_obj in mesh_geoms:
+        for lod_obj in geom_obj:
+            if 'UV4' in lod_obj.data.uv_layers:
                 return True
     return False
 
@@ -202,7 +206,7 @@ def _get_vertex_group_to_part_id_mapping(obj):
         vertex_group_to_part_id[vg.index] = part_id
     return vertex_group_to_part_id
 
-def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=False, texture_path='', tangent_uv_map=''):
+def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_path='', tangent_uv_map=''):
     mesh = lod_obj.data
     has_custom_normals = mesh.has_custom_normals
 
@@ -234,12 +238,8 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=False, texture
             uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
 
     # lightmap UV, if not present, generate it
-    if mesh_type == BF2StaticMesh and gen_lightmap_uv:
-        if 4 in uv_layers:
-            light_uv_layer = mesh.uv_layers['UV4']
-        else:
-            light_uv_layer = mesh.uv_layers.new(name='UV4')
-
+    if mesh_type == BF2StaticMesh and 4 not in uv_layers and gen_lightmap_uv:
+        light_uv_layer = mesh.uv_layers.new(name='UV4')
         light_uv_layer.active = True
         bpy.ops.object.select_all(action='DESELECT')
         lod_obj.select_set(True)

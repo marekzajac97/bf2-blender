@@ -112,8 +112,8 @@ def _import_collisionmesh_dummy_materials(name, bf2_mesh):
 def _import_collisionmesh_col(name, bf2_col, materials):
     # swap order
     verts = [(v.x, v.z, v.y) for v in bf2_col.verts]
-    faces = [(f.verts[2], f.verts[1], f.verts[0]) for f in bf2_col.faces]
-    face_materials = [f.material for f in bf2_col.faces]
+    faces = [face.verts for face in bf2_col.faces]
+    face_materials = [face.material for face in bf2_col.faces]
 
     # map bf2 material index to blender material index
     material_indexes = list(set(face_materials))
@@ -239,7 +239,9 @@ def _export_collistionmesh_col(col_idx, mesh_obj, material_to_index):
         col.verts.append(vert)
         col.vert_materials.append(0)
     for p in mesh.polygons:
-        vert_indexes = (p.vertices[2], p.vertices[1], p.vertices[0])
+        if p.loop_total > 3:
+            raise ExportException(f"{mesh_obj.name}: Exporter does not support polygons with more than 3 vertices! It must be triangulated")
+        vert_indexes = tuple(p.vertices)
         mat_name = mesh.materials[p.material_index].name
         material_index = material_to_index[mat_name]
         face = Face(vert_indexes, material_index)
@@ -249,17 +251,20 @@ def _export_collistionmesh_col(col_idx, mesh_obj, material_to_index):
     return col
 
 # debug stuff
+def import_bsp(context, mesh_file, part=0, geom=0, col=0, reload=False):
+    bf2_mesh = BF2CollMesh(mesh_file)
+    _import_bsp(context, bf2_mesh.geom_parts[part].geoms[geom].cols[col], bf2_mesh.name, reload)
+
 def _import_bsp(context, bf2_col, bsp_name, reload=False):
     bsp = bf2_col.bsp
     verts = [(v.x, v.z, v.y) for v in bf2_col.verts]
 
     def _import_bsp_node(node, parent_obj):
-        node_idx = bsp._nodes.index(node)
         for i, child in enumerate(node.children):
             p = '|F' if i == 0 else '|B'
-            name = bsp_name + '_' + str(node_idx) + p
+            name = bsp_name + '_' + p
             if child is None: # leaf
-                faces = [(f.verts[2], f.verts[1], f.verts[0]) for f in node.faces[i]]
+                faces = [f.verts for f in node.faces[i]]
 
                 bm = bmesh.new()
                 for vert in verts:
@@ -270,8 +275,7 @@ def _import_bsp(context, bf2_col, bsp_name, reload=False):
 
                 for face in faces:
                     face_verts = [bm.verts[i] for i in face]
-                    bm_face = bm.faces.new(face_verts)
-                    # bm_face.material_index = 0
+                    bm.faces.new(face_verts)
 
                 if reload: delete_object_if_exists(name)
 
@@ -291,9 +295,9 @@ def _import_bsp(context, bf2_col, bsp_name, reload=False):
     _import_bsp_node(bsp.root, root_obj)
 
     # link
-    def _link_recursive(self, obj):
+    def _link_recursive(obj):
         context.scene.collection.objects.link(obj)
-        if obj.parent:
-            self._link_recursive(obj)
-    
+        for child in obj.children:
+            _link_recursive(child)
+
     _link_recursive(root_obj)

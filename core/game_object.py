@@ -134,11 +134,12 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
             
             root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
 
-        if apply_modifiers:
-            _apply_modifiers(temp_mesh_geoms)
-
-        if triangluate:
-            _triangulate(temp_mesh_geoms)
+        for geom_obj in temp_mesh_geoms:
+            for lod_obj in geom_obj:
+                if apply_modifiers:
+                    _apply_modifiers(lod_obj)
+                if triangluate:
+                    _triangulate(lod_obj)
 
         if geom_export:
             print(f"Exporting geometry to '{geometry_filepath}'")
@@ -148,11 +149,27 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
     finally:
         _delete_lods(temp_mesh_geoms)
 
-    if root_obj_template.collmesh:
+    if root_obj_template.collmesh and colmesh_export:
         collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.collmesh.name}.collisionmesh')
-        if colmesh_export:
+
+        print(f"duplicating COLs...")
+        temp_collmesh_parts = _duplicate_cols(collmesh_parts)
+
+        for geoms in temp_collmesh_parts:
+            for cols in geoms:
+                for _, col_obj in cols.items():
+                    if apply_modifiers:
+                        _apply_modifiers(col_obj)
+                    if triangluate:
+                        _triangulate(col_obj)
+        try:
             print(f"Exporting collision to '{geometry_filepath}'")
-            _, material_to_index = export_collisionmesh(mesh_obj, collmesh_filepath, geom_parts=collmesh_parts)
+            _, material_to_index = export_collisionmesh(mesh_obj, collmesh_filepath, geom_parts=temp_collmesh_parts)
+        except Exception:
+            raise
+        finally:
+            _delete_cols(temp_collmesh_parts)
+
         for mat, mat_idx in sorted(material_to_index.items(), key=lambda item: item[1]):
             root_obj_template.col_material_map[mat_idx] = mat
 
@@ -704,13 +721,13 @@ def _join_lods(mesh_geoms, obj_to_geom_part_id):
         for lod_obj in geom_obj:
             _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part_id)
 
-def _duplicate_object(obj, recursive=True):
+def _duplicate_object(obj, recursive=True, prefix=TMP_PREFIX):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.ops.object.duplicate()
     new_obj = bpy.context.view_layer.objects.active
-    new_obj.name = TMP_PREFIX + obj.name
+    new_obj.name = prefix + obj.name
 
     if recursive:
         for child_obj in obj.children:
@@ -719,6 +736,18 @@ def _duplicate_object(obj, recursive=True):
             new_child = _duplicate_object(child_obj, recursive=recursive)
             new_child.parent = new_obj
     return new_obj
+
+def _duplicate_cols(geom_parts):
+    new_geom_parts = list()
+    for geoms in geom_parts:
+        new_geom_obj = list()
+        new_geom_parts.append(new_geom_obj)
+        for cols in geoms:
+            new_cols = dict()
+            new_geom_obj.append(new_cols)
+            for col_idx, col_obj in cols.items():
+                new_cols[col_idx] = _duplicate_object(col_obj, recursive=False)
+    return new_geom_parts
 
 def _duplicate_lods(mesh_geoms):
     new_mesh_geoms = list()
@@ -730,31 +759,33 @@ def _duplicate_lods(mesh_geoms):
             new_geom_obj.append(new_lod_obj)
     return new_mesh_geoms
 
+def _delete_cols(geom_parts):
+    for geoms in geom_parts:
+        for cols in geoms:
+            for _, col_obj in cols.items():
+                delete_object(col_obj, recursive=True)
+
 def _delete_lods(mesh_geoms):
     for geom_obj in mesh_geoms:
         for lod_obj in geom_obj:
             delete_object(lod_obj, recursive=True)
 
-def _apply_modifiers(mesh_geoms):
-    for geom_obj in mesh_geoms:
-        for lod_obj in geom_obj:
-            bpy.ops.object.select_all(action='DESELECT')
-            lod_obj.select_set(True)
-            bpy.context.view_layer.objects.active = lod_obj
-            bpy.ops.object.convert()
+def _apply_modifiers(obj):
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.convert()
 
-def _triangulate(mesh_geoms):
-    for geom_obj in mesh_geoms:
-        for lod_obj in geom_obj:
-            bpy.ops.object.select_all(action='DESELECT')
-            lod_obj.select_set(True)
-            bpy.context.view_layer.objects.active = lod_obj
-            bpy.ops.object.select_all(action='DESELECT')
-            bpy.ops.object.mode_set(mode='EDIT')
-            bpy.ops.mesh.select_mode(type='FACE')
-            bpy.ops.mesh.select_all(action='SELECT')
-            bpy.ops.mesh.quads_convert_to_tris()
-            bpy.ops.object.mode_set(mode='OBJECT')
+def _triangulate(obj):
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='FACE')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.quads_convert_to_tris()
+    bpy.ops.object.mode_set(mode='OBJECT')
 
 def _get_nr_of_animted_uvs(mesh_geoms):
     matrix_set = set()
