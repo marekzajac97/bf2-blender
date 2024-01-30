@@ -31,7 +31,7 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - Export requires one UV map to be chosen for tangent space calculation, this must be the same UV that was used to bake the normal map, for static meshes (which reuse textures) it should likely be UV1 (Detail Normal).
 
 ## Collision meshes
-- Each object may contain collision mesh data. To add it, you need to create an empty child object that is prefixed with `NONVIS__`. This new object should have a maximum of 4 child objects (suffixed with `__COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added to object's Lod0 hierchies.
+- Each object may contain collision mesh data. To add it, you need to create an empty child object that is prefixed with `NONVIS__`. This new object should have a maximum of 4 child objects (suffixed with `_COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added to object's Lod0 hierchies.
 - Each COL can have an arbitrary number of materials assigned, no special material settings are required, the material mapping will be dumped to the `.con` file.
 
 ## Tank tracks skinning (BundledMesh)

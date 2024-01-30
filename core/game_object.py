@@ -14,7 +14,7 @@ from .utils import delete_object, check_suffix
 from .exceptions import ImportException, ExportException
 
 NONVIS_PRFX = 'NONVIS_'
-COL_SUFFIX = '__COL'
+COL_SUFFIX = '_COL'
 TMP_PREFIX = 'TMP__'
 SKIN_PREFIX = 'SKIN__'
 
@@ -783,6 +783,7 @@ def _triangulate(obj):
     bpy.ops.object.select_all(action='DESELECT')
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_mode(type='FACE')
+    bpy.ops.mesh.reveal(select=False)
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.quads_convert_to_tris()
     bpy.ops.object.mode_set(mode='OBJECT')
