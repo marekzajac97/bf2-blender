@@ -37,16 +37,16 @@ def _create_mesh_object(name):
     obj = bpy.data.objects.new(name, mesh)
     return obj
 
-def _create_bone_group(rig, name, bone_prfx, theme_idx):
-    if name in rig.pose.bone_groups:
-        group = rig.pose.bone_groups[name]
-        rig.pose.bone_groups.remove(group)
-    group = rig.pose.bone_groups.new(name=name)
-    group.color_set = f'THEME{theme_idx:>02}'
+def _create_bone_collection(armature, name, bone_prfx, theme_idx):
+    if name in armature.collections:
+        coll = armature.collections[name]
+        armature.collections.remove(coll)
+    coll = armature.collections.new(name=name)
 
-    for bone in rig.pose.bones:
+    for bone in armature.bones:
         if bone.name.startswith(bone_prfx):
-            bone.bone_group = group
+            bone.color.palette = f'THEME{theme_idx:>02}'
+            coll.assign(bone)
 
 def _create_shape(name, type='CUBE', size=1):
     mesh_object = _create_mesh_object(name)
@@ -379,10 +379,10 @@ def _setup_1p_controllers(context, rig, step):
         if bone.name not in finger_bones and not _is_ctrl_of(bone) and bone.name not in UNHIDE_BONE:
             bone.hide = True # hidden in Pose and Object modes
 
-    _create_bone_group(rig, 'BF2_LEFT_HAND', 'L_', 3)
-    _create_bone_group(rig, 'BF2_RIGHT_HAND', 'R_', 4)
-    _create_bone_group(rig, 'BF2_MESH_BONES', 'mesh', 9)
-    _create_bone_group(rig, 'BF2_CAMERABONE', 'Camerabone', 1)
+    _create_bone_collection(armature, 'BF2_LEFT_ARM', 'L_', 3)
+    _create_bone_collection(armature, 'BF2_RIGHT_ARM', 'R_', 4)
+    _create_bone_collection(armature, 'BF2_MESH_BONES', 'mesh', 9)
+    _create_bone_collection(armature, 'BF2_CAMERABONE', 'Camerabone', 1)
 
     bpy.ops.object.mode_set(mode='OBJECT')
     scene.frame_set(saved_frame)

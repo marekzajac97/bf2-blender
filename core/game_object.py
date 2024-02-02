@@ -1,5 +1,6 @@
 import bpy
 import os
+import math
 from getpass import getuser
 from mathutils import Matrix, Vector, Euler
 from bpy.types import Mesh, Armature
@@ -7,8 +8,9 @@ from bpy.types import Mesh, Armature
 from .bf2.bf2_engine.components import (BF2Engine, ObjectTemplate,
                                         GeometryTemplate, CollisionMeshTemplate)
 from .mesh import (import_mesh, export_bundledmesh, export_staticmesh,
-                   _build_mesh_prefix, _collect_geoms_lods, _get_vertex_group_to_part_id_mapping)
+                   _build_mesh_prefix, _collect_geoms_lods)
 from .collision_mesh import import_collisionmesh, export_collisionmesh
+from .utils import DEFAULT_REPORTER
 
 from .utils import delete_object, check_suffix
 from .exceptions import ImportException, ExportException
@@ -88,9 +90,6 @@ def parse_geom_type(mesh_obj):
 def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                   apply_modifiers=False, triangluate=False, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
-
-    if tuple(mesh_obj.location) != (0, 0, 0) or tuple(mesh_obj.rotation_euler) != (0, 0, 0):
-        raise ExportException(f"The root of the exported object '{mesh_obj.name}' must be placed in the scene origin, with no rotation")
 
     mesh_geoms = _collect_geoms_lods(mesh_obj)
     main_lod, obj_to_geom_part_id = _find_main_lod_and_geom_parts(mesh_geoms)
@@ -326,7 +325,7 @@ def _create_object_template(obj, obj_to_geom_part_id, obj_to_col_part_id, is_veh
         child_object = ObjectTemplate.ChildObject(child_template.name)
         child_object.template = child_template
         child_object.position = _swap_zy(child_obj.location)
-        child_object.rotation = _swap_zy(child_obj.rotation_euler)
+        child_object.rotation = _matrix_to_yaw_pitch_roll(child_obj.matrix_local)
         obj_template.children.append(child_object)
 
     return obj_template
@@ -384,8 +383,8 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
         geom_part_id = obj_template.geom_part
         vertex_group_name = f'mesh{geom_part_id + 1}'
         part_name = f'{prfx}{obj_template.name}'
-        part_rotation = _swap_zy(rotation)
-        part_position = _swap_zy(position)
+        part_position = Vector(_swap_zy(position))
+        part_rotation = _yaw_pitch_roll_to_matrix(rotation).to_euler('XYZ')
 
         if vertex_group_name in geom_parts:
             geometry_part_obj = geom_parts[vertex_group_name]
@@ -410,7 +409,7 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
                     _, bones = skinned_objects[geometry_part_obj.name]
 
                     # but first transform verts of the root object
-                    transform = Euler(part_rotation, 'XYZ').to_matrix()
+                    transform = part_rotation.to_matrix()
                     transform.resize_4x4()
                     transform.translation = part_position
 
@@ -419,7 +418,8 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
                     parents_to_root = list()
                     _get_parent_list(geom_parent, geometry_part_obj, parents_to_root)
                     for parent in parents_to_root:
-                        parent_transform = Euler(parent.rotation_euler, 'XYZ').to_matrix()
+                        # for whatever reason using parent.matrix_local does not work correctly sometimes
+                        parent_transform = parent.rotation_euler.copy().to_matrix()
                         parent_transform.resize_4x4()
                         parent_transform.translation = parent.location
                         transform @= parent_transform
@@ -653,7 +653,7 @@ def _create_mesh_vertex_group(obj, obj_to_vertex_group):
 
         transform = Matrix.Identity(4)
         for parent in parents_to_root:
-            parent_transform = Euler(parent.rotation_euler, 'XYZ').to_matrix()
+            parent_transform = Euler(parent.rotation_euler, parent.rotation_mode).to_matrix()
             parent_transform.resize_4x4()
             parent_transform.translation = parent.location
             transform @= parent_transform
@@ -814,3 +814,16 @@ def _dump_con_file(root_obj_template, con_file):
 
 def _swap_zy(vec):
     return (vec[0], vec[2], vec[1])
+
+def _yaw_pitch_roll_to_matrix(rotation):
+    rotation = tuple(map(lambda x: -math.radians(x), rotation))
+    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
+    pitch = Matrix.Rotation(rotation[1], 4, 'X')
+    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
+    return (yaw @ pitch @ roll)
+
+def _matrix_to_yaw_pitch_roll(m):
+    yaw = math.atan2(m[0][1], m[1][1])
+    pitch = math.asin(-m[2][1])
+    roll = math.atan2(m[2][0], m[2][2])
+    return tuple(map(math.degrees, (yaw, pitch, roll)))

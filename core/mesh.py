@@ -206,7 +206,7 @@ def _get_vertex_group_to_part_id_mapping(obj):
         vertex_group_to_part_id[vg.index] = part_id
     return vertex_group_to_part_id
 
-def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_path='', tangent_uv_map=''):
+def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_path='', tangent_uv_map='', reporter=DEFAULT_REPORTER):
     mesh = lod_obj.data
     has_custom_normals = mesh.has_custom_normals
 
@@ -252,8 +252,7 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
     if mesh_type == BF2StaticMesh:
         bf2_lod.parts = [Mat4()] # TODO parts
     elif mesh_type == BF2BundledMesh:
-        # XXX: some geometry parts migh have no verts assigned at all
-        # so write all groups defined, might do a warning or something in the future
+        # XXX: some geometry parts migh have no verts assigned at all, so write all groups defined
         bf2_lod.parts_num = len(vertex_group_to_part_id)
     elif mesh_type == BF2SkinnedMesh:
         raise NotImplementedError("rigs!!") # TODO
@@ -427,7 +426,7 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
             if texture_path: # make relative
                 txt_map_file = os.path.relpath(txt_map_file, start=texture_path)
             else:
-                pass # TODO: add warning
+                reporter.warning("Mod path is not defined in add-on preferences, textures, will not export properly!")
             texture_maps[txt_map_type] = txt_map_file.replace('\\', '/').lower()
 
         if mesh_type == BF2StaticMesh:
@@ -444,12 +443,11 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
             # check required UVs are present
             for uv_chan in get_staticmesh_uv_channels(texture_maps.keys()):
                 if uv_chan not in uv_layers:
-                    # TODO: replace with warning
-                    raise ExportException(f"{lod_obj.name}: Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
+                    reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
 
         elif mesh_type == BF2BundledMesh:
             if not blend_material.bf2_technique:
-                raise ExportException(f"{blend_material.name}: Material is missing technique, check material settings!")
+                reporter.warning(f"{blend_material.name}: Material is missing technique, check material settings!")
 
             bf2_mat.technique = blend_material.bf2_technique
             if 'Diffuse' not in texture_maps:
@@ -463,8 +461,7 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
 
             # check required UVs are present
             if 0 not in uv_layers:
-                # TODO: replace with warning
-                raise ExportException(f"{lod_obj.name}: Missing required UV layer 'UV0', make sure it exists and the name is correct")
+                reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV0', make sure it exists and the name is correct")
 
         elif mesh_type == BF2SkinnedMesh:
             raise NotImplementedError() # TODO
@@ -492,7 +489,7 @@ def _can_merge_vert(this, other, uv_count, normal_weld_thres=0.9999, tangent_wel
             return False
     return True
 
-def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_path=''):
+def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_path='', reporter=DEFAULT_REPORTER):
 
     if reload:
         delete_object_if_exists(name)
@@ -557,7 +554,7 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
                 u_ratio, v_ratio = _get_anim_uv_ratio(mat.maps[0], texture_path)
             except Exception:
                 u_ratio = v_ratio = 1.0
-                pass # TODO: warning
+                reporter.warning(f"Could not read texture file size: {mat.maps[0]}")
 
         for vert in mat.vertices:
             # Normals
@@ -628,7 +625,7 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
 
         texture_map_types = TEXTURE_MAPS[material.bf2_shader]
         texture_maps = get_tex_type_to_file_mapping(material.bf2_shader, material.bf2_technique,
-                                                    bf2_mat.maps, texture_path=texture_path)
+                                                    bf2_mat.maps, texture_path=texture_path, reporter=reporter)
         for map_type, map_file in texture_maps.items():
             type_index = texture_map_types.index(map_type)
             setattr(material, f"texture_slot_{type_index}", map_file)

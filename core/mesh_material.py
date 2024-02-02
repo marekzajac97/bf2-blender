@@ -2,6 +2,7 @@ import bpy
 import os
 from collections import OrderedDict
 
+from .utils import DEFAULT_REPORTER
 from .exceptions import ImportException
 
 NODE_WIDTH = 300
@@ -127,7 +128,7 @@ def get_material_maps(material):
             texture_maps[map_type] = map_filepath
     return texture_maps
 
-def get_tex_type_to_file_mapping(shader, techinique, texture_files, texture_path=''):
+def get_tex_type_to_file_mapping(shader, techinique, texture_files, texture_path='', reporter=DEFAULT_REPORTER):
     texture_files = list(filter(lambda x: 'SpecularLUT_pow36' not in x, texture_files))
 
     map_name_to_file = dict()
@@ -153,7 +154,7 @@ def get_tex_type_to_file_mapping(shader, techinique, texture_files, texture_path
                 # not an absolute path but we have base path
                 map_name_to_file[map_type] = os.path.join(texture_path, texture_map_file)
     else:
-        pass # TODO: Add warning that texture_path is not defined
+        reporter.warning("Mod path is not defined in add-on preferences, textures won't load")
 
     return map_name_to_file
 
@@ -217,9 +218,12 @@ def setup_material(material, uvs=None):
     shader_roughness = principled_BSDF.inputs[2]
     shader_normal = principled_BSDF.inputs[5]
     shader_alpha = principled_BSDF.inputs[4]
+    shader_ior = principled_BSDF.inputs[3]
 
     shader_roughness.default_value = 1
     shader_specular.default_value = 0
+    shader_ior.default_value = 1.1
+    ROUGHNESS_BASE = 0.25
 
     if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         UV_CHANNEL = 0
@@ -258,10 +262,17 @@ def setup_material(material, uvs=None):
 
         node_tree.links.new(shadow_out, shader_base_color)
 
-        # specular
-        has_specular = material.bf2_shader != 'SKINNEDMESH' and not has_alpha
-        if has_specular:
+        # specular/roughness
 
+        specular_txt = None
+        if material.bf2_shader == 'SKINNEDMESH':
+            specular_txt = normal
+        elif has_alpha:
+            specular_txt = normal
+        else:
+            specular_txt = diffuse
+
+        if specular_txt:
             if shadow:
                 # multiply diffuse and shadow
                 multiply_diffuse = node_tree.nodes.new('ShaderNodeMixRGB')
@@ -271,12 +282,20 @@ def setup_material(material, uvs=None):
                 multiply_diffuse.hide = True
 
                 node_tree.links.new(shadow.outputs[0], multiply_diffuse.inputs[1])
-                node_tree.links.new(diffuse.outputs[1], multiply_diffuse.inputs[2])
+                node_tree.links.new(specular_txt.outputs[1], multiply_diffuse.inputs[2])
                 shadow_spec_out = multiply_diffuse.outputs[0]
             else:
-                shadow_spec_out = diffuse.outputs[1]
+                shadow_spec_out = specular_txt.outputs[1]
 
             node_tree.links.new(shadow_spec_out, shader_specular)
+
+            # remap range to reduce roughness, to appear more like in BF2
+            # (purely based on tiral & error, I don't know how this works in BF2 shaders)
+            reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
+            reduce_roughness.inputs[3].default_value = ROUGHNESS_BASE
+            node_tree.links.new(shadow_spec_out, reduce_roughness.inputs[0])
+
+            node_tree.links.new(reduce_roughness.outputs[0], shader_roughness)
 
         # normal
         if normal:
@@ -435,6 +454,11 @@ def setup_material(material, uvs=None):
 
         if has_alpha_out:
             node_tree.links.new(has_alpha_out, shader_specular)
+
+            reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
+            reduce_roughness.inputs[3].default_value = ROUGHNESS_BASE
+            node_tree.links.new(has_alpha_out, reduce_roughness.inputs[0])
+            node_tree.links.new(has_alpha_out, shader_roughness)
 
         # ---- normal  ----
 

@@ -5,6 +5,8 @@ from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from ...core.game_object import import_object, export_object, parse_geom_type
 from ...core.mesh import collect_uv_layers
+from ...core.exceptions import ImportException, ExportException
+from ...core.utils import Reporter
 
 from ... import PLUGIN_NAME
 
@@ -23,9 +25,16 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
         try:
-            import_object(context, self.filepath, import_collmesh=self.import_collmesh, texture_path=mod_path)
+            import_object(context, self.filepath,
+                          import_collmesh=self.import_collmesh,
+                          texture_path=mod_path,
+                          reporter=Reporter(self.report))
+        except ImportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELED'}
         return {'FINISHED'}
 
 
@@ -115,9 +124,14 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
                          apply_modifiers=self.apply_modifiers,
                          gen_lightmap_uv=self.gen_lightmap_uv,
                          texture_path=mod_path,
-                         tangent_uv_map=self.tangent_uv_map)
+                         tangent_uv_map=self.tangent_uv_map,
+                         reporter=Reporter(self.report))
+        except ExportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELED'}
         return {'FINISHED'}
 
 
