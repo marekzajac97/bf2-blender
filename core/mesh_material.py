@@ -458,7 +458,7 @@ def setup_material(material, uvs=None):
             reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
             reduce_roughness.inputs[3].default_value = ROUGHNESS_BASE
             node_tree.links.new(has_alpha_out, reduce_roughness.inputs[0])
-            node_tree.links.new(has_alpha_out, shader_roughness)
+            node_tree.links.new(reduce_roughness.outputs[0], shader_roughness)
 
         # ---- normal  ----
 

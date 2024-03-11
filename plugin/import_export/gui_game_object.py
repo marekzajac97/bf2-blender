@@ -31,10 +31,10 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
                           reporter=Reporter(self.report))
         except ImportException as e:
             self.report({"ERROR"}, str(e))
-            return {'CANCELED'}
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELED'}
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 
@@ -128,10 +128,10 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
                          reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))
-            return {'CANCELED'}
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELED'}
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 

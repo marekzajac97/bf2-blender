@@ -44,8 +44,7 @@ def draw_import(layout):
     layout.operator(IMPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
 
 def draw_export(layout):
-    pass
-    # layout.operator(EXPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
+    layout.operator(EXPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
 
 def register():
     bpy.utils.register_class(IMPORT_OT_bf2_collisionmesh)

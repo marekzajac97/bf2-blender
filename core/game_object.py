@@ -162,7 +162,7 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                     if triangluate:
                         _triangulate(col_obj)
         try:
-            print(f"Exporting collision to '{geometry_filepath}'")
+            print(f"Exporting collision to '{collmesh_filepath}'")
             _, material_to_index = export_collisionmesh(mesh_obj, collmesh_filepath, geom_parts=temp_collmesh_parts)
         except Exception:
             raise
@@ -724,10 +724,13 @@ def _join_lods(mesh_geoms, obj_to_geom_part_id):
 def _duplicate_object(obj, recursive=True, prefix=TMP_PREFIX):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
     obj.select_set(True)
     bpy.ops.object.duplicate()
     new_obj = bpy.context.view_layer.objects.active
     new_obj.name = prefix + obj.name
+    obj.hide_set(hide)
 
     if recursive:
         for child_obj in obj.children:
@@ -772,12 +775,17 @@ def _delete_lods(mesh_geoms):
 
 def _apply_modifiers(obj):
     bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.convert()
+    obj.hide_set(hide)
 
 def _triangulate(obj):
     bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.select_all(action='DESELECT')
@@ -787,6 +795,7 @@ def _triangulate(obj):
     bpy.ops.mesh.select_all(action='SELECT')
     bpy.ops.mesh.quads_convert_to_tris()
     bpy.ops.object.mode_set(mode='OBJECT')
+    obj.hide_set(hide)
 
 def _get_nr_of_animted_uvs(mesh_geoms):
     matrix_set = set()
