@@ -115,6 +115,8 @@ class Material:
                     continue
                 fmt = vertex_attr.decl_type.get_struct_fmt()
                 vertex_attr_value = getattr(vertex, vertex_attr.decl_usage.name.lower())
+                if vertex_attr_value is None:
+                    raise BF2MeshException(f"Vertex missing '{vertex_attr.decl_usage.name}' attribute value")
                 vertex_buffer += struct.pack(fmt, *vertex_attr_value)
         return self._vnum
 

@@ -275,9 +275,9 @@ def _verify_lods_consistency(main_lod_obj, lod_obj):
         _inconsistency('object names', lod_obj.name, main_lod_obj.name)
     if lod_obj.bf2_object_type != main_lod_obj.bf2_object_type:
         _inconsistency('BF2 Object Types', lod_obj.bf2_object_type, main_lod_obj.bf2_object_type)
-    if main_lod_obj.location != lod_obj.location:
+    if (main_lod_obj.location - lod_obj.location).length > 0.0001:
         _inconsistency('object locations', lod_obj.location, main_lod_obj.location)
-    if main_lod_obj.rotation_quaternion != lod_obj.rotation_quaternion:
+    if main_lod_obj.rotation_quaternion.rotation_difference(lod_obj.rotation_quaternion).angle > 0.0001:
         _inconsistency('object rotations', lod_obj.rotation_quaternion, main_lod_obj.rotation_quaternion)
 
     main_lod_children = dict()

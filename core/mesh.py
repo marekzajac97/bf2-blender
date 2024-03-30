@@ -179,8 +179,9 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, mesh_geoms=None, gen_lightmap_u
 def _has_anim_uv(mesh_geoms):
     for geom_obj in mesh_geoms:
         for lod_obj in geom_obj:
-            if 'animuv_rot_center' in lod_obj.data.attributes:
-                return True
+            for material in lod_obj.data.materials:
+                if material.is_bf2_material and 'animateduv' in material.bf2_technique.lower():
+                    return True
     return False
 
 def _has_lightmap_uv(mesh_geoms):
@@ -301,15 +302,17 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
         bf2_mat : Material = mesh_type._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE()
         bf2_lod.materials.append(bf2_mat)
 
+        # animated UV
+        has_animated_uv = mesh_type == BF2BundledMesh and 'animateduv' in blend_material.bf2_technique.lower()
+
         # get textures
         texture_maps = get_material_maps(blend_material)
 
         if animuv_rot_center:
             try:
                 u_ratio, v_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], texture_path)
-            except ValueError as e:
-                raise ExportException(str(e))
-            # letting FileNotFoundError 
+            except (ValueError, FileNotFoundError) as e:
+                raise ExportException(str(e)) from e
 
         # map each loop to vert index in vertex array
         loop_to_vert_idx = [-1] * len(mesh.loops)
@@ -360,18 +363,17 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
                     setattr(vert, f'texcoord{uv_chan}', uv)
 
                 # animated UVs
-                if animuv_rot_center:
-                    if vert_animuv_mat_idx in ANIM_UV_ROTATION_MATRICES:
+                if has_animated_uv:
+                    vert.texcoord1 = (0, 0)
+                    if animuv_rot_center and vert_animuv_mat_idx in ANIM_UV_ROTATION_MATRICES:
                         # take the original UV and substract rotation center
                         # scale by texture size ratio, move to TEXCOORD1
                         # keeping only the center of rotation in TEXCOORD0
                         uv = vert.texcoord0
-                        vert_animuv_center = animuv_rot_center.data[vert_idx].value
+                        vert_animuv_center = animuv_rot_center.data[vert_idx].vector
                         vert.texcoord1 = ((uv[0] - vert_animuv_center[0]) / u_ratio,
                                         (uv[1] - vert_animuv_center[1]) / v_ratio)
                         vert.texcoord0 = vert_animuv_center
-                    else:
-                        vert.texcoord1 = (0, 0) # unused
 
                 # check if loop can be merged, if so, add reference to the same loop
                 total_loops_count += 1
@@ -622,6 +624,8 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
             raise ImportError(f"Bad shader '{bf2_mat.fxfile}'")
 
         material.bf2_technique = bf2_mat.technique
+        if material.bf2_shader == 'STATICMESH':
+            material.bf2_technique = material.bf2_technique.replace('parallaxdetail', '') # XXX hack
 
         texture_map_types = TEXTURE_MAPS[material.bf2_shader]
         texture_maps = get_tex_type_to_file_mapping(material.bf2_shader, material.bf2_technique,
