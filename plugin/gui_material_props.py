@@ -1,8 +1,11 @@
 import bpy
 import traceback
+import os
 from bpy.types import Mesh, Material
 from bpy.props import EnumProperty, StringProperty, BoolProperty
+from .. import PLUGIN_NAME
 
+from ..core.utils import Reporter
 from ..core.mesh_material import setup_material, get_staticmesh_technique_from_maps
 
 MATERIAL_TYPES = [
@@ -11,10 +14,11 @@ MATERIAL_TYPES = [
     ('SKINNEDMESH', 'SkinnedMesh', "", 2)
 ]
 
+# XXX: must correspond with MaterialWithTransparency.AlphaMode enum
 ALPHA_MODES = [
     ('NONE', 'None', "", 0),
-    ('ALPHA_TEST', 'Alpha Test', "", 1),
-    ('ALPHA_BLEND', 'Alpha Blend', "", 2)
+    ('ALPHA_BLEND', 'Alpha Blend', "", 1),
+    ('ALPHA_TEST', 'Alpha Test', "", 2),
 ]
 
 def _get_active_material(context):
@@ -42,9 +46,10 @@ class MESH_OT_bf2_apply_material(bpy.types.Operator):
         return False
 
     def execute(self, context):
+        mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
         material = _get_active_material(context)
         try:
-            setup_material(material)
+            setup_material(material, texture_path=mod_path, reporter=Reporter(self.report))
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
@@ -108,30 +113,37 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
 
 def _update_techinique_default_value(material):
     if not material.is_bf2_material:
-        material.bf2_technique = ''
+        material['bf2_technique'] = ''
 
     if material.bf2_shader == 'STATICMESH':
-        material.bf2_technique = get_staticmesh_technique_from_maps(material)
+        material['bf2_technique'] = get_staticmesh_technique_from_maps(material)
     elif material.bf2_shader == 'BUNDLEDMESH':
         if material.bf2_alpha_mode == 'ALPHA_BLEND':
-            material.bf2_technique = 'Alpha'
+            material['bf2_technique'] = 'Alpha'
         elif material.bf2_alpha_mode == 'ALPHA_TEST':
-            material.bf2_technique = 'Alpha_Test'
+            material['bf2_technique'] = 'Alpha_Test'
         else:
-            material.bf2_technique = 'ColormapGloss'
+            material['bf2_technique'] = 'ColormapGloss'
     elif material.bf2_shader == 'SKINNEDMESH':
-        material.bf2_technique = 'Humanskin'
+        material['bf2_technique'] = 'Humanskin'
 
 def on_shader_update(self, context):
-    if context.area.type == 'PROPERTIES':
-        _update_techinique_default_value(self)
+    _update_techinique_default_value(self)
 
 def on_alpha_mode_update(self, context):
-    if context.area.type == 'PROPERTIES':
-        _update_techinique_default_value(self)
+    _update_techinique_default_value(self)
 
-def on_texture_map_update(self, context):
-    if context.area.type == 'PROPERTIES' and self.bf2_shader == 'STATICMESH':
+def on_texture_map_update(self, context, index):
+    mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+    prop = f'texture_slot_{index}'
+    if mod_path:
+        abs_path = bpy.path.abspath(self[prop])
+        self[prop] = os.path.relpath(abs_path, start=mod_path)
+    else:
+        # TODO don't know how to trigger a warning here
+        self[prop] = 'ERROR: MOD path not defined in add-on preferences!'
+
+    if self.bf2_shader == 'STATICMESH':
         _update_techinique_default_value(self)
 
 def _create_texture_slot(index):
@@ -140,7 +152,7 @@ def _create_texture_slot(index):
         description="Filepath used for texture slot {index}",
         maxlen=1024,
         subtype='FILE_PATH',
-        update=on_texture_map_update
+        update=lambda self, context: on_texture_map_update(self, context, index)
     )
 
 def register():

@@ -122,43 +122,32 @@ TEXTURE_MAPS = {
 def get_material_maps(material):
     texture_maps = OrderedDict()
     for i, map_type in enumerate(TEXTURE_MAPS[material.bf2_shader]):
-        map_filepath = getattr(material, f"texture_slot_{i}")
+        map_filepath = material.get(f"texture_slot_{i}", '')
         if map_filepath:
-            map_filepath = bpy.path.abspath(map_filepath)
             texture_maps[map_type] = map_filepath
     return texture_maps
 
-def get_tex_type_to_file_mapping(shader, techinique, texture_files, texture_path='', reporter=DEFAULT_REPORTER):
+def get_tex_type_to_file_mapping(material, texture_files):
     texture_files = list(filter(lambda x: 'SpecularLUT_pow36' not in x, texture_files))
 
     map_name_to_file = dict()
-    if shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
+    if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         map_name_to_file['Diffuse'] = texture_files[0]
         if len(texture_files) > 1:
             map_name_to_file['Normal'] = texture_files[1]
         if len(texture_files) > 2:
             map_name_to_file['Shadow'] = texture_files[2]
-    elif shader == 'STATICMESH':
-        if techinique not in STATICMESH_TECHNIQUES:
-            raise ImportException(f'Unsupported staticmesh technique "{techinique}"')
-        maps = _split_str_from_word_set(techinique, set(STATICMESH_TEXUTRE_MAP_TYPES))
+    elif material.bf2_shader == 'STATICMESH':
+        if material.bf2_technique not in STATICMESH_TECHNIQUES:
+            raise ImportException(f'Unsupported staticmesh technique "{material.bf2_technique}"')
+        maps = _split_str_from_word_set(material.bf2_technique, set(STATICMESH_TEXUTRE_MAP_TYPES))
         if len(texture_files) != len(maps):
-            raise ImportException(f'Material technique ({techinique}) doesn\'t match number of texture maps ({len(texture_files)})')
+            raise ImportException(f'Material technique ({material.bf2_technique}) doesn\'t match number of texture maps ({len(texture_files)})')
         for map_name, tex_node in zip(maps, texture_files):
             map_name_to_file[map_name] = tex_node
-
-    # convert to absolute paths:
-    if texture_path:
-        for map_type, texture_map_file in map_name_to_file.items():
-            if not os.path.isabs(texture_map_file):
-                # not an absolute path but we have base path
-                map_name_to_file[map_type] = os.path.join(texture_path, texture_map_file)
-    else:
-        reporter.warning("Mod path is not defined in add-on preferences, textures won't load")
-
     return map_name_to_file
 
-def setup_material(material, uvs=None):
+def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTER):
     material.use_nodes = True
     node_tree = material.node_tree
     node_tree.nodes.clear()
@@ -201,6 +190,9 @@ def setup_material(material, uvs=None):
     # load textures
     texture_nodes = dict()
     for map_index, (texture_map_type, texture_map_file) in enumerate(texture_maps.items()):
+        if not texture_path:
+            reporter.warning("MOD path is not defined in add-on preferences!")
+        abs_path = os.path.join(texture_path, texture_map_file)
         tex_node = node_tree.nodes.new('ShaderNodeTexImage')
         tex_node.label = tex_node.name = texture_map_type
         tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
@@ -208,7 +200,7 @@ def setup_material(material, uvs=None):
         texture_nodes[texture_map_type] = tex_node
 
         try:
-            tex_node.image = bpy.data.images.load(texture_map_file, check_existing=True)
+            tex_node.image = bpy.data.images.load(abs_path, check_existing=True)
             tex_node.image.alpha_mode = 'NONE'
         except RuntimeError:
             pass # ignore if file not found

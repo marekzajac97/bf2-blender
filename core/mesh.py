@@ -302,9 +302,6 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
         bf2_mat : Material = mesh_type._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE()
         bf2_lod.materials.append(bf2_mat)
 
-        # animated UV
-        has_animated_uv = mesh_type == BF2BundledMesh and 'animateduv' in blend_material.bf2_technique.lower()
-
         # get textures
         texture_maps = get_material_maps(blend_material)
 
@@ -363,17 +360,16 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
                     setattr(vert, f'texcoord{uv_chan}', uv)
 
                 # animated UVs
-                if has_animated_uv:
-                    vert.texcoord1 = (0, 0)
-                    if animuv_rot_center and vert_animuv_mat_idx in ANIM_UV_ROTATION_MATRICES:
-                        # take the original UV and substract rotation center
-                        # scale by texture size ratio, move to TEXCOORD1
-                        # keeping only the center of rotation in TEXCOORD0
-                        uv = vert.texcoord0
-                        vert_animuv_center = animuv_rot_center.data[vert_idx].vector
-                        vert.texcoord1 = ((uv[0] - vert_animuv_center[0]) / u_ratio,
-                                        (uv[1] - vert_animuv_center[1]) / v_ratio)
-                        vert.texcoord0 = vert_animuv_center
+                vert.texcoord1 = (0, 0)
+                if animuv_rot_center and vert_animuv_mat_idx in ANIM_UV_ROTATION_MATRICES:
+                    # take the original UV and substract rotation center
+                    # scale by texture size ratio, move to TEXCOORD1
+                    # keeping only the center of rotation in TEXCOORD0
+                    uv = vert.texcoord0
+                    vert_animuv_center = animuv_rot_center.data[vert_idx].vector
+                    vert.texcoord1 = ((uv[0] - vert_animuv_center[0]) / u_ratio,
+                                    (uv[1] - vert_animuv_center[1]) / v_ratio)
+                    vert.texcoord0 = vert_animuv_center
 
                 # check if loop can be merged, if so, add reference to the same loop
                 total_loops_count += 1
@@ -423,12 +419,8 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
 
         bf2_mat.fxfile = SHADER_MAPPING[blend_material.bf2_shader]
 
-        # convert pahts to relative and linux format (game will not find them otherwise)
+        # paths should already be relative but convert to linux format (game will not find them otherwise)
         for txt_map_type, txt_map_file in texture_maps.items():
-            if texture_path: # make relative
-                txt_map_file = os.path.relpath(txt_map_file, start=texture_path)
-            else:
-                reporter.warning("Mod path is not defined in add-on preferences, textures, will not export properly!")
             texture_maps[txt_map_type] = txt_map_file.replace('\\', '/').lower()
 
         if mesh_type == BF2StaticMesh:
@@ -618,30 +610,29 @@ def _import_mesh_lod(context, name, bf2_mesh, bf2_lod, reload=False, texture_pat
         mesh.materials.append(material)
 
         material.is_bf2_material = True
-        if bf2_mat.fxfile.endswith('.fx'):
-            material.bf2_shader = bf2_mat.fxfile[:-3].upper()
-        else:
+        try:
+            SHADER_MAPPING = {'STATICMESH' : 0, 'BUNDLEDMESH' : 1, 'SKINNEDMESH' : 2}
+            material['bf2_shader'] = SHADER_MAPPING[bf2_mat.fxfile[:-3].upper()]
+        except KeyError:
             raise ImportError(f"Bad shader '{bf2_mat.fxfile}'")
 
-        material.bf2_technique = bf2_mat.technique
-        if material.bf2_shader == 'STATICMESH':
-            material.bf2_technique = material.bf2_technique.replace('parallaxdetail', '') # XXX hack
+        material['bf2_technique'] = bf2_mat.technique
+        if material.bf2_shader == 'STATICMESH' and 'parallaxdetail' in material.bf2_technique:
+            reporter.warning(f"Ignoring technique 'parallaxdetail', (not supported)")
+            material['bf2_technique'] = material['bf2_technique'].replace('parallaxdetail', '')
 
         texture_map_types = TEXTURE_MAPS[material.bf2_shader]
-        texture_maps = get_tex_type_to_file_mapping(material.bf2_shader, material.bf2_technique,
-                                                    bf2_mat.maps, texture_path=texture_path, reporter=reporter)
+        texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
         for map_type, map_file in texture_maps.items():
             type_index = texture_map_types.index(map_type)
-            setattr(material, f"texture_slot_{type_index}", map_file)
+            material[f"texture_slot_{type_index}"] = map_file
 
-        material.bf2_alpha_mode = 'NONE'
         if isinstance(bf2_mat, MaterialWithTransparency):
-            if bf2_mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_BLEND:
-                material.bf2_alpha_mode = 'ALPHA_BLEND'
-            elif bf2_mat.alpha_mode == MaterialWithTransparency.AlphaMode.ALPHA_TEST:
-                material.bf2_alpha_mode = 'ALPHA_TEST'
+            material['bf2_alpha_mode'] = bf2_mat.alpha_mode
+        else:
+            material['bf2_alpha_mode'] = MaterialWithTransparency.AlphaMode.NONE
 
-        setup_material(material, uvs=uvs.keys())
+        setup_material(material, uvs=uvs.keys(), texture_path=texture_path, reporter=reporter)
 
     mesh_obj = bpy.data.objects.new(name, mesh)
     context.scene.collection.objects.link(mesh_obj)
@@ -786,7 +777,7 @@ def _get_texture_size(texture_file):
 def _get_anim_uv_ratio(texture_map_file, texture_path):
     u_ratio = 1.0
     v_ratio = 1.0
-    if texture_path and not os.path.isabs(texture_map_file):
+    if texture_path:
         texture_map_file = os.path.join(texture_path, texture_map_file)
     texture_size = _get_texture_size(texture_map_file)
     tex_height, tex_width = texture_size
