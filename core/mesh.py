@@ -419,7 +419,7 @@ def _export_mesh_lod(mesh_type, bf2_lod, lod_obj, gen_lightmap_uv=True, texture_
 
         bf2_mat.fxfile = SHADER_MAPPING[blend_material.bf2_shader]
 
-        # paths should already be relative but convert to linux format (game will not find them otherwise)
+        # paths should already be relative but convert to linux format just in case (game will not find them otherwise)
         for txt_map_type, txt_map_file in texture_maps.items():
             texture_maps[txt_map_type] = txt_map_file.replace('\\', '/').lower()
 

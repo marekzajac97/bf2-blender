@@ -1,6 +1,7 @@
 import bpy
 import traceback
 import os
+from pathlib import Path
 from bpy.types import Mesh, Material
 from bpy.props import EnumProperty, StringProperty, BoolProperty
 from .. import PLUGIN_NAME
@@ -136,12 +137,22 @@ def on_alpha_mode_update(self, context):
 def on_texture_map_update(self, context, index):
     mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
     prop = f'texture_slot_{index}'
-    if mod_path:
-        abs_path = bpy.path.abspath(self[prop])
-        self[prop] = os.path.relpath(abs_path, start=mod_path)
+
+    if self[prop].startswith('//'): # path relative to current blend file
+        self[prop] = bpy.path.abspath(self[prop])
+
+    if os.path.isabs(self[prop]):
+        if mod_path:
+            if Path(self[prop]).relative_to(mod_path):
+                self[prop] = os.path.relpath(self[prop], start=mod_path)
+                self[prop] = self[prop].replace('\\', '/').lower() # convert to unix format
+            else:
+                self[prop] = 'ERROR: Texture path is not relative to MOD path defined in add-on preferences!'
+        else:
+            # TODO don't know how to trigger a warning here
+            self[prop] = 'ERROR: MOD path not defined in add-on preferences!'
     else:
-        # TODO don't know how to trigger a warning here
-        self[prop] = 'ERROR: MOD path not defined in add-on preferences!'
+        pass # relative path probably typed manually, dunno what could check here  
 
     if self.bf2_shader == 'STATICMESH':
         _update_techinique_default_value(self)
