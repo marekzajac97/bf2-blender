@@ -267,7 +267,7 @@ class Col:
             obj.debug_mesh = [f.read_dword(signed=True) for _ in range(f.read_dword())]
         return obj
 
-    def save(self, f : FileUtils, update_bounds=True):
+    def save(self, f : FileUtils, update_bounds=True, update_bsp=True):
         f.write_dword(self.col_type)
         f.write_dword(len(self.faces))
         for face in self.faces:
@@ -290,7 +290,9 @@ class Col:
             self.min.save(f)
             self.max.save(f)
 
-        self.bsp = BSP.build(self.verts, self.faces)
+        if update_bsp or self.bsp is None:
+            self.bsp = BSP.build(self.verts, self.faces)
+
         if self.bsp is None:
             f.write_byte(0x30)
         else:
@@ -308,10 +310,10 @@ class Geom:
         obj.cols : List[Col] = load_n_elems(f, Col, count=f.read_dword(), version=version)
         return obj
     
-    def save(self, f : FileUtils):
+    def save(self, f : FileUtils, **kwargs):
         f.write_dword(len(self.cols))
         for col in self.cols:
-            col.save(f)
+            col.save(f, **kwargs)
 
 
 class GeomPart:
@@ -324,10 +326,10 @@ class GeomPart:
         obj.geoms : List[Geom] = load_n_elems(f, Geom, count=f.read_dword(), version=version)
         return obj
 
-    def save(self, f : FileUtils):
+    def save(self, f : FileUtils, **kwargs):
         f.write_dword(len(self.geoms))
         for geom in self.geoms:
-            geom.save(f)
+            geom.save(f, **kwargs)
 
 
 class BF2CollMesh:
@@ -358,11 +360,11 @@ class BF2CollMesh:
             if os.fstat(file.fileno()).st_size != file.tell():
                 raise BF2CollMeshException("Corrupted .collisionmesh file? Reading finished and file pointer != filesize")
 
-    def export(self, export_path):
+    def export(self, export_path, **kwargs):
         with open(export_path, "wb") as file:
             f = FileUtils(file)
             f.write_dword(0)
             f.write_dword(9)
             f.write_dword(len(self.geom_parts))
             for geom_part in self.geom_parts:
-                geom_part.save(f)
+                geom_part.save(f, **kwargs)
