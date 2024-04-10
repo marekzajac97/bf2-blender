@@ -269,6 +269,8 @@ class Col:
 
     def save(self, f : FileUtils, update_bounds=True, update_bsp=True):
         f.write_dword(self.col_type)
+
+        self.faces.sort(key=lambda x: x.material)
         f.write_dword(len(self.faces))
         for face in self.faces:
             face.save(f)
