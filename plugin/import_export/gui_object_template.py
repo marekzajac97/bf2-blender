@@ -3,7 +3,7 @@ import traceback
 from bpy.props import StringProperty, BoolProperty, EnumProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from ...core.game_object import import_object, export_object, parse_geom_type
+from ...core.object_template import import_object, export_object, parse_geom_type
 from ...core.mesh import collect_uv_layers
 from ...core.exceptions import ImportException, ExportException
 from ...core.utils import Reporter

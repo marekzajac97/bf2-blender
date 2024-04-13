@@ -289,6 +289,9 @@ class Lod:
         for mat in self.materials:
             mat.save(f)
 
+    def new_material(self):
+        self.materials.append(cls._MATERIAL_TYPE())
+        return self.materials[-1]
 
 class Geom:
     _LOD_TYPE = Lod
@@ -306,6 +309,10 @@ class Geom:
         f.write_dword(len(self.lods))
         for lod in self.lods:
             lod.save(f)
+
+    def new_lod(self):
+        self.lods.append(self._LOD_TYPE())
+        return self.lods[-1]
 
 
 class VertexAttribute:
@@ -501,3 +508,7 @@ class BF2VisibleMesh():
 
     def has_blend_weight(self):
         return self._has_vert_attr(D3DDECLUSAGE.BLENDWEIGHT)
+
+    def new_geom(self):
+        self.geoms.append(self._GEOM_TYPE())
+        return self.geoms[-1]

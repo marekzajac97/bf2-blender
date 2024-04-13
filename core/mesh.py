@@ -409,11 +409,9 @@ class MeshExporter:
     def export_mesh(self):
         self._setup_vertex_attributes()
         for geom_obj in self.mesh_geoms:
-            bf2_geom = self.bf2_mesh._GEOM_TYPE()
-            self.bf2_mesh.geoms.append(bf2_geom)
+            bf2_geom = self.bf2_mesh.new_geom()
             for lod_obj in geom_obj:
-                bf2_lod = self.bf2_mesh._GEOM_TYPE._LOD_TYPE()
-                bf2_geom.lods.append(bf2_lod)
+                bf2_lod = bf2_geom.new_lod()
                 self._export_mesh_lod(bf2_lod, lod_obj)
 
         self.bf2_mesh.export(self.mesh_file)
@@ -592,8 +590,7 @@ class MeshExporter:
                 raise ExportException(f"Trying to export '{mesh_type.__name__}' but material '{blend_material.name}'"
                                     f" shader type is set to '{blend_material.bf2_shader}', check material settings!")
 
-            bf2_mat : Material = mesh_type._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE()
-            bf2_lod.materials.append(bf2_mat)
+            bf2_mat : Material = bf2_lod.new_material()
 
             # get textures
             texture_maps = get_material_maps(blend_material)
@@ -760,11 +757,6 @@ class MeshExporter:
     @staticmethod
     def _can_merge_vert(this, other, uv_count, normal_weld_thres=0.9999, tangent_weld_thres=0.9999):
         """compare vertex data from two loops"""
-        # EPSILON = 0.0001
-        # if not all([abs(this.normal[i] - other.normal[i]) < EPSILON for i in range(3)]):
-        #     return False
-        # if not all([abs(this.tangent[i] - other.tangent[i]) < EPSILON for i in range(3)]):
-        #     return False
         if Vector(this.tangent).dot(Vector(other.tangent)) < tangent_weld_thres:
             return False
         if Vector(this.normal).dot(Vector(other.normal)) < normal_weld_thres:
