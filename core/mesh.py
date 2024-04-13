@@ -39,6 +39,12 @@ class AnimUv(enum.IntEnum):
 
 ANIM_UV_ROTATION_MATRICES = (AnimUv.L_WHEEL_ROTATION, AnimUv.R_WHEEL_ROTATION)
 
+_MESH_TYPES = {
+    'BundledMesh': BF2BundledMesh,
+    'SkinnedMesh': BF2SkinnedMesh,
+    'StaticMesh': BF2StaticMesh
+}
+
 def collect_uv_layers(mesh_obj, geom=0, lod=0):
     uv_layers = dict()
     if mesh_obj is None:
@@ -55,30 +61,30 @@ def collect_uv_layers(mesh_obj, geom=0, lod=0):
     return uv_layers
 
 def import_mesh(context, mesh_file, **kwargs):
-    return _import_mesh(context, mesh_file, BF2Mesh.load, **kwargs)
+    return _import_mesh(context, mesh_file, **kwargs)
 
 def import_bundledmesh(context, mesh_file, **kwargs):
-    return _import_mesh(context, mesh_file, BF2BundledMesh, **kwargs)
+    return _import_mesh(context, mesh_file, mesh_type='BundledMesh', **kwargs)
 
 def import_skinnedmesh(context, mesh_file, **kwargs):
-    return _import_mesh(context, mesh_file, BF2SkinnedMesh, **kwargs)
+    return _import_mesh(context, mesh_file, mesh_type='SkinnedMesh', **kwargs)
 
 def import_staticmesh(context, mesh_file, **kwargs):
-    return _import_mesh(context, mesh_file, BF2StaticMesh, **kwargs)
+    return _import_mesh(context, mesh_file, mesh_type='StaticMesh', **kwargs)
 
-def _import_mesh(context, mesh_file, mesh_type,
+def _import_mesh(context, mesh_file, mesh_type='',
                  name='', geom=None, lod=None, **kwargs):
-    importer = MeshImporter(context, mesh_type(mesh_file), **kwargs)
+    importer = MeshImporter(context, mesh_file, mesh_type=mesh_type, **kwargs)
     return importer.import_mesh(name=name, geom=geom, lod=lod)
 
 def export_bundledmesh(mesh_obj, mesh_file, **kwargs):
-    return _export_mesh(mesh_obj, mesh_file, BF2BundledMesh, **kwargs)
+    return _export_mesh(mesh_obj, mesh_file, mesh_type='BundledMesh', **kwargs)
 
 # def export_skinnedmesh(mesh_obj, mesh_file, **kwargs):
-#     return _export_mesh(mesh_obj, mesh_file, BF2SkinnedMesh, **kwargs)
+#     return _export_mesh(mesh_obj, mesh_file, mesh_type='SkinnedMesh', **kwargs)
 
 def export_staticmesh(mesh_obj, mesh_file, **kwargs):
-    return _export_mesh(mesh_obj, mesh_file, BF2StaticMesh, **kwargs)
+    return _export_mesh(mesh_obj, mesh_file, mesh_type='StaticMesh', **kwargs)
 
 def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
     exporter = MeshExporter(mesh_obj, mesh_file, mesh_type, **kwargs)
@@ -86,10 +92,13 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 
 class MeshImporter:
 
-    def __init__(self, context, bf2_mesh, reload=False,
+    def __init__(self, context, mesh_file, mesh_type='', reload=False,
                  texture_path='', reporter=DEFAULT_REPORTER):
         self.context = context
-        self.bf2_mesh = bf2_mesh
+        if mesh_type:
+            self.bf2_mesh = _MESH_TYPES[mesh_type](mesh_file)
+        else:
+            self.bf2_mesh = BF2Mesh.load(mesh_file)
         self.reload = reload
         self.texture_path = texture_path
         self.reporter = reporter
@@ -400,7 +409,7 @@ class MeshExporter:
         self.mesh_geoms = mesh_geoms
         if self.mesh_geoms is None:
             self.mesh_geoms = self.collect_geoms_lods(self.mesh_obj)
-        self.bf2_mesh = mesh_type(name=mesh_obj.name)
+        self.bf2_mesh = _MESH_TYPES[mesh_type](name=mesh_obj.name)
         self.gen_lightmap_uv = gen_lightmap_uv
         self.texture_path = texture_path
         self.tangent_uv_map = tangent_uv_map

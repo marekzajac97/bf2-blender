@@ -5,10 +5,9 @@ from getpass import getuser
 from mathutils import Matrix, Vector, Euler
 from bpy.types import Mesh, Armature
 
-from .bf2.bf2_engine.components import (BF2Engine, ObjectTemplate,
-                                        GeometryTemplate, CollisionMeshTemplate)
-from .mesh import (import_mesh, export_bundledmesh, export_staticmesh,
-                   MeshImporter, MeshExporter)
+from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
+                             GeometryTemplate, CollisionMeshTemplate)
+from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import import_collisionmesh, export_collisionmesh
 from .utils import DEFAULT_REPORTER
 
@@ -53,7 +52,7 @@ def import_object(context, con_filepath, import_collmesh=False, reload=False, **
     geometry_type = geometry_template.geometry_type
     geometry_filepath = os.path.join(con_dir, 'Meshes', f'{geometry_template.name}.{geometry_type.lower()}')
 
-    root_geometry_obj = import_mesh(context, geometry_filepath, name=root_template.name, reload=reload, **kwargs)
+    root_geometry_obj = MeshImporter(context, geometry_filepath, reload=reload, **kwargs).import_mesh(name=root_template.name)
     root_geometry_obj.name = f'{geometry_type}_{root_template.name}'
 
     # TODO: add warning if skinnedmesh is loaded without a skeleton firts
@@ -115,12 +114,7 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
 
     geometry_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.geom.name}.{geometry_type.lower()}')
 
-    export_func = None
-    if geometry_type == 'BundledMesh':
-        export_func = export_bundledmesh
-    elif geometry_type == 'StaticMesh':
-        export_func = export_staticmesh
-    else:
+    if geometry_type == 'SkinnedMesh':
         raise ExportException(f'{geometry_type} export not supported')
 
     # create temporary meshes for export, that we can modify e.g trigangulate
@@ -142,7 +136,8 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
 
         if geom_export:
             print(f"Exporting geometry to '{geometry_filepath}'")
-            export_func(mesh_obj, geometry_filepath, mesh_geoms=temp_mesh_geoms, **kwargs)
+            MeshExporter(mesh_obj, geometry_filepath, mesh_geoms=temp_mesh_geoms,
+                         mesh_type=geometry_type, **kwargs).export_mesh()
     except Exception:
         raise
     finally:
