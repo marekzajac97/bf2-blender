@@ -10,7 +10,7 @@ from ...core.mesh import (import_mesh,
                           export_staticmesh,
                           export_bundledmesh,
                           collect_uv_layers)
-from ...core.skeleton import find_active_skeleton, ske_is_3p
+from ...core.skeleton import find_active_skeleton
 
 from ... import PLUGIN_NAME
 
@@ -50,7 +50,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
                 self.only_selected_lod = True
                 _, skeleton = ske_data
                 self.lod = 0
-                self.geom = 1 if ske_is_3p(skeleton) else 0
+                self.geom = 1 if skeleton.name.lower() == '3p_setup' else 0
         except Exception as e:
             print(e)
         return super().invoke(context, _event)

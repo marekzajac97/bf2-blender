@@ -5,7 +5,7 @@ import math
 from mathutils import Matrix, Vector
 from .utils import delete_object_if_exists
 from .skeleton import (find_animated_weapon_object, find_active_skeleton,
-                       ske_is_3p, ske_weapon_part_ids)
+                       ske_weapon_part_ids)
 
 AUTO_SETUP_ID = 'bf2_auto_setup' # identifier for custom bones and constraints
 
@@ -163,9 +163,9 @@ def setup_controllers(context, step=0):
 
     rig, skeleton = ske_data
 
-    if ske_is_3p(skeleton):
+    if skeleton.name.lower() == '3p_setup':
         _setup_3p_controllers(context, rig, step)
-    else:
+    elif skeleton.name.lower() == '1p_setup':
         _setup_1p_controllers(context, rig, step)
 
 def _setup_3p_controllers(context, rig, step):

@@ -8,7 +8,7 @@ from bpy.types import Mesh, Armature
 from .bf2.bf2_engine.components import (BF2Engine, ObjectTemplate,
                                         GeometryTemplate, CollisionMeshTemplate)
 from .mesh import (import_mesh, export_bundledmesh, export_staticmesh,
-                   _build_mesh_prefix, _collect_geoms_lods)
+                   MeshImporter, MeshExporter)
 from .collision_mesh import import_collisionmesh, export_collisionmesh
 from .utils import DEFAULT_REPORTER
 
@@ -91,7 +91,7 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                   apply_modifiers=False, triangluate=False, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
 
-    mesh_geoms = _collect_geoms_lods(mesh_obj)
+    mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
     main_lod, obj_to_geom_part_id = _find_main_lod_and_geom_parts(mesh_geoms)
 
     for geom_obj in mesh_geoms:
@@ -374,7 +374,7 @@ def _fix_unassigned_parts(geom_obj, lod_obj):
             i += 1
 
 def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom, lod):
-    prfx = _build_mesh_prefix(geom, lod)
+    prfx = MeshImporter.build_mesh_prefix(geom, lod)
     add_col = coll_parts and lod == 0 # Add colistion only for LOD 0
 
     skinned_objects = dict()

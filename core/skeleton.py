@@ -12,16 +12,16 @@ def ske_set_bone_rot(bone, deg, axis):
 def ske_get_bone_rot(bone):
     return Matrix(bone['bf2_rot_fix'])
 
-def ske_is_3p(skeleton):
-    return skeleton.name.lower().startswith('3p')
-
 def ske_weapon_part_ids(skeleton):
     ids = list()
+    ske_name = skeleton.name.lower()
     for i, bone in enumerate(skeleton.node_list()):
-        if ske_is_3p(skeleton):
+        if ske_name == '3p_setup':
             max_weapon_parts = 8
-        else:
+        elif ske_name == '1p_setup':
             max_weapon_parts = 32
+        else:
+            return list()
         if bone.name.startswith('mesh') and int(bone.name[4:]) <= max_weapon_parts:
             ids.append(i)
     return ids
@@ -31,16 +31,20 @@ def link_to_skeleton(rig_obj, skeleton):
     # can only be dictionaries of bacic types like string, int etc
     rig_obj.data['bf2_skeleton'] = skeleton.to_dict()
 
-def find_active_skeleton(context):
+def find_active_skeleton(context, name=None):
     rig_obj = None
     # check selected ones first
     for obj in context.selected_objects:
         if obj.data and 'bf2_skeleton' in obj.data.keys():
+            if name and name != obj.name.lower():
+                continue
             rig_obj = obj
             break
     # try to find any
     for obj in bpy.data.objects:
         if obj.data and 'bf2_skeleton' in obj.data.keys():
+            if name and name != obj.name.lower():
+                continue
             rig_obj = obj
             break
     if rig_obj:
@@ -94,9 +98,6 @@ def _create_camera(rig):
 
 def import_skeleton(context, skeleton_file, reload=False):
     skeleton = BF2Skeleton(skeleton_file)
-
-    if skeleton.name.lower()[0:2] not in ('3p', '1p'):
-        raise ImportException(f"Skeleton name is required to be prefixed with '1p' or '3p' but got '{skeleton.name}'")
 
     if reload and find_active_skeleton(context):
         obj, _ = find_active_skeleton(context)
