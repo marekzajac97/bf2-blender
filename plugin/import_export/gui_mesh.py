@@ -42,15 +42,29 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         default=False
     )
 
+    def draw(self, context):
+        layout = self.layout
+
+        layout.prop(self, "only_selected_lod")
+        col = layout.column()
+        col.prop(self, "geom")
+        col.enabled = self.only_selected_lod
+
+        col = layout.column()
+        col.prop(self, "lod")
+        col.enabled = self.only_selected_lod
+
     def invoke(self, context, _event):
         try:
             # suggest to load only single LOD whe skeleton got imported previoulsy
-            ske_data = find_active_skeleton(context)
-            if ske_data:
+            self.rig = find_active_skeleton()
+            if self.rig:
                 self.only_selected_lod = True
-                _, skeleton = ske_data
-                self.lod = 0
-                self.geom = 1 if skeleton.name.lower() == '3p_setup' else 0
+                if self.rig.name in ('1p_setup', '3p_setup'):
+                    self.lod = 0
+                    self.geom = 1 if self.rig.name.lower() == '3p_setup' else 0
+                else:
+                    self.lod = self.geom = 0
         except Exception as e:
             print(e)
         return super().invoke(context, _event)
@@ -58,13 +72,17 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
         try:
+            kwargs = {}
             if self.only_selected_lod:
-                kwargs = {'geom': self.geom, 'lod': self.lod}
-            else:
-                kwargs = {}
+                kwargs['geom'] = self.geom
+                kwargs['lod'] = self.lod
+
+            if self.rig:
+                kwargs['geom_to_ske'] = {-1: self.rig}
 
             self.__class__.IMPORT_FUNC(context, self.filepath,
-                                       texture_path=mod_path, **kwargs)
+                                       texture_path=mod_path,
+                                       **kwargs)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
@@ -149,6 +167,14 @@ class EXPORT_OT_bf2_bundledmesh(EXPORT_OT_bf2_mesh):
     EXPORT_FUNC = export_bundledmesh
     FILE_DESC = "BundledMesh (.bundledmesh)"
 
+class EXPORT_OT_bf2_skinnedmesh(EXPORT_OT_bf2_mesh):
+    bl_idname= "bf2_mesh.export_skinnedmesh"
+    bl_label = "Export SkinnedMesh"
+    filename_ext = ".skinnedmesh"
+    filter_glob = StringProperty(default="*.skinnedmesh", options={'HIDDEN'})
+    EXPORT_FUNC = export_bundledmesh
+    FILE_DESC = "SkinnedMesh (.skinnedmesh)"
+
 def draw_import(layout):
     layout.operator(IMPORT_OT_bf2_staticmesh.bl_idname, text=IMPORT_OT_bf2_staticmesh.FILE_DESC)
     layout.operator(IMPORT_OT_bf2_skinnedmesh.bl_idname, text=IMPORT_OT_bf2_skinnedmesh.FILE_DESC)
@@ -157,6 +183,7 @@ def draw_import(layout):
 def draw_export(layout):
     layout.operator(EXPORT_OT_bf2_staticmesh.bl_idname, text=EXPORT_OT_bf2_staticmesh.FILE_DESC)
     layout.operator(EXPORT_OT_bf2_bundledmesh.bl_idname, text=EXPORT_OT_bf2_bundledmesh.FILE_DESC)
+    layout.operator(EXPORT_OT_bf2_skinnedmesh.bl_idname, text=EXPORT_OT_bf2_skinnedmesh.FILE_DESC)
 
 def register():
     bpy.utils.register_class(IMPORT_OT_bf2_mesh)
@@ -165,8 +192,10 @@ def register():
     bpy.utils.register_class(IMPORT_OT_bf2_bundledmesh)
     bpy.utils.register_class(EXPORT_OT_bf2_staticmesh)
     bpy.utils.register_class(EXPORT_OT_bf2_bundledmesh)
+    bpy.utils.register_class(EXPORT_OT_bf2_skinnedmesh)
 
 def unregister():
+    bpy.utils.unregister_class(EXPORT_OT_bf2_skinnedmesh)
     bpy.utils.unregister_class(EXPORT_OT_bf2_bundledmesh)
     bpy.utils.unregister_class(EXPORT_OT_bf2_staticmesh)
     bpy.utils.unregister_class(IMPORT_OT_bf2_bundledmesh)

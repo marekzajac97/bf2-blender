@@ -1,4 +1,4 @@
-from mathutils import Quaternion, Vector
+from .bf2_common import Quat, Vec3
 from .fileutils import FileUtils
 import os
 
@@ -10,7 +10,7 @@ class BF2SkeletonException(Exception):
 class BF2Skeleton:
 
     class Node:
-        def __init__(self, name, pos=Vector((0, 0, 0)), rot=Quaternion()):
+        def __init__(self, name, pos=Vec3(), rot=Quat()):
             self.name = name
             self.rot = rot.copy()
             self.pos = pos.copy()
@@ -63,12 +63,12 @@ class BF2Skeleton:
                 rot_z = ske_data.read_float()
                 rot_w = ske_data.read_float()
                 
-                rot = Quaternion((rot_w, rot_x, rot_y, rot_z))
+                rot = Quat(rot_x, rot_y, rot_z, rot_w)
                 rot.invert()
                 
-                pos = Vector((ske_data.read_float(),
-                              ske_data.read_float(),
-                              ske_data.read_float()))
+                pos = Vec3(ske_data.read_float(),
+                           ske_data.read_float(),
+                           ske_data.read_float())
 
                 tmp_nodes.append((BF2Skeleton.Node(node_name, pos, rot), node_parent_index))
                 
@@ -147,47 +147,3 @@ class BF2Skeleton:
 
     def __repr__(self):
             return f"BF2Skeleton({id(self)}) nodes: {len(self.node_list())}\n" + self._node_tree()
-
-    def to_dict(self):
-        out_d = dict()
-        out_d['name'] = self.name
-        out_d['nodes'] = list()
-        for n in self._nodes:
-            n_dict = dict()
-            if n.parent:
-                n_dict['parent'] = self._nodes.index(n.parent)
-            else:
-                n_dict['parent'] = -1
-
-            n_dict['rot'] = [i for i in n.rot]
-            n_dict['pos'] = [i for i in n.pos]
-            n_dict['name'] = n.name
-
-            out_d['nodes'].append(n_dict)
-
-        return out_d
-
-    @staticmethod
-    def from_dict(in_d):
-        out = BF2Skeleton(name=in_d['name'])
-        tmp_nodes = list()
-        for n_dict in in_d['nodes']:
-            rot = Quaternion(tuple(n_dict['rot']))
-            pos = Vector(tuple(n_dict['pos']))
-            node_name = n_dict['name']
-            node_parent_index = n_dict['parent']
-
-            tmp_nodes.append((BF2Skeleton.Node(node_name, pos, rot), node_parent_index))
-        
-        out._nodes = list()
-        for node, parent_index in tmp_nodes:
-            out._nodes.append(node)
-            if parent_index == -1:
-                if 'Camerabone' == node.name:
-                    out.camerabone = node
-                else:
-                    out.root = node
-            else:
-                tmp_nodes[parent_index][0].append(node)
-
-        return out

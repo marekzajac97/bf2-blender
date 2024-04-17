@@ -4,27 +4,30 @@ import os
 import enum
 
 from itertools import chain
-from mathutils import Vector, Matrix
+from mathutils import Vector
 
 from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
-from .bf2.bf2_common import Vec3, Mat4
+from .bf2.bf2_common import Mat4
 from .bf2.bf2_mesh.bf2_visiblemesh import Material, MaterialWithTransparency, Vertex, VertexAttribute
 from .bf2.bf2_mesh.bf2_types import D3DDECLTYPE, D3DDECLUSAGE
 from .bf2.fileutils import FileUtils
 
 from .exceptions import ImportException, ExportException
-from .utils import (to_matrix,
-                    convert_bf2_pos_rot,
+from .utils import (conv_bf2_to_blender,
+                    conv_blender_to_bf2,
                     delete_object_if_exists,
                     check_prefix,
                     DEFAULT_REPORTER)
-from .skeleton import find_active_skeleton, ske_get_bone_rot, ske_weapon_part_ids
+from .skeleton import (ske_get_bone_rot,
+                       ske_weapon_part_ids)
 from .mesh_material import (setup_material,
                             get_staticmesh_technique_from_maps, 
                             get_staticmesh_uv_channels,
                             get_tex_type_to_file_mapping,
                             get_material_maps,
                             TEXTURE_MAPS)
+
+_DEBUG = False
 
 SPECULAR_LUT = 'Common\Textures\SpecularLUT_pow36.dds'
 
@@ -80,8 +83,8 @@ def _import_mesh(context, mesh_file, mesh_type='',
 def export_bundledmesh(mesh_obj, mesh_file, **kwargs):
     return _export_mesh(mesh_obj, mesh_file, mesh_type='BundledMesh', **kwargs)
 
-# def export_skinnedmesh(mesh_obj, mesh_file, **kwargs):
-#     return _export_mesh(mesh_obj, mesh_file, mesh_type='SkinnedMesh', **kwargs)
+def export_skinnedmesh(mesh_obj, mesh_file, **kwargs):
+    return _export_mesh(mesh_obj, mesh_file, mesh_type='SkinnedMesh', **kwargs)
 
 def export_staticmesh(mesh_obj, mesh_file, **kwargs):
     return _export_mesh(mesh_obj, mesh_file, mesh_type='StaticMesh', **kwargs)
@@ -93,7 +96,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 class MeshImporter:
 
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
-                 texture_path='', reporter=DEFAULT_REPORTER):
+                 texture_path='', geom_to_ske=None, reporter=DEFAULT_REPORTER):
         self.context = context
         if mesh_type:
             self.bf2_mesh = _MESH_TYPES[mesh_type](mesh_file)
@@ -101,6 +104,7 @@ class MeshImporter:
             self.bf2_mesh = BF2Mesh.load(mesh_file)
         self.reload = reload
         self.texture_path = texture_path
+        self.geom_to_ske = geom_to_ske
         self.reporter = reporter
 
     def import_mesh(self, name='', geom=None, lod=None):
@@ -314,19 +318,17 @@ class MeshImporter:
                 mesh_obj.vertex_groups.new(name=group_name)
             mesh_obj.vertex_groups[group_name].add([vertex.index], 1.0, "REPLACE")
 
-        ske_data = find_active_skeleton(self.context)
-        if not ske_data:
+        rig = self._find_skeleton(bf2_lod)
+        if not rig:
             return # ignore if skeleton not loaded
-        rig, _ = ske_data
-        # parent mesh oject to armature
-        mesh_obj.parent = rig
+
         # add armature modifier to the object
         modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
         modifier.object = rig
 
     def _import_rig_skinned_mesh(self, mesh_obj, bf2_lod):
-        ske_data = find_active_skeleton(self.context)
-        if not ske_data:
+        rig = self._find_skeleton(bf2_lod)
+        if not rig:
             return # ignore if skeleton not loaded
         
         if not self.bf2_mesh.has_blend_indices():
@@ -335,32 +337,28 @@ class MeshImporter:
         if not self.bf2_mesh.has_blend_weight():
             return
 
-        rig, skeleton = find_active_skeleton(self.context)
+        ske_bones = rig['bf2_bones']
         armature = rig.data
 
         self.context.view_layer.objects.active = rig
         
         # we're gona change the 'rest' transforms of the bones
         bpy.ops.object.mode_set(mode='EDIT')
-        
+
         id_to_bone = dict()
-        for i, node in enumerate(skeleton.node_list()):
-            id_to_bone[i] = armature.edit_bones[node.name]
+        for i, ske_bone in enumerate(ske_bones):
+            id_to_bone[i] = armature.edit_bones[ske_bone]
 
         rigs_bones = list()
         for bf2_rig in bf2_lod.rigs:
             rig_bones = list()
-            for bf2_bone in bf2_rig.bones:    
-                m = Matrix(bf2_bone.matrix.m)
-                m.transpose()
-                m.invert()
-                pos, rot, _ = m.decompose()
-                convert_bf2_pos_rot(pos, rot)
+            for bf2_bone in bf2_rig.bones:
+                m = conv_bf2_to_blender(bf2_bone.matrix)
                 bone_obj = id_to_bone[bf2_bone.id]
-                bone_obj.matrix = to_matrix(pos, rot) @ ske_get_bone_rot(bone_obj)
+                bone_obj.matrix = m @ ske_get_bone_rot(bone_obj)
                 rig_bones.append(bone_obj.name)
             rigs_bones.append(rig_bones)
-        
+
         # get weigths from bf2 mesh
         vert_weigths = list()
         for rig_bones, mat in zip(rigs_bones, bf2_lod.materials):
@@ -377,7 +375,7 @@ class MeshImporter:
                 vert_weigths.append(weights)
 
         # create vertex group for each bone
-        mesh_bones = ske_weapon_part_ids(skeleton)
+        mesh_bones = ske_weapon_part_ids(rig)
         for i, bone_obj in id_to_bone.items():
             if i in mesh_bones:
                 continue
@@ -391,12 +389,21 @@ class MeshImporter:
         
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        # parent mesh oject to armature
-        mesh_obj.parent = rig
         # add armature modifier to the object
         modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
         modifier.object = rig
 
+    def _find_skeleton(self, bf2_lod):
+        if self.geom_to_ske is None:
+            return None
+        default_skeleton = self.geom_to_ske.get(-1)
+        for geom_idx, geom in enumerate(self.bf2_mesh.geoms):
+            if bf2_lod in geom.lods:
+                skeleton = self.geom_to_ske.get(geom_idx, default_skeleton)
+                break
+        if skeleton is None:
+            self.reporter.warning(f"No skeleton (amrature) found for Geom {geom_idx}")
+        return skeleton
 
 class MeshExporter:
 
@@ -539,24 +546,20 @@ class MeshExporter:
 
         # BundledMesh specific, map vertex group to part ids
         vertex_group_to_part_id = dict()
-        for vg in lod_obj.vertex_groups:
-            part_id = None
-            if vg.name.startswith('mesh'):
-                try:
-                    part_id = int(vg.name[len('mesh'):]) - 1
-                except ValueError:
-                    pass
-            if part_id is None or part_id < 0:
-                raise ExportException(f"Invalid vertex group '{vg.name}', expected 'mesh<index>' where index is a positive integer")
-            vertex_group_to_part_id[vg.index] = part_id
+        if mesh_type == BF2BundledMesh:
+            for vg in lod_obj.vertex_groups:
+                part_id = None
+                if vg.name.startswith('mesh'):
+                    try:
+                        part_id = int(vg.name[len('mesh'):]) - 1
+                    except ValueError:
+                        pass
+                if part_id is None or part_id < 0:
+                    raise ExportException(f"Invalid vertex group '{vg.name}', expected 'mesh<index>' where index is a positive integer")
+                vertex_group_to_part_id[vg.index] = part_id
 
-        if mesh_type == BF2StaticMesh:
-            bf2_lod.parts = [Mat4()] # XXX: unused in BF2
-        elif mesh_type == BF2BundledMesh:
-            # XXX: some geometry parts migh have no verts assigned at all, so write all groups defined
-            bf2_lod.parts_num = len(vertex_group_to_part_id)
-        elif mesh_type == BF2SkinnedMesh:
-            raise NotImplementedError("rigs!!") # TODO
+        # SkinnedMesh specific, list of bones for each material
+        material_bones = list()
 
         # map materials to verts and faces
         mat_idx_to_verts_faces = dict()
@@ -604,6 +607,10 @@ class MeshExporter:
             # get textures
             texture_maps = get_material_maps(blend_material)
 
+            # bone names used for this material
+            bone_list = list()
+            material_bones.append(bone_list)
+
             if animuv_rot_center:
                 try:
                     u_ratio, v_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], self.texture_path)
@@ -632,26 +639,47 @@ class MeshExporter:
                     vert.position = _swap_zy(blend_vertex.co)
                     vert.normal = _swap_zy(loop.normal)
                     vert.tangent = _swap_zy(loop.tangent)
-
-                    # (BundledMesh) first elem of blendindices is geom part index
-                    part_idx = 0
-                    if len(blend_vertex.groups) > 1:
-                        raise ExportException(f"Vertex assigned to more than one vertex group!")
-                    elif len(blend_vertex.groups) > 0:
-                        vert_group = blend_vertex.groups[0].group
-                        part_idx = vertex_group_to_part_id[vert_group]
+                    
+                    # blendindices
+                    blendindices = [0, 0, 0, 0]
+                    # - (BundledMesh) first one is geom part index, second one unused
+                    # - (SkinnedMesh) first and second one are bone indices
+                    # - (StaticMesh)  both first and second one are unused
+                    if mesh_type == BF2BundledMesh:
+                        if len(blend_vertex.groups) > 1:
+                            raise ExportException(f"{lod_obj.name}: Found vertex assigned to more than one vertex group!")
+                        elif len(blend_vertex.groups) > 0:
+                            vert_group = blend_vertex.groups[0].group
+                            blendindices[0] = vertex_group_to_part_id[vert_group]
+                    elif mesh_type == BF2SkinnedMesh:
+                        if len(blend_vertex.groups) > 2:
+                            raise ExportException(f"{lod_obj.name}: Found vertex assigned to more than two vertex groups (bones)!, BF2 only supports two bones per vertex")
+                        elif len(blend_vertex.groups) == 0:
+                            raise ExportException(f"{lod_obj.name}: Found vertex not assigned to any vertex group (bone)!")
+                        _bone_weights = list()
+                        for _bone_idx, _bone in enumerate(blend_vertex.groups):
+                            _bone_name = lod_obj.vertex_groups[_bone.group].name
+                            _bone_weights.append(_bone.weight)
+                            try:
+                                blendindices[_bone_idx] = bone_list.index(_bone_name)
+                            except ValueError:
+                                blendindices[_bone_idx] = len(bone_list)
+                                bone_list.append(_bone_name)
+                        if abs(sum(_bone_weights) - 1.0) > 0.001:
+                            raise ExportException(f"{lod_obj.name}: Found vertex with weights that are not normalized, all weights must add up to 1!")
+                        vert.blendweight = (_bone_weights[0],)
 
                     # third element of blendindices is bitangent sign 0 or 1
                     # bitangent was caluculated based on UV and because we flip it vertically
                     # (see below) the sign of the bitangent gotta be inverted as well
-                    bitangent_sign = 0 if loop.bitangent_sign > 0 else 1
+                    blendindices[2] = 0 if loop.bitangent_sign > 0 else 1
 
                     # (BundledMesh) fourth elem of blendindices is matrix index of the animated UV
-                    vert_animuv_mat_idx = 0
+                    # (SkinnedMesh/StaticMesh) unused
                     if animuv_matrix_index:
-                        vert_animuv_mat_idx = AnimUv(animuv_matrix_index.data[vert_idx].value)
+                        blendindices[3] = AnimUv(animuv_matrix_index.data[vert_idx].value)
 
-                    vert.blendindices = (part_idx, 0, bitangent_sign, vert_animuv_mat_idx)
+                    vert.blendindices = tuple(blendindices)
 
                     # UVs
                     for uv_chan, uvlayer in uv_layers.items():
@@ -660,7 +688,7 @@ class MeshExporter:
 
                     # animated UVs
                     vert.texcoord1 = (0, 0)
-                    if animuv_rot_center and vert_animuv_mat_idx in ANIM_UV_ROTATION_MATRICES:
+                    if animuv_rot_center and blendindices[3] in ANIM_UV_ROTATION_MATRICES:
                         # take the original UV and substract rotation center
                         # scale by texture size ratio, move to TEXCOORD1
                         # keeping only the center of rotation in TEXCOORD0
@@ -694,12 +722,13 @@ class MeshExporter:
                 bf2_mat.faces.append(face_verts)
 
             # print stats
-            stats = f'{lod_obj.name}_material{bf2_lod.materials.index(bf2_mat)}:'
-            stats += f'\n\tmerged loops: {merged_loops_count}/{total_loops_count}'
-            stats += f'\n\tvertices: {len(bf2_mat.vertices)}'
-            stats += f'\n\tduplicated vertices: {len(bf2_mat.vertices) - len(blend_vert_set)}'
-            stats += f'\n\tfaces: {len(bf2_mat.faces)}'
-            print(stats)
+            if _DEBUG:
+                stats = f'{lod_obj.name}_material{bf2_lod.materials.index(bf2_mat)}:'
+                stats += f'\n\tmerged loops: {merged_loops_count}/{total_loops_count}'
+                stats += f'\n\tvertices: {len(bf2_mat.vertices)}'
+                stats += f'\n\tduplicated vertices: {len(bf2_mat.vertices) - len(blend_vert_set)}'
+                stats += f'\n\tfaces: {len(bf2_mat.faces)}'
+                print(stats)
 
             ALPHA_MAPPING = {
                 'ALPHA_BLEND': MaterialWithTransparency.AlphaMode.ALPHA_BLEND,
@@ -738,8 +767,9 @@ class MeshExporter:
                     if uv_chan not in uv_layers:
                         self.reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
 
-            elif mesh_type == BF2BundledMesh:
-                if not blend_material.bf2_technique:
+            elif mesh_type == BF2BundledMesh or mesh_type == BF2SkinnedMesh:
+                # XXX: many SkinnedMeshes have just empty technique (idk why) and just work
+                if mesh_type == BF2BundledMesh and not blend_material.bf2_technique:
                     self.reporter.warning(f"{blend_material.name}: Material is missing technique, check material settings!")
 
                 bf2_mat.technique = blend_material.bf2_technique
@@ -749,15 +779,41 @@ class MeshExporter:
                 if 'Normal' in texture_maps:
                     bf2_mat.maps.append(texture_maps['Normal'])
                 bf2_mat.maps.append(SPECULAR_LUT)
-                if 'Shadow' in texture_maps: # TODO: 3ds max exports shadow as last texture which seems weird, maybe because it is optional? check if the order matters
+                if mesh_type == BF2BundledMesh and 'Shadow' in texture_maps:
                     bf2_mat.maps.append(texture_maps['Shadow'])
-
                 # check required UVs are present
                 if 0 not in uv_layers:
                     self.reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV0', make sure it exists and the name is correct")
 
-            elif mesh_type == BF2SkinnedMesh:
-                raise NotImplementedError() # TODO
+        if mesh_type == BF2StaticMesh:
+            bf2_lod.parts = [Mat4()] # XXX: unused in BF2
+        elif mesh_type == BF2BundledMesh:
+            # XXX: some geometry parts migh have no verts assigned at all, so write all groups defined
+            bf2_lod.parts_num = len(vertex_group_to_part_id)
+        elif mesh_type == BF2SkinnedMesh:
+            bone_to_matrix = dict()
+            bone_to_id = dict()
+            rig = None
+            for mod in lod_obj.modifiers:
+                if mod.type == 'ARMATURE' and 'bf2_bones' in mod.object.keys():
+                    rig = mod.object
+                    break
+            else:
+                raise ExportException(f"{lod_obj.name}: does not have 'Armature' modifier or armature does not contain BF2 skeleton metadata")
+            ske_bones = rig['bf2_bones']
+
+            for bone_id, ske_bone in enumerate(ske_bones):
+                bone_obj = rig.data.bones[ske_bone]
+                m = bone_obj.matrix_local.copy() @ ske_get_bone_rot(bone_obj).inverted()
+                bone_to_matrix[bone_obj.name] = conv_blender_to_bf2(m)
+                bone_to_id[bone_obj.name] = bone_id
+
+            for bone_list in material_bones:
+                bf2_rig = bf2_lod.new_rig()
+                for bone_name in bone_list:
+                    bf2_bone = bf2_rig.new_bone()
+                    bf2_bone.id = bone_to_id[bone_name]
+                    bf2_bone.matrix = bone_to_matrix[bone_name]
 
         if not has_custom_normals:
             mesh.free_normals_split() # remove custom split normals if we added them

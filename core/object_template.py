@@ -9,9 +9,9 @@ from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
                              GeometryTemplate, CollisionMeshTemplate)
 from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import import_collisionmesh, export_collisionmesh
-from .utils import DEFAULT_REPORTER
+from .skeleton import find_all_skeletons
 
-from .utils import delete_object, check_suffix
+from .utils import delete_object, check_suffix, DEFAULT_REPORTER
 from .exceptions import ImportException, ExportException
 
 NONVIS_PRFX = 'NONVIS_'
@@ -19,7 +19,7 @@ COL_SUFFIX = '_COL'
 TMP_PREFIX = 'TMP__'
 SKIN_PREFIX = 'SKIN__'
 
-def import_object(context, con_filepath, import_collmesh=False, reload=False, **kwargs):
+def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUTO', None), reload=False, reporter=DEFAULT_REPORTER, **kwargs):
     BF2Engine().shutdown() # clear previous state
     obj_template_manager = BF2Engine().get_manager(ObjectTemplate)
     geom_template_manager = BF2Engine().get_manager(GeometryTemplate)
@@ -52,10 +52,20 @@ def import_object(context, con_filepath, import_collmesh=False, reload=False, **
     geometry_type = geometry_template.geometry_type
     geometry_filepath = os.path.join(con_dir, 'Meshes', f'{geometry_template.name}.{geometry_type.lower()}')
 
-    root_geometry_obj = MeshImporter(context, geometry_filepath, reload=reload, **kwargs).import_mesh(name=root_template.name)
-    root_geometry_obj.name = f'{geometry_type}_{root_template.name}'
+    # Skeleton import
+    import_rig_mode, geom_to_ske_name = import_rig
+    geom_to_ske = get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name, reporter)
 
-    # TODO: add warning if skinnedmesh is loaded without a skeleton firts
+    rigs = dict()
+    for s in find_all_skeletons():
+        rigs[s.name] = s
+
+    importer = MeshImporter(context, geometry_filepath,
+                            reload=reload, geom_to_ske=geom_to_ske,
+                            reporter=reporter, **kwargs)
+
+    root_geometry_obj = importer.import_mesh(name=root_template.name)
+    root_geometry_obj.name = f'{geometry_type}_{root_template.name}'
 
     coll_parts = None
     if collmesh_template and import_collmesh:
@@ -76,6 +86,8 @@ def import_object(context, con_filepath, import_collmesh=False, reload=False, **
             _fix_unassigned_parts(geom_obj, new_lod)
             _delete_hierarchy_if_has_no_meshes(new_lod)
             _cleanup_unused_materials(new_lod)
+
+    return root_geometry_obj
 
 def parse_geom_type(mesh_obj):
     name_split = mesh_obj.name.split('_')
@@ -113,9 +125,6 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
         os.makedirs(os.path.join(con_dir, 'Meshes'), exist_ok=True)
 
     geometry_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.geom.name}.{geometry_type.lower()}')
-
-    if geometry_type == 'SkinnedMesh':
-        raise ExportException(f'{geometry_type} export not supported')
 
     # create temporary meshes for export, that we can modify e.g trigangulate
     print(f"duplicating LODs...")
@@ -831,3 +840,42 @@ def _matrix_to_yaw_pitch_roll(m):
     pitch = math.asin(-m[2][1])
     roll = math.atan2(m[2][0], m[2][2])
     return tuple(map(math.degrees, (yaw, pitch, roll)))
+
+def get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):
+    if import_rig_mode == 'OFF':
+        return None
+    else:
+        geom_to_ske = dict()
+        rigs = dict()
+        for s in find_all_skeletons():
+            rigs[s.name] = s
+
+        def put_rig_safe(geom_idx, ske_name):
+            rig = rigs.get(ske_name)
+            if rig is None:
+                reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type '{root_template.type}'")
+            geom_to_ske[geom_idx] = rig
+
+        if import_rig_mode == 'AUTO':
+            if geometry_type == 'SkinnedMesh':
+                if root_template.type.lower() == 'soldier':
+                    put_rig_safe(0, '1p_setup')
+                    put_rig_safe(1, '3p_setup')
+                elif 'kits' in root_template.name.lower(): # actually hardcoded in engine
+                    put_rig_safe(-1, '3p_setup')
+                elif root_template.type.lower() == 'animatedbundle':
+                    if rigs:
+                        geom_to_ske[-1] = rigs.values()[0]
+                    else:
+                        reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type 'AnimatedBundle'")
+            elif geometry_type == 'BundledMesh' and root_template.type.lower() == 'genericfirearm':
+                put_rig_safe(0, '1p_setup')
+                put_rig_safe(1, '3p_setup')
+        elif import_rig_mode == 'MANUAL':
+            if geom_to_ske_name is None:
+                raise ImportException(f'geom_to_ske_name missing for MANUAL mode')
+            for geom_idx, ske_name in geom_to_ske_name.items():
+                geom_to_ske[geom_idx] = rigs[ske_name]
+        else:
+            raise ImportException(f'Unhandled import_rig_mode {import_rig_mode}')
+        return geom_to_ske

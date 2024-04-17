@@ -290,7 +290,7 @@ class Lod:
             mat.save(f)
 
     def new_material(self):
-        self.materials.append(cls._MATERIAL_TYPE())
+        self.materials.append(self._MATERIAL_TYPE())
         return self.materials[-1]
 
 class Geom:

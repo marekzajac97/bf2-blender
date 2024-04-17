@@ -1,4 +1,4 @@
-from mathutils import Quaternion, Vector
+from .bf2_common import Quat, Vec3
 from .fileutils import FileUtils
 import os
 import functools
@@ -87,7 +87,7 @@ class BF2AnimationException(Exception):
 
 
 class BF2KeyFrame:
-    def __init__(self, pos=Vector((0, 0, 0)), rot=Quaternion()):
+    def __init__(self, pos=Vec3(), rot=Quat()):
         self.rot = rot.copy()
         self.pos = pos.copy()
 
@@ -120,7 +120,7 @@ class BF2Animation:
             precision = anim_data.read_byte()
 
             for bone_id in bone_ids:
-                frames = self.add_bone(bone_id)
+                self.bones[bone_id] = frames = [BF2KeyFrame() for _ in range(self.frame_num)]
                 data_size = anim_data.read_word()
 
                 for j in range(1,8):
@@ -170,7 +170,7 @@ class BF2Animation:
 
             anim_data.write_dword(self.frame_num)
 
-            # find pos value furthest from 0 (it's usually the camera at ~1.5)
+            # find pos axis value furthest from 0 (it's usually the camera at Z = ~1.5)
             max_value_for_animation = 0
             for frames in self.bones.values():
                 max_for_this_bone = functools.reduce(lambda prev, fr: max(prev, abs(fr.pos.x), abs(fr.pos.y), abs(fr.pos.z)), frames, 0)
@@ -184,9 +184,8 @@ class BF2Animation:
                 if max_value_for_animation <= max_value_for_prec:
                     precision = prec
                     break
-
-            if precision is None:
-                raise BF2AnimationException("Error calculating precision")
+            else:
+                raise BF2AnimationException(f"Animation position axis value out of range: {max_value_for_animation}")
 
             anim_data.write_byte(precision)
 
@@ -255,11 +254,3 @@ class BF2Animation:
                         else:
                             for data_block_val in data_block.values:
                                 anim_data.write_word(data_block_val)
-
-    def add_bone(self, index, frames=None):
-        if frames is None:
-            frames = [BF2KeyFrame() for _ in range(self.frame_num)]
-        elif len(frames) != self.frame_num:
-            raise ValueError(f"'frames' must be the size of frame_num ({self.frame_num}) but is {len(frames)}")
-        self.bones[index] = frames
-        return self.bones[index]    

@@ -1,10 +1,11 @@
 import bpy
 import math
 
-from mathutils import Matrix
+from mathutils import Matrix, Vector, Quaternion
 from .bf2.bf2_skeleton import BF2Skeleton
-from .utils import to_matrix, convert_bf2_pos_rot, delete_object, delete_object_if_exists
+from .utils import to_matrix, conv_bf2_to_blender, delete_object, delete_object_if_exists
 from .exceptions import ImportException
+
 
 def ske_set_bone_rot(bone, deg, axis):
     bone['bf2_rot_fix'] = Matrix.Rotation(math.radians(deg), 4, axis)
@@ -12,52 +13,38 @@ def ske_set_bone_rot(bone, deg, axis):
 def ske_get_bone_rot(bone):
     return Matrix(bone['bf2_rot_fix'])
 
-def ske_weapon_part_ids(skeleton):
+def ske_weapon_part_ids(rig):
+    ske_bones = rig['bf2_bones']
     ids = list()
-    ske_name = skeleton.name.lower()
-    for i, bone in enumerate(skeleton.node_list()):
+    ske_name = rig.name.lower()
+    for i, ske_bone in enumerate(ske_bones):
         if ske_name == '3p_setup':
             max_weapon_parts = 8
         elif ske_name == '1p_setup':
-            max_weapon_parts = 32
+            max_weapon_parts = 16
         else:
             return list()
-        if bone.name.startswith('mesh') and int(bone.name[4:]) <= max_weapon_parts:
+        if ske_bone.startswith('mesh') and int(ske_bone[4:]) <= max_weapon_parts:
             ids.append(i)
     return ids
 
-def link_to_skeleton(rig_obj, skeleton):
-    # need to convert skeleton to dict as Blender's custom properties
-    # can only be dictionaries of bacic types like string, int etc
-    rig_obj.data['bf2_skeleton'] = skeleton.to_dict()
+def find_active_skeleton():
+    rigs = find_all_skeletons()
+    if rigs:
+        return rigs[0]
 
-def find_active_skeleton(context, name=None):
-    rig_obj = None
-    # check selected ones first
-    for obj in context.selected_objects:
-        if obj.data and 'bf2_skeleton' in obj.data.keys():
-            if name and name != obj.name.lower():
-                continue
-            rig_obj = obj
-            break
-    # try to find any
+def find_all_skeletons():
+    rig_objs = list()
     for obj in bpy.data.objects:
-        if obj.data and 'bf2_skeleton' in obj.data.keys():
-            if name and name != obj.name.lower():
-                continue
-            rig_obj = obj
-            break
-    if rig_obj:
-        skeleton = BF2Skeleton.from_dict(rig_obj.data['bf2_skeleton'].to_dict())
-        return (rig_obj, skeleton)
-    return None
+        if obj.data and 'bf2_bones' in obj.keys():
+            rig_objs.append(obj)
+    return rig_objs
 
-def find_animated_weapon_object(context):
-    ske_data = find_active_skeleton(context)
-    if not ske_data:
+def find_animated_weapon_object():
+    rig = find_active_skeleton()
+    if not rig:
         return None
 
-    rig, _ = ske_data
     for obj in bpy.data.objects:
         if obj is rig:
             continue
@@ -99,8 +86,8 @@ def _create_camera(rig):
 def import_skeleton(context, skeleton_file, reload=False):
     skeleton = BF2Skeleton(skeleton_file)
 
-    if reload and find_active_skeleton(context):
-        obj, _ = find_active_skeleton(context)
+    if reload and find_active_skeleton():
+        obj, _ = find_active_skeleton()
         delete_object(obj)
 
     armature = bpy.data.armatures.new(skeleton.name)
@@ -108,12 +95,16 @@ def import_skeleton(context, skeleton_file, reload=False):
 
     context.scene.collection.objects.link(rig)
     context.view_layer.objects.active = rig
+
+    # add skeleton bone list to rig
+    rig['bf2_bones'] = [n.name for n in skeleton.node_list()]
+
     bpy.ops.object.mode_set(mode='EDIT')
-    
-    # copy Skeleton and fix node pos/rot
+
+    # fix node pos/rot
     nodes = skeleton.node_list()
     for node in nodes:
-        convert_bf2_pos_rot(node.pos, node.rot)
+        node.pos, node.rot = conv_bf2_to_blender(node.pos, node.rot)
 
     for i, node in enumerate(nodes):
         
@@ -155,7 +146,7 @@ def import_skeleton(context, skeleton_file, reload=False):
         for p in parents:
             armature_space_matrix @= to_matrix(p.pos, p.rot)
         
-        if i in ske_weapon_part_ids(skeleton):
+        if i in ske_weapon_part_ids(rig):
             # have to keep all wepon parts in scene origin
             # otherwise weapon parts may not map properly later
             matrix = Matrix.Identity(4)
@@ -170,9 +161,7 @@ def import_skeleton(context, skeleton_file, reload=False):
             bone.parent = armature.edit_bones[node.parent.name]
     
     bpy.ops.object.mode_set(mode='OBJECT')
-    
-    # add skeleton metadata to rig
-    link_to_skeleton(rig, skeleton)
+
     camera = _create_camera(rig)
     if camera:
         context.scene.collection.objects.link(camera)

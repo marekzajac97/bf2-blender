@@ -240,10 +240,20 @@ class Vec3:
 
 class Mat4:
     def __init__(self, m=None):
-        self.m = m or [[1, 0, 0, 0],
-                       [0, 1, 0, 0],
-                       [0, 0, 1, 0],
-                       [0, 0, 0, 1]]
+        if m is not None:
+            self.m = list()
+            for row in m:
+                row = list(row)
+                if len(row) != 4:
+                    raise ValueError(f"Bad matrix {m}")
+                self.m.append(row)
+            if len(self.m) != 4:
+                    raise ValueError(f"Bad matrix {m}") 
+        else:
+            self.m =[[1, 0, 0, 0],
+                     [0, 1, 0, 0],
+                     [0, 0, 1, 0],
+                     [0, 0, 0, 1]]
 
     @classmethod
     def load(cls, f : FileUtils):

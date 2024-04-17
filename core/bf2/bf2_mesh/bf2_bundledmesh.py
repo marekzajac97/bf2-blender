@@ -20,7 +20,7 @@ class BundledMeshLod(Lod):
 
     def save_parts_rigs(self, f : FileUtils):
         super().save_parts_rigs(f)
-        f.write_dword(self.parts_num) # TODO: maybe can just create a set of all material blendindices and get its size?
+        f.write_dword(self.parts_num)
 
 class BundledMeshGeom(Geom):
     _LOD_TYPE = BundledMeshLod

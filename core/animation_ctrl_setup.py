@@ -90,9 +90,9 @@ def _create_sphere_mesh_shape(mesh, size=1, axes=[0, 1, 2]):
     bm.to_mesh(mesh)
     bm.free()
 
-def _calc_weapon_mesh_contoller_pos(context):
+def _calc_weapon_mesh_contoller_pos():
     bone_to_pos = dict()
-    obj = find_animated_weapon_object(context)
+    obj = find_animated_weapon_object()
     if obj:
         bone_to_vertices = dict()
         vertex_group_id_to_name = dict()
@@ -114,20 +114,19 @@ def _calc_weapon_mesh_contoller_pos(context):
 
     return bone_to_pos
 
-def _get_active_mesh_bones(context):
+def _get_active_mesh_bones():
     mesh_bones = set()
-    obj = find_animated_weapon_object(context)
+    obj = find_animated_weapon_object()
     if obj:
         for vg in obj.vertex_groups:
             mesh_bones.add(vg.name)
     return mesh_bones
 
 def rollback_controllers(context):
-    ske_data = find_active_skeleton(context)
-    if not ske_data:
+    rig = find_active_skeleton()
+    if not rig:
         return
 
-    rig, _ = ske_data
     armature = rig.data
     context.view_layer.objects.active = rig
 
@@ -150,8 +149,8 @@ def rollback_controllers(context):
     context.view_layer.update()
 
 def setup_controllers(context, step=0):
-    ske_data = find_active_skeleton(context)
-    if not ske_data:
+    rig = find_active_skeleton()
+    if not rig:
         return
 
     # cleanup previuous
@@ -159,13 +158,11 @@ def setup_controllers(context, step=0):
         rollback_controllers(context)
         set_hide_all_mesh_bones_in_em(context, hide=True) # keep only CTRL bones visible
     else:
-        _remove_mesh_mask(context)
+        _remove_mesh_mask()
 
-    rig, skeleton = ske_data
-
-    if skeleton.name.lower() == '3p_setup':
+    if rig.name.lower() == '3p_setup':
         _setup_3p_controllers(context, rig, step)
-    elif skeleton.name.lower() == '1p_setup':
+    elif rig.name.lower() == '1p_setup':
         _setup_1p_controllers(context, rig, step)
 
 def _setup_3p_controllers(context, rig, step):
@@ -212,13 +209,13 @@ def _setup_1p_controllers(context, rig, step):
         _create_ctrl_bone(armature, name='R_elbow', source_bone='R_elbowJoint', pos=R_elbow_CTRL_pos)
 
         # meshX controllers
-        meshbone_to_pos = _calc_weapon_mesh_contoller_pos(context)
+        meshbone_to_pos = _calc_weapon_mesh_contoller_pos()
         mesh_bones = meshbone_to_pos.keys()
 
         for mesh_bone, pos in meshbone_to_pos.items():
             _create_ctrl_bone(armature, source_bone=mesh_bone, pos=pos)
     else:
-        mesh_bones = _get_active_mesh_bones(context)
+        mesh_bones = _get_active_mesh_bones()
 
     if step == 1:
         return
@@ -389,15 +386,17 @@ def _setup_1p_controllers(context, rig, step):
     context.view_layer.update()
 
 def set_hide_all_mesh_bones_in_em(context, hide=True):
-    ske_data = find_active_skeleton(context)
-    if not ske_data:
+    rig = find_active_skeleton()
+    if not rig:
         return
-    rig, skeleton = ske_data
-    mesh_bone_ids = ske_weapon_part_ids(skeleton)
+    
+    ske_bones = rig['bf2_bones']
+
+    mesh_bone_ids = ske_weapon_part_ids(rig)
     mesh_bones = set()
-    for i, node in enumerate(skeleton.node_list()):
+    for i, ske_bone in enumerate(ske_bones):
         if i in mesh_bone_ids:
-            mesh_bones.add(node.name)
+            mesh_bones.add(ske_bone)
 
     armature = rig.data
     context.view_layer.objects.active = rig
@@ -408,8 +407,8 @@ def set_hide_all_mesh_bones_in_em(context, hide=True):
 
 MASK_MOD_NAME = 'bf2_bone_mask'
 
-def _remove_mesh_mask(context):
-    obj = find_animated_weapon_object(context)
+def _remove_mesh_mask():
+    obj = find_animated_weapon_object()
     if not obj:
         return
     
@@ -421,7 +420,7 @@ def _remove_mesh_mask(context):
 def toggle_mesh_mask_mesh_for_active_bone(context):        
     ctrl_bone = context.active_bone
 
-    obj = find_animated_weapon_object(context)
+    obj = find_animated_weapon_object()
     if not obj:
         return
     

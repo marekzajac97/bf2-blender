@@ -16,21 +16,22 @@ There are two ways of importing an BF2 mesh into Blender. One is to use `Import 
 - `Export -> ObjecTemplate (.con)` shall be used for exporting objects (like 3ds Max exporter, it spits out a `.con` file + visible mesh + collision mesh into `Meshes` sub-directory). Export option will only be available when you have an object active in the viewport. Before reading further, I highly advise you to import any existing BF2 mesh first (`Import -> ObjecTemplate (.con)`), and look at how everything is set up to make below steps easier to follow.
 
 ## The object hierarchy
-- The active object needs to be the root of the hierarchy. The root needs to be prefixed with the geometry type: `StaticMesh` or `BundledMesh`, followed by an underscore and the name of the root ObjectTemplate. Each child of the root object must be an empty object that corresponds to Geom (prefixed with `G<index>__`):
+- The active object needs to be the root of the hierarchy. The root needs to be prefixed with the geometry type: `StaticMesh`, `BundledMesh` or `SkinnedMEsh`, followed by an underscore and the name of the root ObjectTemplate. Each child of the root object must be an empty object that corresponds to Geom (prefixed with `G<index>__`):
     - for StaticMeshes: Geom0 = main, Geom1 = destoryed
     - for BundledMeshes: Geom0 = 1P, Geom1 = 3P, Geom2 = wreck.
 - Each child of the Geom object must be an object that corresponds to Lod (prefixed with `G<index>L<index>__`) containing mesh data. Each Lod should be a simplified version of the previous one. There must be at least one Lod.
-- Each Lod may contain multiple child objects that will be exported as separate ObjectTemplates using different geometry parts, each Lod must contain the same hierarchy of them. StaticMeshes usually don't have any parts, so Lod will be just a single object, but for BundledMeshes you might want to have multiple geometry parts (e.g. "hull" as root and a "turret" and "motor" as its child objects). Those objects cannot be empty, each one must contain mesh data to export properly! However, if you just want them to export as invisible but separate logical objects (e.g. the `Engine` ObjectTemplate of the vehicle) you can delete all geometry (verts/faces) from the mesh object.
+- Each Lod may contain multiple child objects that will be exported as separate ObjectTemplates using different geometry parts, each Lod must contain the same hierarchy of them. StaticMeshes or SkinnedMeshes usually don't have any parts, so Lod will be just a single object, but for BundledMeshes you might want to have multiple geometry parts (e.g. "hull" as root and a "turret" and "motor" as its child objects). Those objects cannot be empty, each one must contain mesh data to export properly! However, if you just want them to export as invisible but separate logical objects (e.g. the `Engine` ObjectTemplate of the vehicle) you can delete all geometry (verts/faces) from the mesh object.
 - Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set (e.g. `Bundle`, `PlayerControlObject` etc). You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. However, you may want some meshes to export as separate geometry parts but at the same time don't export as separate ObjectTemplates (e.g. an animatable magazine that is a part of `GenericFirearm`) in such case simply leave this property empty.
 
 ## Materials and UVs
-- Each material that is assigned to any visible mesh must be set up for export. To setup BF2 material go to `Material Properties`, you should see `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate settings: `Alpha Mode`, `Shader` and `Technique` (applies for BundledMesh only) as well as desired texture maps to load.
+- Each material that is assigned to any visible mesh must be set up for export. To setup BF2 material go to `Material Properties`, you should see `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate settings: `Alpha Mode`, `Shader` and `Technique` (BundledMesh/SkinnedMesh only) as well as desired texture maps to load.
     - For StaticMesh: There will be 6 texture slots for Base, Detail, Dirt, Crack, Detail Normal, and Crack Normal. Only Base texture is mandatory, if others are not meant to be used, leave them empty.
     - For BundledMesh: There should be 3 texture slots for Diffuse, Normal, and Shadow. Only Diffuse texture is mandatory, if others are not meant to be used, leave them empty.
+    - For SkinnedMesh: There should be 2 texture slots for Diffuse and Normal. Only Diffuse texture is mandatory, if Normal is not meant to be used, leave them empty.
 - Clicking on `Apply Material` changes some material settings, loads textures and builds a tree of Shader Nodes that try to mimic BF2 rendering.
 - Each LOD's mesh must have assigned a minimum of 1 and a maximum of 5 UV layers and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
     - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, which can also be auto-generated when toggled in the export options.
-    - For BundledMesh there's only UV0 for all texture maps.
+    - For BundledMesh and SkinnedMesh there's only UV0 for all texture maps.
 - Export requires one UV map to be chosen for tangent space calculation, this must be the same UV that was used to bake the normal map, for static meshes (which reuse textures) it should likely be UV1 (Detail Normal).
 
 ## Collision meshes
@@ -42,6 +43,9 @@ The term "skinning" is probably an exaggeration in the context of BundledMeshes.
 
 ## Animated UVs (BundledMesh)
 To set up animated UVs go to `EDIT MODE`, select specific parts (vertices/faces) of your mesh that should use UV animation and assign them to proper sets using `Mesh -> BF2` menu, choosing Left/Right Tracks/Wheels Translation/Rotation. You can also select vertices/faces currently assigned to those sets using `Select -> BF2` menu. Vertices assinged to "wheel rotation" set will additionaly require setting up the center point of UV rotation for each wheel individually. Select all vertices, and position the 2D cursor to the wheel center in the UV Editing view, then select `Mesh -> BF2 -> Set Animated UV Rotation Center`. Repeat the process for all wheels.
+
+## Rigging (SkinnedMesh)
+In order to rig your model, you must import the BF2 skeleton into your scene. When rigging soldiers you will need two skeletons `1p_setup.ske` for 1P (Geom 0) and `3p_setup.ske` 3P (Geom 1). The first step is to switch to `Pose Mode` and pose the armature(s) to best match your mesh(es). When you are done, make sure you apply this pose as the rest pose [Pose -> Apply -> Apply Pose As Rest Pose](https://docs.blender.org/manual/en/latest/animation/armatures/posing/editing/apply.html), then switch to `Object Mode` and for each Lod object go to `Modifiers` tab and [Add Modifier -> Deform -> Armature](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/armature.html), in modifier settings select 'Object' to point to the name of the imported skeleton. Now the hard part, you have to set vertex weights for each Lod, meaning how much each bone affects each vertex of the mesh. You could use automatic weights (which should be a good starting point) as follows: Select Armature, go to `Pose Mode`, `Select -> All`, Go to `Object Mode`, Shift + select the mesh, go to `Wieght Paint` mode use [Weights -> Assign Automatic From Bones](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#assign-automatic-from-bone). Bare in mind that to export properly, each vertex must have at least one and at most two weights (be assigned to one or two vertex groups/bones), and all those weights have to be normalized (add-up to 1). You can limit the number of vertex weights in `Weight Paint` mode using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) option (make sure it is set to 2). You can normalize weights using [Weights -> Normalize All](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#normalize-all) option. Also, make sure that `Auto Normalize` is enabled in [Weight Paint Tools Settings](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/tool_settings/options.html) when rigging in `Weight Paint` mode.
 
 ## Example object hierarchies
 
@@ -138,3 +142,14 @@ BundledMesh_car
   ├─G2L1__car [m]
   └─G2L2__car [m]
 ``` 
+
+SkinnedMesh (a soldier)
+```
+SkinnedMesh_soldier
+└─G0__soldier
+  └─G0L0__soldier [m]
+└─G1__soldier
+  ├─G1L0__soldier [m]
+  ├─G1L1__soldier [m]
+  └─G1L2__soldier [m]
+```

@@ -3,17 +3,17 @@
 I'm probably like 15 years late but anyway, here are some tools for importing/exporting Refractor 2 engine files for Blender as an alternative to 3ds Max tools. Development is still in its early stages, see below what is supported. Please report any issues found!
 
 ## Features:
+- Skeleton (`.ske`) import
 - Animation (`.baf`) import/export
-- Skeleton (`.ske`) import only
 - StaticMesh (`.staticMesh`) import/export
-- SkinnedMesh (`.skinnedMesh`) import only
+- SkinnedMesh (`.skinnedMesh`) import/export
 - BundledMesh (`.bundledMesh`) import/export
 - CollisionMesh (`.collisionMesh`) import/export
 
 ## Limitations and known issues:
 - CollisionMesh exports to a slightly older file version (9) than 3DsMax exporter (10), which will make BF2 regenerate some missing data on load time, not a big deal.
 - Generating `.samples` for StaticMeshes is not yet supported, use [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/)!
-- SkinnedMeshes using Object Space normal maps will have shading issues when deformed
+- SkinnedMeshes using Object Space normal maps will have shading issues when deformed/animated
 
 ## Installation
 - Head over to [Releases](https://github.com/marekzajac97/bf2-blender/releases/) for download
