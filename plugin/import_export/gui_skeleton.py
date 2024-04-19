@@ -1,9 +1,9 @@
 import bpy
 import traceback
 from bpy.props import StringProperty
-from bpy_extras.io_utils import ImportHelper
+from bpy_extras.io_utils import ImportHelper, ExportHelper
 
-from ...core.skeleton import import_skeleton
+from ...core.skeleton import import_skeleton, export_skeleton
 
 class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_skeleton.import"
@@ -18,16 +18,38 @@ class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImportHelper):
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
+class EXPORT_OT_bf2_cskeleton(bpy.types.Operator, ExportHelper):
+    bl_idname = "bf2_skeleton.export"
+    bl_label = "Export Collision Mesh"
+
+    filename_ext = ".ske"
+    filter_glob = StringProperty(default="*.ske", options={'HIDDEN'})
+
+    @classmethod
+    def poll(cls, context):
+        active_obj = context.view_layer.objects.active
+        return active_obj is not None and isinstance(active_obj.data, bpy.types.Armature)
+
+    def execute(self, context):
+        active_obj = context.view_layer.objects.active
+        try:
+           export_skeleton(active_obj, self.filepath)
+        except Exception as e:
+            self.report({"ERROR"}, traceback.format_exc())
+        return {'FINISHED'}
+
 FILE_DESC = "Skeleton (.ske)"
 
 def draw_import(layout):
     layout.operator(IMPORT_OT_bf2_skeleton.bl_idname, text=FILE_DESC)
 
 def draw_export(layout):
-    pass
+    layout.operator(EXPORT_OT_bf2_cskeleton.bl_idname, text=FILE_DESC)
 
 def register():
     bpy.utils.register_class(IMPORT_OT_bf2_skeleton)
+    bpy.utils.register_class(EXPORT_OT_bf2_cskeleton)
 
 def unregister():
+    bpy.utils.unregister_class(EXPORT_OT_bf2_cskeleton)
     bpy.utils.unregister_class(IMPORT_OT_bf2_skeleton)

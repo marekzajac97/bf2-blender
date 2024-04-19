@@ -95,27 +95,6 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
-def dump_presets():
-    op_presets = os.path.join("presets", "operator", EXPORT_OT_bf2_animation.bl_idname)
-    preset_dir = bpy.utils.user_resource('SCRIPTS', path=op_presets, create=True)
-    for preset_name, bone_list in ANIM_EXPORT_DEFAULT_PRESETS:
-        preset_file = os.path.join(preset_dir, f'{preset_name}.py')
-        dump_preset(preset_file, bone_list)
-
-def dump_preset(filepath, bone_list):
-    try:
-        with open(filepath, 'w') as f:
-            f.write("import bpy\n")
-            f.write("op = bpy.context.active_operator\n\n")
-            f.write("BONE_LIST = {}\n".format(bone_list))
-            f.write("for item in op.bones_for_export:\n")
-            f.write("    if item.name in BONE_LIST:\n")
-            f.write("        item.included = True\n")
-            f.write("    else:\n")
-            f.write("        item.included = False\n")
-    except OSError as e:
-        print(e)
-
 FILE_DESC = "Animation (.baf)"
 
 def draw_import(layout):
@@ -135,6 +114,25 @@ def unregister():
     bpy.utils.unregister_class(BoneExportCollection)
     bpy.utils.unregister_class(EXPORT_OT_bf2_animation)
 
+def dump_presets(force=False):
+    op_presets = os.path.join("presets", "operator", EXPORT_OT_bf2_animation.bl_idname)
+    preset_dir = bpy.utils.user_resource('SCRIPTS', path=op_presets, create=True)
+    for preset_name, bone_list in ANIM_EXPORT_DEFAULT_PRESETS:
+        preset_file = os.path.join(preset_dir, f'{preset_name}.py')
+        try:
+            if os.path.isfile(preset_file) and not force:
+                return
+            with open(preset_file, 'w') as f:
+                f.write("import bpy\n")
+                f.write("op = bpy.context.active_operator\n\n")
+                f.write("BONE_LIST = {}\n".format(bone_list))
+                f.write("for item in op.bones_for_export:\n")
+                f.write("    if item.name in BONE_LIST:\n")
+                f.write("        item.included = True\n")
+                f.write("    else:\n")
+                f.write("        item.included = False\n")
+        except OSError as e:
+            print(e)
 
 ANIM_EXPORT_DEFAULT_PRESETS = [
         ('1P', ['Camerabone', 'torus',

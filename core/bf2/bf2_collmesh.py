@@ -4,10 +4,13 @@ from .fileutils import FileUtils
 
 from .bf2_common import Vec3, calc_bounds, load_n_elems
 
+NATIVE_BSP_EXPORT = True
+
 try:
     from .bsp_builder import BspBuilder
 except ImportError as e:
-    print("Cannot import BSP builder, falling back to slow af python implementation", e)
+    print(f"Error importing BSP builder '{e}'. Falling back to slow af python implementation")
+    NATIVE_BSP_EXPORT = False
     from .py_bsp_builder import BspBuilder
 
 import os

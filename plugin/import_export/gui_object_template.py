@@ -3,7 +3,7 @@ import traceback
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
-from ...core.object_template import import_object, export_object, parse_geom_type
+from ...core.object_template import import_object, export_object, parse_geom_type, NATIVE_BSP_EXPORT
 from ...core.mesh import collect_uv_layers
 from ...core.skeleton import find_all_skeletons
 from ...core.exceptions import ImportException, ExportException
@@ -217,6 +217,19 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         default=True
     )
 
+    def draw(self, context):
+        layout = self.layout
+
+        layout.prop(self, "tangent_uv_map")
+        layout.prop(self, "gen_lightmap_uv")
+        layout.prop(self, "export_geometry")
+        layout.prop(self, "export_collmesh")
+        if NATIVE_BSP_EXPORT and self.export_collmesh:
+            layout.label(text='WARNING: Native BSP export module could not be loaded')
+            layout.label(text='CollisionMesh export may take forever for compex meshes')
+        layout.prop(self, "triangulate")
+        layout.prop(self, "apply_modifiers")
+
     @classmethod
     def poll(cls, context):
         return context.view_layer.objects.active is not None
@@ -241,6 +254,9 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
             self.report({"ERROR"}, traceback.format_exc())
             return {'CANCELLED'}
         return {'FINISHED'}
+
+    def invoke(self, context, _event):
+        return super().invoke(context, _event)
 
 
 FILE_DESC = "ObjectTemplate (.con)"

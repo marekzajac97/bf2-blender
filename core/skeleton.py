@@ -3,7 +3,9 @@ import math
 
 from mathutils import Matrix, Vector, Quaternion
 from .bf2.bf2_skeleton import BF2Skeleton
-from .utils import to_matrix, conv_bf2_to_blender, delete_object, delete_object_if_exists
+from .utils import (to_matrix, conv_bf2_to_blender,
+                    conv_blender_to_bf2, delete_object,
+                    delete_object_if_exists)
 from .exceptions import ImportException
 
 
@@ -11,7 +13,10 @@ def ske_set_bone_rot(bone, deg, axis):
     bone['bf2_rot_fix'] = Matrix.Rotation(math.radians(deg), 4, axis)
 
 def ske_get_bone_rot(bone):
-    return Matrix(bone['bf2_rot_fix'])
+    if 'bf2_rot_fix' in bone:
+        return Matrix(bone['bf2_rot_fix'])
+    else:
+        return Matrix.Identity(4)
 
 def ske_weapon_part_ids(rig):
     ske_bones = rig['bf2_bones']
@@ -59,7 +64,7 @@ def find_animated_weapon_object():
 
 CAMER_OBJECT_NAME = 'Camerabone_Camera'
 
-def _create_camera(rig):
+def _create_camera(context, rig):
     armature = rig.data
     camera_object = None
     if 'Camerabone' in armature.bones:
@@ -80,6 +85,7 @@ def _create_camera(rig):
         constraint = camera_object.constraints.new(type='CHILD_OF')
         constraint.target = rig
         constraint.subtarget = camerabone.name
+        context.scene.collection.objects.link(camera_object)
 
     return camera_object
 
@@ -115,20 +121,20 @@ def import_skeleton(context, skeleton_file, reload=False):
         
         # this is to unfuck (and refuck during export) rotation of bone in blender
         # head/tail position is directly tied to bone rotation (exept bone roll)
-        # so if the bone points "up" then it's the same as if it was rotated by 90 deg
+        # so if the bone points "up" (along Z axis) then it's the same as if it was rotated by 90 deg
         ske_set_bone_rot(bone, 90, 'X')
 
-        if node.childs and node.childs[0].pos.z < 0.0:
+        if node.children and node.children[0].pos.z < 0.0:
             # quck hack to fix some bone rotations
             # right ones seem to point in the opposite direction in the BF2 skeleton export
             ske_set_bone_rot(bone, -90, 'X')
 
-        # get the lenght
-        if len(node.childs) == 1:
-            bone_len = node.childs[0].pos.length # pos is relative to parrent
+        # get the lenght, blender does not allow to create bones with length == 0 (or close to zero)
+        if len(node.children) == 1:
+            bone_len = node.children[0].pos.length # pos is relative to parrent
             if bone_len < 0.01:
                 bone_len = 0.01
-        elif node.parent and not node.childs and not node.name.startswith('mesh'):    
+        elif node.parent and not node.children and not node.name.startswith('mesh'):    
             bone_len = 0.01 # finger ends etc
         else:
             bone_len = 0.03 # 'lone' bones
@@ -162,6 +168,32 @@ def import_skeleton(context, skeleton_file, reload=False):
     
     bpy.ops.object.mode_set(mode='OBJECT')
 
-    camera = _create_camera(rig)
-    if camera:
-        context.scene.collection.objects.link(camera)
+    _create_camera(context, rig)
+
+
+def export_skeleton(rig, ske_file):
+    armature = rig.data
+    skeleton = BF2Skeleton(name=rig.name)
+
+    nodes = dict()
+    for index, bone in enumerate(armature.bones):
+        parent_matrix = Matrix.Identity(4)
+        if bone.parent:
+            parent_matrix = bone.parent.matrix_local.copy() @ ske_get_bone_rot(bone.parent).inverted()
+        matrix = parent_matrix.inverted() @ bone.matrix_local.copy() @ ske_get_bone_rot(bone).inverted()
+
+        pos, rot, _ = matrix.decompose()
+        pos, rot = conv_blender_to_bf2(pos, rot)
+        nodes[bone.name] = BF2Skeleton.Node(index, bone.name, pos, rot)
+
+    # relations
+    for _, node in nodes.items():
+        bone = armature.bones[node.name]
+        for child in bone.children:
+            node.children.append(nodes[child.name])
+        if bone.parent:
+            node.parent = nodes[bone.parent.name]
+        else:
+            skeleton.roots.append(node)
+    
+    skeleton.export(ske_file)

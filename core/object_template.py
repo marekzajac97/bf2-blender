@@ -7,6 +7,7 @@ from bpy.types import Mesh, Armature
 
 from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
                              GeometryTemplate, CollisionMeshTemplate)
+from .bf2.bf2_collmesh import NATIVE_BSP_EXPORT
 from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import import_collisionmesh, export_collisionmesh
 from .skeleton import find_all_skeletons
@@ -865,7 +866,7 @@ def get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_n
                     put_rig_safe(-1, '3p_setup')
                 elif root_template.type.lower() == 'animatedbundle':
                     if rigs:
-                        geom_to_ske[-1] = rigs.values()[0]
+                        geom_to_ske[-1] = list(rigs.values())[0]
                     else:
                         reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type 'AnimatedBundle'")
             elif geometry_type == 'BundledMesh' and root_template.type.lower() == 'genericfirearm':
