@@ -7,7 +7,7 @@ The pure-python implementation of the CollisionMesh export exists but it's painf
 - A Python install with version matching Blender's interpreter
 
 ## Building
-sh```
+```
 mkdir build && cd build
 cmake ..
 make
