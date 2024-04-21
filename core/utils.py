@@ -69,7 +69,7 @@ def check_prefix(name, fmt):
         expected = ''
         for identifier in fmt:
             expected += f'{identifier}<index>'
-        raise ExportException(f"Object '{name}' has invalid prefix format, expected '{expected}', where <index> is a number")
+        raise ExportException(f"Object '{name}' has invalid prefix format, expected '{expected}__', where <index> is a number")
 
     s = name
     indexes = list()
@@ -88,6 +88,10 @@ def check_prefix(name, fmt):
                 _bad_format()
             indexes.append(int(index))
             s = s[len(index):]
+
+    if not s.startswith('__'):
+        _bad_format()
+
     return indexes[0] if len(indexes) == 1 else tuple(indexes)
 
 def check_suffix(name, expected_suffix):

@@ -1,6 +1,6 @@
 import bpy
 import traceback
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, CollectionProperty
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
 
 from ...core.object_template import import_object, export_object, parse_geom_type, NATIVE_BSP_EXPORT
@@ -20,6 +20,8 @@ class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
         return items
 
     geom_idx: IntProperty(
+        name="Geom Index",
+        description="Index of Geometry from the mesh being imported",
         default=0,
         min=0,
         max=99
@@ -217,6 +219,24 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         default=True
     )
 
+    normal_weld_threshold : FloatProperty(
+        name="Normal Weld Threshold",
+        description="Normal vectors stored in a face corner (mesh loop) will get welded together when a dot product between them is above the threshold."
+                    " In other words, lowering the threshold reduces the number of unique vertices getting exported, but might affect shading accuracy",
+        default=0.9999,
+        min=0.9,
+        max=1.0
+    )
+
+    tangent_weld_threshold : FloatProperty(
+        name="Tangent Weld Threshold",
+        description="Tangent vectors stored in a face corner (mesh loop) will get welded together when a dot product between them is above the threshold."
+                    " In other words, lowering the threshold reduces the number of unique vertices getting exported, but might affect shading accuracy",
+        default=0.9999,
+        min=0.9,
+        max=1.0
+    )
+
     def draw(self, context):
         layout = self.layout
 
@@ -224,11 +244,13 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         layout.prop(self, "gen_lightmap_uv")
         layout.prop(self, "export_geometry")
         layout.prop(self, "export_collmesh")
-        if NATIVE_BSP_EXPORT and self.export_collmesh:
+        if not NATIVE_BSP_EXPORT and self.export_collmesh:
             layout.label(text='WARNING: Native BSP export module could not be loaded')
             layout.label(text='CollisionMesh export may take forever for compex meshes')
         layout.prop(self, "triangulate")
         layout.prop(self, "apply_modifiers")
+        layout.prop(self, "normal_weld_threshold")
+        layout.prop(self, "tangent_weld_threshold")
 
     @classmethod
     def poll(cls, context):
@@ -246,6 +268,8 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
                          gen_lightmap_uv=self.gen_lightmap_uv,
                          texture_path=mod_path,
                          tangent_uv_map=self.tangent_uv_map,
+                         normal_weld_thres=self.normal_weld_threshold,
+                         tangent_weld_thres=self.tangent_weld_threshold,
                          reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))

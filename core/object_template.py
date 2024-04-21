@@ -57,10 +57,6 @@ def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUT
     import_rig_mode, geom_to_ske_name = import_rig
     geom_to_ske = get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name, reporter)
 
-    rigs = dict()
-    for s in find_all_skeletons():
-        rigs[s.name] = s
-
     importer = MeshImporter(context, geometry_filepath,
                             reload=reload, geom_to_ske=geom_to_ske,
                             reporter=reporter, **kwargs)
@@ -869,9 +865,13 @@ def get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_n
                         geom_to_ske[-1] = list(rigs.values())[0]
                     else:
                         reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type 'AnimatedBundle'")
-            elif geometry_type == 'BundledMesh' and root_template.type.lower() == 'genericfirearm':
-                put_rig_safe(0, '1p_setup')
-                put_rig_safe(1, '3p_setup')
+                        geom_to_ske = None
+            elif geometry_type == 'BundledMesh':
+                if root_template.type.lower() == 'genericfirearm':
+                    put_rig_safe(0, '1p_setup')
+                    put_rig_safe(1, '3p_setup')
+                else:
+                    geom_to_ske = None
         elif import_rig_mode == 'MANUAL':
             if geom_to_ske_name is None:
                 raise ImportException(f'geom_to_ske_name missing for MANUAL mode')

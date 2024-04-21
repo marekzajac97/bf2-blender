@@ -23,8 +23,8 @@ bl_info = {
     "name" : "BF2 Tools",
     "author" : "Marek Zajac",
     "description" : "",
-    "blender" : (4, 0, 2),
-    "version" : (0, 6, 1),
+    "blender" : (4, 1, 1),
+    "version" : (0, 7, 0),
     "location" : "",
     "warning" : "",
     "category" : "Import-Export"

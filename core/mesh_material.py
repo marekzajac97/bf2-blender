@@ -41,12 +41,12 @@ def _create_bf2_axes_swap():
     # swap Y/Z axes
     swap_yz_decompose = bf2_axes_swap.nodes.new('ShaderNodeSeparateXYZ')
     swap_yz_compose = bf2_axes_swap.nodes.new('ShaderNodeCombineXYZ')
-    bf2_axes_swap.links.new(swap_yz_decompose.outputs[0], swap_yz_compose.inputs[0])
-    bf2_axes_swap.links.new(swap_yz_decompose.outputs[2], swap_yz_compose.inputs[1])
-    bf2_axes_swap.links.new(swap_yz_decompose.outputs[1], swap_yz_compose.inputs[2])
+    bf2_axes_swap.links.new(swap_yz_decompose.outputs['X'], swap_yz_compose.inputs['X'])
+    bf2_axes_swap.links.new(swap_yz_decompose.outputs['Z'], swap_yz_compose.inputs['Y'])
+    bf2_axes_swap.links.new(swap_yz_decompose.outputs['Y'], swap_yz_compose.inputs['Z'])
 
-    bf2_axes_swap.links.new(group_inputs.outputs['in'], swap_yz_decompose.inputs[0])
-    bf2_axes_swap.links.new(swap_yz_compose.outputs[0], group_outputs.inputs['out'])
+    bf2_axes_swap.links.new(group_inputs.outputs['in'], swap_yz_decompose.inputs['Vector'])
+    bf2_axes_swap.links.new(swap_yz_compose.outputs['Vector'], group_outputs.inputs['out'])
 
     return bf2_axes_swap
 
@@ -66,12 +66,12 @@ def _create_multiply_rgb_shader_node():
     node_multiply_rgb = multi_rgb.nodes.new('ShaderNodeMath')
     node_multiply_rgb.operation = 'MULTIPLY'
 
-    multi_rgb.links.new(node_separate_color.outputs[0], node_multiply_rg.inputs[0])
-    multi_rgb.links.new(node_separate_color.outputs[1], node_multiply_rg.inputs[1])
-    multi_rgb.links.new(node_separate_color.outputs[2], node_multiply_rgb.inputs[0])
+    multi_rgb.links.new(node_separate_color.outputs['Red'], node_multiply_rg.inputs[0])
+    multi_rgb.links.new(node_separate_color.outputs['Green'], node_multiply_rg.inputs[1])
+    multi_rgb.links.new(node_separate_color.outputs['Blue'], node_multiply_rgb.inputs[0])
     multi_rgb.links.new(node_multiply_rg.outputs[0], node_multiply_rgb.inputs[1])
 
-    multi_rgb.links.new(group_inputs.outputs['color'], node_separate_color.inputs[0])
+    multi_rgb.links.new(group_inputs.outputs['color'], node_separate_color.inputs['Color'])
     multi_rgb.links.new(node_multiply_rgb.outputs[0], group_outputs.inputs['value'])
     return multi_rgb
 
@@ -147,6 +147,18 @@ def get_tex_type_to_file_mapping(material, texture_files):
             map_name_to_file[map_name] = tex_node
     return map_name_to_file
 
+def _socket(sockets, name, _type):
+    for s in sockets:
+        if s.name == name and s.type == _type:
+            return s
+
+def _sockets(sockets, name):
+    s_list = list()
+    for s in sockets:
+        if s.name == name:
+            s_list.append(s)
+    return s_list
+
 def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTER):
     material.use_nodes = True
     node_tree = material.node_tree
@@ -155,7 +167,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
     material_output.name = material_output.label = 'Material Output'
     principled_BSDF = node_tree.nodes.new('ShaderNodeBsdfPrincipled')
     principled_BSDF.name = principled_BSDF.label = 'Principled BSDF'
-    node_tree.links.new(principled_BSDF.outputs[0], material_output.inputs[0])
+    node_tree.links.new(principled_BSDF.outputs['BSDF'], material_output.inputs['Surface'])
 
     texture_maps = get_material_maps(material)
 
@@ -205,12 +217,12 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         except RuntimeError:
             pass # ignore if file not found
 
-    shader_base_color = principled_BSDF.inputs[0]
-    shader_specular = principled_BSDF.inputs[12]
-    shader_roughness = principled_BSDF.inputs[2]
-    shader_normal = principled_BSDF.inputs[5]
-    shader_alpha = principled_BSDF.inputs[4]
-    shader_ior = principled_BSDF.inputs[3]
+    shader_base_color = principled_BSDF.inputs['Base Color']
+    shader_specular = principled_BSDF.inputs['Specular IOR Level']
+    shader_roughness = principled_BSDF.inputs['Roughness']
+    shader_normal = principled_BSDF.inputs['Normal']
+    shader_alpha = principled_BSDF.inputs['Alpha']
+    shader_ior = principled_BSDF.inputs['IOR']
 
     shader_roughness.default_value = 1
     shader_specular.default_value = 0
@@ -228,11 +240,11 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         normal = texture_nodes.get('Normal')
         shadow = texture_nodes.get('Shadow')
 
-        node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], diffuse.inputs[0])
+        node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs['UV'], diffuse.inputs['Vector'])
         if normal:
-            node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], normal.inputs[0])
+            node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs['UV'], normal.inputs['Vector'])
         if shadow:
-            node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs[0], shadow.inputs[0])
+            node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs['UV'], shadow.inputs['Vector'])
 
         if normal and normal.image:
             normal.image.colorspace_settings.name = 'Non-Color'
@@ -241,16 +253,16 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         if shadow:
             # multiply diffuse and shadow
             multiply_diffuse = node_tree.nodes.new('ShaderNodeMixRGB')
-            multiply_diffuse.inputs[0].default_value = 1
+            multiply_diffuse.inputs['Fac'].default_value = 1
             multiply_diffuse.blend_type = 'MULTIPLY'
             multiply_diffuse.location = (1 * NODE_WIDTH, -3 * NODE_HEIGHT)
             multiply_diffuse.hide = True
 
-            node_tree.links.new(shadow.outputs[0], multiply_diffuse.inputs[1])
-            node_tree.links.new(diffuse.outputs[0], multiply_diffuse.inputs[2])
-            shadow_out = multiply_diffuse.outputs[0]
+            node_tree.links.new(shadow.outputs['Color'], multiply_diffuse.inputs['Color1'])
+            node_tree.links.new(diffuse.outputs['Color'], multiply_diffuse.inputs['Color2'])
+            shadow_out = multiply_diffuse.outputs['Color']
         else:
-            shadow_out = diffuse.outputs[0]
+            shadow_out = diffuse.outputs['Color']
 
         node_tree.links.new(shadow_out, shader_base_color)
 
@@ -268,33 +280,33 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             if shadow:
                 # multiply diffuse and shadow
                 multiply_diffuse = node_tree.nodes.new('ShaderNodeMixRGB')
-                multiply_diffuse.inputs[0].default_value = 1
+                multiply_diffuse.inputs['Fac'].default_value = 1
                 multiply_diffuse.blend_type = 'MULTIPLY'
                 multiply_diffuse.location = (1 * NODE_WIDTH, -2 * NODE_HEIGHT)
                 multiply_diffuse.hide = True
 
-                node_tree.links.new(shadow.outputs[0], multiply_diffuse.inputs[1])
-                node_tree.links.new(specular_txt.outputs[1], multiply_diffuse.inputs[2])
-                shadow_spec_out = multiply_diffuse.outputs[0]
+                node_tree.links.new(shadow.outputs['Color'], multiply_diffuse.inputs['Color1'])
+                node_tree.links.new(specular_txt.outputs['Alpha'], multiply_diffuse.inputs['Color2'])
+                shadow_spec_out = multiply_diffuse.outputs['Color']
             else:
-                shadow_spec_out = specular_txt.outputs[1]
+                shadow_spec_out = specular_txt.outputs['Alpha']
 
             node_tree.links.new(shadow_spec_out, shader_specular)
 
             # remap range to reduce roughness, to appear more like in BF2
             # (purely based on tiral & error, I don't know how this works in BF2 shaders)
             reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
-            reduce_roughness.inputs[3].default_value = ROUGHNESS_BASE
-            node_tree.links.new(shadow_spec_out, reduce_roughness.inputs[0])
+            reduce_roughness.inputs['To Min'].default_value = ROUGHNESS_BASE
+            node_tree.links.new(shadow_spec_out, reduce_roughness.inputs['Value'])
 
-            node_tree.links.new(reduce_roughness.outputs[0], shader_roughness)
+            node_tree.links.new(reduce_roughness.outputs['Result'], shader_roughness)
 
         # normal
         if normal:
             normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
             normal_node.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
             normal_node.hide = True
-            node_tree.links.new(normal.outputs[0], normal_node.inputs[1])
+            node_tree.links.new(normal.outputs['Color'], normal_node.inputs['Color'])
 
             if material.bf2_shader == 'SKINNEDMESH':
                 normal_node.space = 'OBJECT'
@@ -304,31 +316,32 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
                 axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
                 axes_swap.hide = True
         
-                node_tree.links.new(normal_node.outputs[0], axes_swap.inputs[0])
-                normal_out = axes_swap.outputs[0]
+                node_tree.links.new(normal_node.outputs['Normal'], axes_swap.inputs['in'])
+                normal_out = axes_swap.outputs['out']
             else:
                 normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
-                normal_out = normal_node.outputs[0]
+                normal_out = normal_node.outputs['Normal']
 
             node_tree.links.new(normal_out, shader_normal)
 
         # transparency
         if has_alpha:
-            node_tree.links.new(diffuse.outputs[1], shader_alpha)
+            node_tree.links.new(diffuse.outputs['Alpha'], shader_alpha)
 
         # envmap reflections
         if has_envmap:
             glossy_BSDF = node_tree.nodes.new('ShaderNodeBsdfGlossy')
-            glossy_BSDF.inputs[1].default_value = 0.1 # roughness
+            glossy_BSDF.inputs['Roughness'].default_value = 0.1
             mix_envmap = node_tree.nodes.new('ShaderNodeMixShader')
 
-            node_tree.links.new(principled_BSDF.outputs[0], mix_envmap.inputs[2])
-            node_tree.links.new(glossy_BSDF.outputs[0], mix_envmap.inputs[1])
-            mix_envmap_out = mix_envmap.outputs[0]
+            mix_envmap_shaders = _sockets(mix_envmap.inputs, 'Shader')
+            node_tree.links.new(principled_BSDF.outputs['BSDF'], mix_envmap_shaders[1])
+            node_tree.links.new(glossy_BSDF.outputs['BSDF'], mix_envmap_shaders[0])
+            mix_envmap_out = mix_envmap.outputs['Shader']
         else:
-            mix_envmap_out = principled_BSDF.outputs[0]
+            mix_envmap_out = principled_BSDF.outputs['BSDF']
 
-        node_tree.links.new(mix_envmap_out, material_output.inputs[0])
+        node_tree.links.new(mix_envmap_out, material_output.inputs['Surface'])
 
         principled_BSDF.location = (3 * NODE_WIDTH, 0 * NODE_HEIGHT)
         material_output.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
@@ -336,7 +349,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
     elif material.bf2_shader == 'STATICMESH':
 
         def _link_uv_chan(uv_chan, tex_node):
-            node_tree.links.new(uv_map_nodes[uv_chan].outputs[0], tex_node.inputs[0])
+            node_tree.links.new(uv_map_nodes[uv_chan].outputs['UV'], tex_node.inputs['Vector'])
 
         base = texture_nodes['Base']
         detail = texture_nodes.get('Detail')
@@ -363,14 +376,14 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         if detail:
             # multiply detail and base color
             multiply_detail = node_tree.nodes.new('ShaderNodeMixRGB')
-            multiply_detail.inputs[0].default_value = 1
+            multiply_detail.inputs['Fac'].default_value = 1
             multiply_detail.blend_type = 'MULTIPLY'
             multiply_detail.location = (0 * NODE_WIDTH, 0 * NODE_HEIGHT)
             multiply_detail.hide = True
 
-            node_tree.links.new(base.outputs[0], multiply_detail.inputs[1])
-            node_tree.links.new(detail.outputs[0], multiply_detail.inputs[2])
-            detail_out = multiply_detail.outputs[0]
+            node_tree.links.new(base.outputs['Color'], multiply_detail.inputs['Color1'])
+            node_tree.links.new(detail.outputs['Color'], multiply_detail.inputs['Color2'])
+            detail_out = multiply_detail.outputs['Color']
         else:
             detail_out = base.outputs[0]
 
@@ -380,24 +393,24 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             mix_crack.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
             mix_crack.hide = True
 
-            node_tree.links.new(crack.outputs[1], mix_crack.inputs[0])
-            node_tree.links.new(detail_out, mix_crack.inputs[1])
-            node_tree.links.new(crack.outputs[0], mix_crack.inputs[2])
-            crack_out = mix_crack.outputs[0]
+            node_tree.links.new(crack.outputs['Alpha'], mix_crack.inputs['Fac'])
+            node_tree.links.new(detail_out, mix_crack.inputs['Color1'])
+            node_tree.links.new(crack.outputs['Color'], mix_crack.inputs['Color2'])
+            crack_out = mix_crack.outputs['Color']
         else:
             crack_out =  detail_out
 
         if dirt:
             # multiply dirt and diffuse
             multiply_dirt = node_tree.nodes.new('ShaderNodeMixRGB')
-            multiply_dirt.inputs[0].default_value = 1
+            multiply_dirt.inputs['Fac'].default_value = 1
             multiply_dirt.blend_type = 'MULTIPLY'
             multiply_dirt.location = (2 * NODE_WIDTH, 0 * NODE_HEIGHT)
             multiply_dirt.hide = True
 
-            node_tree.links.new(crack_out, multiply_dirt.inputs[1])
-            node_tree.links.new(dirt.outputs[0], multiply_dirt.inputs[2])
-            dirt_out = multiply_dirt.outputs[0]
+            node_tree.links.new(crack_out, multiply_dirt.inputs['Color1'])
+            node_tree.links.new(dirt.outputs['Color'], multiply_dirt.inputs['Color2'])
+            dirt_out = multiply_dirt.outputs['Color']
         else:
             dirt_out = crack_out
 
@@ -413,7 +426,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             dirt_rgb_mult.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
             dirt_rgb_mult.hide = True
 
-            node_tree.links.new(dirt.outputs[0], dirt_rgb_mult.inputs[0])
+            node_tree.links.new(dirt.outputs['Color'], dirt_rgb_mult.inputs['color'])
 
             # multiply that with detailmap alpha
             mult_detaila = node_tree.nodes.new('ShaderNodeMath')
@@ -421,11 +434,12 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             mult_detaila.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
             mult_detaila.hide = True
 
-            node_tree.links.new(dirt_rgb_mult.outputs[0], mult_detaila.inputs[1])
-            node_tree.links.new(detail.outputs[1], mult_detaila.inputs[0])
-            dirt_spec_out = mult_detaila.outputs[0]
+            mult_detaila_values = _sockets(mult_detaila.inputs, 'Value')
+            node_tree.links.new(dirt_rgb_mult.outputs['value'], mult_detaila_values[1])
+            node_tree.links.new(detail.outputs['Alpha'], mult_detaila_values[0])
+            dirt_spec_out = mult_detaila.outputs['Value']
         elif detail:
-            dirt_spec_out = detail.outputs[1]
+            dirt_spec_out = detail.outputs['Alpha']
         else:
             dirt_spec_out = None
 
@@ -435,10 +449,11 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             mult_ndetaila.operation = 'MULTIPLY'
             mult_ndetaila.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
             mult_ndetaila.hide = True
-
-            node_tree.links.new(dirt_spec_out, mult_ndetaila.inputs[1])
-            node_tree.links.new(ndetail.outputs[1], mult_ndetaila.inputs[0])
-            has_alpha_out = mult_ndetaila.outputs[0]
+            
+            mult_ndetaila_values = _sockets(mult_detaila.inputs, 'Value')
+            node_tree.links.new(dirt_spec_out, mult_ndetaila_values[1])
+            node_tree.links.new(ndetail.outputs['Alpha'], mult_ndetaila_values[0])
+            has_alpha_out = mult_ndetaila.outputs['Value']
         elif detail:
             has_alpha_out = dirt_spec_out
         else:
@@ -448,9 +463,9 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             node_tree.links.new(has_alpha_out, shader_specular)
 
             reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
-            reduce_roughness.inputs[3].default_value = ROUGHNESS_BASE
-            node_tree.links.new(has_alpha_out, reduce_roughness.inputs[0])
-            node_tree.links.new(reduce_roughness.outputs[0], shader_roughness)
+            reduce_roughness.inputs['To Min'].default_value = ROUGHNESS_BASE
+            node_tree.links.new(has_alpha_out, reduce_roughness.inputs['Value'])
+            node_tree.links.new(reduce_roughness.outputs["Result"], shader_roughness)
 
         # ---- normal  ----
 
@@ -462,8 +477,8 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             normal_node.uv_map = uv_map_nodes[uv_chan].uv_map
             normal_node.location = (1 * NODE_WIDTH, -1 - uv_chan * NODE_HEIGHT)
             normal_node.hide = True
-            node_tree.links.new(nmap.outputs[0], normal_node.inputs[1])
-            return normal_node.outputs[0]
+            node_tree.links.new(nmap.outputs['Color'], normal_node.inputs['Color'])
+            return normal_node.outputs['Normal']
 
         ndetail_out = ndetail and _create_normal_map_node(ndetail, 1)
         ncrack_out = ncrack and _create_normal_map_node(ncrack, 3 if dirt else 2)
@@ -475,10 +490,10 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             mix_normal.location = (3 * NODE_WIDTH, -3 * NODE_HEIGHT)
             mix_normal.hide = True
 
-            node_tree.links.new(crack.outputs[1], mix_normal.inputs[0])
-            node_tree.links.new(ndetail_out, mix_normal.inputs[4])
-            node_tree.links.new(ncrack_out, mix_normal.inputs[5])
-            normal_out = mix_normal.outputs[1]
+            node_tree.links.new(crack.outputs['Alpha'], mix_normal.inputs['Factor'])
+            node_tree.links.new(ndetail_out, _socket(mix_normal.inputs, 'A', 'VECTOR'))
+            node_tree.links.new(ncrack_out, _socket(mix_normal.inputs, 'B', 'VECTOR'))
+            normal_out = _socket(mix_normal.outputs, 'Result', 'VECTOR')
         elif ndetail_out:
             normal_out = ndetail_out
 
@@ -489,9 +504,9 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         if has_alpha:
             # TODO alpha blend for statics, is this even used ?
             if detail:
-                alpha_output = detail.outputs[1]
+                alpha_output = detail.outputs['Alpha']
             else:
-                alpha_output = base.outputs[1]
+                alpha_output = base.outputs['Alpha']
 
             node_tree.links.new(alpha_output, shader_alpha)
 

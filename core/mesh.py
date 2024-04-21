@@ -234,9 +234,7 @@ class MeshImporter:
 
         # apply normals
         if has_normals:
-            mesh.polygons.foreach_set("use_smooth", [True] * len(mesh.polygons))
             mesh.normals_split_custom_set_from_vertices(vertex_normals)
-            mesh.use_auto_smooth = True
 
         # apply Animated UVs data
         if has_anim_uv:
@@ -410,6 +408,8 @@ class MeshExporter:
     def __init__(self, mesh_obj, mesh_file, mesh_type,
                  mesh_geoms=None, gen_lightmap_uv=True,
                  texture_path='', tangent_uv_map='',
+                 normal_weld_thres=0.9999,
+                 tangent_weld_thres=0.9999,
                  reporter=DEFAULT_REPORTER):
         self.mesh_obj = mesh_obj
         self.mesh_file = mesh_file
@@ -420,6 +420,8 @@ class MeshExporter:
         self.gen_lightmap_uv = gen_lightmap_uv
         self.texture_path = texture_path
         self.tangent_uv_map = tangent_uv_map
+        self.normal_weld_thres = normal_weld_thres
+        self.tangent_weld_thres = tangent_weld_thres
         self.reporter = reporter
 
     def export_mesh(self):
@@ -504,7 +506,6 @@ class MeshExporter:
 
     def _export_mesh_lod(self, bf2_lod, lod_obj):
         mesh = lod_obj.data
-        has_custom_normals = mesh.has_custom_normals
         mesh_type = type(self.bf2_mesh)
 
         uv_count = 5 if mesh_type == BF2StaticMesh else 1
@@ -514,12 +515,6 @@ class MeshExporter:
         if mesh_type != BF2BundledMesh: # just in case someone does this...
             animuv_matrix_index = None
             animuv_rot_center = None
-
-        # temporarly create custom split normals from vertex normals if not present
-        # need them for tangent calculation, otherwise doesn't work for god knows what reason
-        if not has_custom_normals:
-            vertex_normals = [vert.normal for vert in mesh.vertices]
-            mesh.normals_split_custom_set_from_vertices(vertex_normals)
 
         # XXX: I have no idea what map is this supposed to be calculated on
         # I assume it must match with tangents which were used to generate the normal map
@@ -682,8 +677,12 @@ class MeshExporter:
                     vert.blendindices = tuple(blendindices)
 
                     # UVs
-                    for uv_chan, uvlayer in uv_layers.items():
-                        uv = _flip_uv(uvlayer.data[loop.index].uv)
+                    for uv_chan in range(uv_count):
+                        uvlayer = uv_layers.get(uv_chan)
+                        if uvlayer:
+                            uv = _flip_uv(uvlayer.data[loop.index].uv)
+                        else:
+                            uv = (0, 0)
                         setattr(vert, f'texcoord{uv_chan}', uv)
 
                     # animated UVs
@@ -815,16 +814,13 @@ class MeshExporter:
                     bf2_bone.id = bone_to_id[bone_name]
                     bf2_bone.matrix = bone_to_matrix[bone_name]
 
-        if not has_custom_normals:
-            mesh.free_normals_split() # remove custom split normals if we added them
-            mesh.free_tangents()
+        mesh.free_tangents()
 
-    @staticmethod
-    def _can_merge_vert(this, other, uv_count, normal_weld_thres=0.9999, tangent_weld_thres=0.9999):
+    def _can_merge_vert(self, this, other, uv_count):
         """compare vertex data from two loops"""
-        if Vector(this.tangent).dot(Vector(other.tangent)) < tangent_weld_thres:
+        if Vector(this.tangent).dot(Vector(other.tangent)) < self.tangent_weld_thres:
             return False
-        if Vector(this.normal).dot(Vector(other.normal)) < normal_weld_thres:
+        if Vector(this.normal).dot(Vector(other.normal)) < self.normal_weld_thres:
             return False
         if this.blendindices[2] != other.blendindices[2]: # bitangent sign
             return False
