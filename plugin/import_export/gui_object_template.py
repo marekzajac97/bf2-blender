@@ -209,7 +209,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     triangulate: BoolProperty(
         name="Triangulate",
-        description="Convert Quads to Triangles",
+        description="Convert Polygons to Triangles",
         default=True
     )
 
@@ -221,18 +221,18 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     normal_weld_threshold : FloatProperty(
         name="Normal Weld Threshold",
-        description="Normal vectors stored in a face corner (mesh loop) will get welded together when a dot product between them is above the threshold."
+        description="Per-face vertex normals will get welded together when a dot product between them is above the threshold."
                     " In other words, lowering the threshold reduces the number of unique vertices getting exported, but might affect shading accuracy",
-        default=0.9999,
+        default=0.999,
         min=0.9,
         max=1.0
     )
 
     tangent_weld_threshold : FloatProperty(
         name="Tangent Weld Threshold",
-        description="Tangent vectors stored in a face corner (mesh loop) will get welded together when a dot product between them is above the threshold."
+        description="Per-face vertex tangents will get welded together when a dot product between them is above the threshold."
                     " In other words, lowering the threshold reduces the number of unique vertices getting exported, but might affect shading accuracy",
-        default=0.9999,
+        default=0.999,
         min=0.9,
         max=1.0
     )

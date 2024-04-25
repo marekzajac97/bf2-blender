@@ -12,7 +12,7 @@ I'm probably like 15 years late but anyway, here are some tools for importing/ex
 ## Limitations and known issues:
 - CollisionMesh exports to a slightly older file version (9) than 3DsMax exporter (10), which may make BF2 regenerate some missing data on load time, not a big deal.
 - Generating `.samples` for StaticMeshes is not yet supported, use [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/)!
-- SkinnedMeshes using Object Space normal maps will have shading issues when deformed/animated inside Blender
+- SkinnedMeshes using Object Space normal maps will have shading issues when deformed/animated inside of Blender.
 
 ## Compatibility
 Blender 4.1 only, pre-build binaries available for Windows, Linux and macOS (Intel). For other platforms see building instructions at [BSP Builder](bsp_builder/README.md).

@@ -48,6 +48,10 @@ _MESH_TYPES = {
     'StaticMesh': BF2StaticMesh
 }
 
+# hardcoded BF2 limit
+# if you are a BF2142 modder you could increase this to 50 :)
+MAX_GEOM_LIMIT = MAX_BONE_LIMIT = 26
+
 def collect_uv_layers(mesh_obj, geom=0, lod=0):
     uv_layers = dict()
     if mesh_obj is None:
@@ -789,6 +793,9 @@ class MeshExporter:
         elif mesh_type == BF2BundledMesh:
             # XXX: some geometry parts migh have no verts assigned at all, so write all groups defined
             bf2_lod.parts_num = len(vertex_group_to_part_id)
+            if bf2_lod.parts_num > MAX_GEOM_LIMIT:
+                raise ExportException(f"{lod_obj.name}: BF2 only supports a maximum of "
+                                      f"{MAX_GEOM_LIMIT} geometry parts but got {bf2_lod.parts_num}")
         elif mesh_type == BF2SkinnedMesh:
             bone_to_matrix = dict()
             bone_to_id = dict()
@@ -807,7 +814,11 @@ class MeshExporter:
                 bone_to_matrix[bone_obj.name] = conv_blender_to_bf2(m)
                 bone_to_id[bone_obj.name] = bone_id
 
-            for bone_list in material_bones:
+            for material_index, bone_list in enumerate(material_bones):
+                if len(bone_list) > MAX_BONE_LIMIT:
+                    material_name = mesh.materials[material_index].name
+                    raise ExportException(f"{lod_obj.name} (mat: {material_name}): BF2 only supports a maximum of "
+                                          f"{MAX_BONE_LIMIT} bones per material but got {len(bone_list)}")
                 bf2_rig = bf2_lod.new_rig()
                 for bone_name in bone_list:
                     bf2_bone = bf2_rig.new_bone()

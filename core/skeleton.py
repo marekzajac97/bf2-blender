@@ -8,6 +8,9 @@ from .utils import (to_matrix, conv_bf2_to_blender,
                     delete_object_if_exists)
 from .exceptions import ImportException
 
+# BF2 hardcoded limits, binary can be easily hacked to support more if needed
+MAX_ITEMS_1P = 16
+MAX_ITEMS_3P = 8
 
 def ske_set_bone_rot(bone, deg, axis):
     bone['bf2_rot_fix'] = Matrix.Rotation(math.radians(deg), 4, axis)
@@ -24,9 +27,9 @@ def ske_weapon_part_ids(rig):
     ske_name = rig.name.lower()
     for i, ske_bone in enumerate(ske_bones):
         if ske_name == '3p_setup':
-            max_weapon_parts = 8
+            max_weapon_parts = MAX_ITEMS_3P
         elif ske_name == '1p_setup':
-            max_weapon_parts = 16
+            max_weapon_parts = MAX_ITEMS_1P
         else:
             return list()
         if ske_bone.startswith('mesh') and int(ske_bone[4:]) <= max_weapon_parts:

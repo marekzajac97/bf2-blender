@@ -113,13 +113,7 @@ class BF2Skeleton:
             self._collect_nodes(root, nodes)
         nodes.sort(key=lambda x: x.index)
         return nodes
-    
-    def bone_index(self, bone_name):
-        for bone_id, bone in enumerate(self._nodes):
-            if bone_name == bone.name:
-                return bone_id   
-        raise ValueError(f'no such bone: {bone_name}')
-    
+
     def __getitem__(self, item):
         for node in self.node_list():
             if item == node.name:

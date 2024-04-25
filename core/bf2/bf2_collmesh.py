@@ -209,10 +209,9 @@ class BSP:
             return node
 
         if builder.root is None:
-            # happens when collmesh is very simple(e.g. single face) lets build a dummy tree
+            # happens when collmesh is very simple (e.g. asingle face) lets build a dummy tree
             # with just root and all faces on one side (this is also what 3ds max exporter does)
-            # mitht not be optimal!
-            split_plane_val = _verts[0][0]
+            split_plane_val = max(_verts, key=lambda x: x[0])[0]
             split_plane_axis = 0
             root = BSP.Node(split_plane_val, split_plane_axis)
             root.faces[0] = faces
