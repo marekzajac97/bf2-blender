@@ -412,8 +412,8 @@ class MeshExporter:
     def __init__(self, mesh_obj, mesh_file, mesh_type,
                  mesh_geoms=None, gen_lightmap_uv=True,
                  texture_path='', tangent_uv_map='',
-                 normal_weld_thres=0.9999,
-                 tangent_weld_thres=0.9999,
+                 normal_weld_thres=0.999,
+                 tangent_weld_thres=0.999,
                  reporter=DEFAULT_REPORTER):
         self.mesh_obj = mesh_obj
         self.mesh_file = mesh_file
@@ -427,6 +427,7 @@ class MeshExporter:
         self.normal_weld_thres = normal_weld_thres
         self.tangent_weld_thres = tangent_weld_thres
         self.reporter = reporter
+        self.has_animated_uvs = self._has_anim_uv()
 
     def export_mesh(self):
         self._setup_vertex_attributes()
@@ -449,7 +450,7 @@ class MeshExporter:
 
         vert_attrs.append(VertexAttribute(D3DDECLTYPE.D3DCOLOR, D3DDECLUSAGE.BLENDINDICES))
         vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD0))
-        if mesh_type == BF2BundledMesh and self._has_anim_uv():
+        if self.has_animated_uvs:
             vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
 
         elif mesh_type == BF2StaticMesh:
@@ -460,6 +461,23 @@ class MeshExporter:
             if self.gen_lightmap_uv or self._has_lightmap_uv():
                 vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD4))
         vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.TANGENT))
+
+    def _has_anim_uv(self):
+        if not isinstance(self.bf2_mesh, BF2BundledMesh):
+            return False
+        for geom_obj in self.mesh_geoms:
+            for lod_obj in geom_obj:
+                for material in lod_obj.data.materials:
+                    if material.is_bf2_material and 'animateduv' in material.bf2_technique.lower():
+                        return True
+        return False
+
+    def _has_lightmap_uv(self):
+        for geom_obj in self.mesh_geoms:
+            for lod_obj in geom_obj:
+                if 'UV4' in lod_obj.data.uv_layers:
+                    return True
+        return False
 
     @staticmethod
     def collect_geoms_lods(mesh_obj):
@@ -492,21 +510,6 @@ class MeshExporter:
                 lods.append(lod_obj)
 
         return geoms
-
-    def _has_anim_uv(self):
-        for geom_obj in self.mesh_geoms:
-            for lod_obj in geom_obj:
-                for material in lod_obj.data.materials:
-                    if material.is_bf2_material and 'animateduv' in material.bf2_technique.lower():
-                        return True
-        return False
-
-    def _has_lightmap_uv(self):
-        for geom_obj in self.mesh_geoms:
-            for lod_obj in geom_obj:
-                if 'UV4' in lod_obj.data.uv_layers:
-                    return True
-        return False
 
     def _export_mesh_lod(self, bf2_lod, lod_obj):
         mesh = lod_obj.data
@@ -690,16 +693,17 @@ class MeshExporter:
                         setattr(vert, f'texcoord{uv_chan}', uv)
 
                     # animated UVs
-                    vert.texcoord1 = (0, 0)
-                    if animuv_rot_center and blendindices[3] in ANIM_UV_ROTATION_MATRICES:
-                        # take the original UV and substract rotation center
-                        # scale by texture size ratio, move to TEXCOORD1
-                        # keeping only the center of rotation in TEXCOORD0
-                        uv = vert.texcoord0
-                        vert_animuv_center = animuv_rot_center.data[vert_idx].vector
-                        vert.texcoord1 = ((uv[0] - vert_animuv_center[0]) / u_ratio,
-                                        (uv[1] - vert_animuv_center[1]) / v_ratio)
-                        vert.texcoord0 = vert_animuv_center
+                    if self.has_animated_uvs:
+                        vert.texcoord1 = (0, 0)
+                        if animuv_rot_center and blendindices[3] in ANIM_UV_ROTATION_MATRICES:
+                            # take the original UV and substract rotation center
+                            # scale by texture size ratio, move to TEXCOORD1
+                            # keeping only the center of rotation in TEXCOORD0
+                            uv = vert.texcoord0
+                            vert_animuv_center = animuv_rot_center.data[vert_idx].vector
+                            vert.texcoord1 = ((uv[0] - vert_animuv_center[0]) / u_ratio,
+                                            (uv[1] - vert_animuv_center[1]) / v_ratio)
+                            vert.texcoord0 = vert_animuv_center
 
                     # check if loop can be merged, if so, add reference to the same loop
                     total_loops_count += 1
