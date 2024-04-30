@@ -2,8 +2,8 @@ import bpy
 import bmesh
 import traceback
 
-from bpy.props import IntProperty
-from ..core.animation_ctrl_setup import toggle_mesh_mask_mesh_for_active_bone, setup_controllers
+from bpy.props import IntProperty, EnumProperty
+from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
 from ..core.mesh import AnimUv, _flip_uv
 
 def _bf2_setup_started(context):
@@ -202,10 +202,61 @@ class EDIT_MESH_MT_bf2_submenu(bpy.types.Menu):
         self.layout.operator(op_matrix, text="Set Left Track Translation").uv_matrix_index = AnimUv.L_TRACK_TRANSLATION
         self.layout.operator(op_matrix, text="Set Right Track Translation").uv_matrix_index = AnimUv.R_TRACK_TRANSLATION
 
+class POSE_OT_bf2_change_parent(bpy.types.Operator):
+    bl_idname = "bf2_armature.change_parent"
+    bl_label = "Change Parent"
+    bl_description = "Change parent of the the bone withouth breaking the animation"
+
+    def get_bones(self, context):
+        armature = context.view_layer.objects.active.data
+        items = []
+        for i, bone in enumerate(armature.bones):
+            if bone.name.endswith('CTRL'):
+                items.append((bone.name, bone.name, "", i))
+        items.append(('NONE', 'NONE', "", len(items)))
+        return items
+
+    parent_bone : EnumProperty(
+        name="Parent Bone",
+        description="Name of the parent bone, select NONE to remove parent",
+        items=get_bones
+    )
+
+    @classmethod
+    def poll(cls, context):
+        return context.selected_pose_bones_from_active_object
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        rig = context.view_layer.objects.active
+        bones = [b.name for b in context.selected_pose_bones_from_active_object]
+        parent_bone = self.parent_bone
+        if parent_bone == 'NONE':
+            parent_bone = None
+        reparent_bones(rig, bones, parent_bone)
+        return {'FINISHED'}
+
 def menu_func_edit_mesh(self, context):
     self.layout.menu(EDIT_MESH_MT_bf2_submenu.bl_idname, text="BF2")
 
+class POSE_MT_bf2_submenu(bpy.types.Menu):
+    bl_idname = "POSE_MT_bf2_submenu"
+    bl_label = "Battlefield 2"
+
+    def draw(self, context):
+        op_reparent = POSE_OT_bf2_change_parent.bl_idname
+        self.layout.operator(op_reparent)
+
+def menu_func_pose(self, context):
+    self.layout.menu(POSE_MT_bf2_submenu.bl_idname, text="BF2")
+
 def register():
+    bpy.utils.register_class(POSE_OT_bf2_change_parent)
+    bpy.utils.register_class(POSE_MT_bf2_submenu)
+    bpy.types.VIEW3D_MT_pose.append(menu_func_pose)
+
     bpy.utils.register_class(EDIT_MESH_OT_bf2_set_anim_uv_rotation_center)
     bpy.utils.register_class(EDIT_MESH_OT_bf2_set_anim_uv_matrix)
     bpy.utils.register_class(EDIT_MESH_MT_bf2_submenu)
@@ -232,3 +283,7 @@ def unregister():
     bpy.utils.unregister_class(EDIT_MESH_MT_bf2_submenu)
     bpy.utils.unregister_class(EDIT_MESH_OT_bf2_set_anim_uv_matrix)
     bpy.utils.unregister_class(EDIT_MESH_OT_bf2_set_anim_uv_rotation_center)
+
+    bpy.types.VIEW3D_MT_pose.remove(menu_func_pose)
+    bpy.utils.unregister_class(POSE_MT_bf2_submenu)
+    bpy.utils.unregister_class(POSE_OT_bf2_change_parent)

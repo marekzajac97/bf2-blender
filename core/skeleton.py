@@ -64,6 +64,11 @@ def find_animated_weapon_object():
                     return obj
     return None
 
+def find_rig_attached_to_object(obj):
+    for mod in obj.modifiers:
+        if mod.type == 'ARMATURE' and mod.object and 'bf2_bones' in mod.object.keys():
+            return mod.object
+    return None
 
 CAMER_OBJECT_NAME = 'Camerabone_Camera'
 

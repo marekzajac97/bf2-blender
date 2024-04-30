@@ -63,20 +63,14 @@ class Quat:
         return self
 
     def multiply_quats(self, a, b):
-        qax = a.x
-        qay = a.y
-        qaz = a.z
-        qaw = a.w
-        qbx = b.x
-        qby = b.y
-        qbz = b.z
-        qbw = b.w
+        qax, qay, qaz, qaw = a
+        qbx, qby, qbz, qbw = b
         self.x = qax * qbw + qaw * qbx + qay * qbz - qaz * qby
         self.y = qay * qbw + qaw * qby + qaz * qbx - qax * qbz
         self.z = qaz * qbw + qaw * qbz + qax * qby - qay * qbx
         self.w = qaw * qbw - qax * qbx - qay * qby - qaz * qbz
         return self
-    
+
     def copy(self):
         return Quat(self.x, self.y, self.z, self.w)
 
@@ -151,13 +145,8 @@ class Vec3:
         return self
 
     def apply_quat(self, q):
-        x = self.x
-        y = self.y
-        z = self.z
-        qx = q.x
-        qy = q.y
-        qz = q.z
-        qw = q.w
+        x, y, z = self
+        qx, qy, qz, qw = q
 
         ix = qw * x + qy * z - qz * y
         iy = qw * y + qz * x - qx * z

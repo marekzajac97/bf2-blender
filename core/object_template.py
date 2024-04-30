@@ -10,7 +10,7 @@ from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
 from .bf2.bf2_collmesh import NATIVE_BSP_EXPORT
 from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import import_collisionmesh, export_collisionmesh
-from .skeleton import find_all_skeletons
+from .skeleton import find_all_skeletons, find_rig_attached_to_object
 
 from .utils import delete_object, check_suffix, DEFAULT_REPORTER
 from .exceptions import ImportException, ExportException
@@ -130,13 +130,17 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
         if geometry_type == 'BundledMesh':
             print(f"joining LODs...")
             _join_lods(temp_mesh_geoms, obj_to_geom_part_id)
-            
+
             root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
 
         for geom_obj in temp_mesh_geoms:
             for lod_obj in geom_obj:
                 if apply_modifiers:
+                    rig = find_rig_attached_to_object(lod_obj)
                     _apply_modifiers(lod_obj)
+                    if rig:
+                        modifier = lod_obj.modifiers.new(type='ARMATURE', name="Armature")
+                        modifier.object = rig
                 if triangluate:
                     _triangulate(lod_obj)
 

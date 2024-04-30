@@ -9,6 +9,7 @@ from ...core.mesh import (import_mesh,
                           import_staticmesh,
                           export_staticmesh,
                           export_bundledmesh,
+                          export_skinnedmesh,
                           collect_uv_layers)
 from ...core.skeleton import find_active_skeleton
 
@@ -172,7 +173,7 @@ class EXPORT_OT_bf2_skinnedmesh(EXPORT_OT_bf2_mesh):
     bl_label = "Export SkinnedMesh"
     filename_ext = ".skinnedmesh"
     filter_glob = StringProperty(default="*.skinnedmesh", options={'HIDDEN'})
-    EXPORT_FUNC = export_bundledmesh
+    EXPORT_FUNC = export_skinnedmesh
     FILE_DESC = "SkinnedMesh (.skinnedmesh)"
 
 def draw_import(layout):

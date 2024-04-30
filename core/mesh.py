@@ -19,7 +19,8 @@ from .utils import (conv_bf2_to_blender,
                     check_prefix,
                     DEFAULT_REPORTER)
 from .skeleton import (ske_get_bone_rot,
-                       ske_weapon_part_ids)
+                       ske_weapon_part_ids,
+                       find_rig_attached_to_object)
 from .mesh_material import (setup_material,
                             get_staticmesh_technique_from_maps, 
                             get_staticmesh_uv_channels,
@@ -369,11 +370,12 @@ class MeshImporter:
                 bone_weight = vert.blendweight[0]
 
                 weights = []
-                _bone = rig_bones[bone_ids[0]]
-                weights.append((_bone, bone_weight))
-                if bone_weight < 1.0: # max two bones per vert
-                    _bone = rig_bones[bone_ids[1]]
-                    weights.append((_bone, 1.0 - bone_weight))
+                if rig_bones: # can be an empty list (e.g dropkit)
+                    _bone = rig_bones[bone_ids[0]]
+                    weights.append((_bone, bone_weight))
+                    if bone_weight < 1.0: # max two bones per vert
+                        _bone = rig_bones[bone_ids[1]]
+                        weights.append((_bone, 1.0 - bone_weight))
                 vert_weigths.append(weights)
 
         # create vertex group for each bone
@@ -382,7 +384,7 @@ class MeshImporter:
             if i in mesh_bones:
                 continue
             mesh_obj.vertex_groups.new(name=bone_obj.name)
-        
+
         # assign verticies to vertex groups and apply weights
         for vertex in mesh_obj.data.vertices:
             v_weights = vert_weigths[vertex.index]
@@ -657,19 +659,25 @@ class MeshExporter:
                         if len(blend_vertex.groups) > 2:
                             raise ExportException(f"{lod_obj.name}: Found vertex assigned to more than two vertex groups (bones)!, BF2 only supports two bones per vertex")
                         elif len(blend_vertex.groups) == 0:
-                            raise ExportException(f"{lod_obj.name}: Found vertex not assigned to any vertex group (bone)!")
-                        _bone_weights = list()
-                        for _bone_idx, _bone in enumerate(blend_vertex.groups):
-                            _bone_name = lod_obj.vertex_groups[_bone.group].name
-                            _bone_weights.append(_bone.weight)
-                            try:
-                                blendindices[_bone_idx] = bone_list.index(_bone_name)
-                            except ValueError:
-                                blendindices[_bone_idx] = len(bone_list)
-                                bone_list.append(_bone_name)
-                        if abs(sum(_bone_weights) - 1.0) > 0.001:
-                            raise ExportException(f"{lod_obj.name}: Found vertex with weights that are not normalized, all weights must add up to 1!")
-                        vert.blendweight = (_bone_weights[0],)
+                            if bone_list:
+                                # it's not possible for a material to have some verts weighted and some not
+                                raise ExportException(f"{lod_obj.name}: Not all vertices have been assigned to a vertex group (bone)!")
+                            else:
+                                # but it's possible for it to have no weights (e.g. dropkit)
+                                vert.blendweight = (0,)
+                        else:
+                            _bone_weights = list()
+                            for _bone_idx, _bone in enumerate(blend_vertex.groups):
+                                _bone_name = lod_obj.vertex_groups[_bone.group].name
+                                _bone_weights.append(_bone.weight)
+                                try:
+                                    blendindices[_bone_idx] = bone_list.index(_bone_name)
+                                except ValueError:
+                                    blendindices[_bone_idx] = len(bone_list)
+                                    bone_list.append(_bone_name)
+                            if abs(sum(_bone_weights) - 1.0) > 0.001:
+                                raise ExportException(f"{lod_obj.name}: Found vertex with weights that are not normalized, all weights must add up to 1!")
+                            vert.blendweight = (_bone_weights[0],)
 
                     # third element of blendindices is bitangent sign 0 or 1
                     # bitangent was caluculated based on UV and because we flip it vertically
@@ -803,12 +811,8 @@ class MeshExporter:
         elif mesh_type == BF2SkinnedMesh:
             bone_to_matrix = dict()
             bone_to_id = dict()
-            rig = None
-            for mod in lod_obj.modifiers:
-                if mod.type == 'ARMATURE' and 'bf2_bones' in mod.object.keys():
-                    rig = mod.object
-                    break
-            else:
+            rig = find_rig_attached_to_object(lod_obj)
+            if rig is None:
                 raise ExportException(f"{lod_obj.name}: does not have 'Armature' modifier or armature does not contain BF2 skeleton metadata")
             ske_bones = rig['bf2_bones']
 
@@ -824,6 +828,10 @@ class MeshExporter:
                     raise ExportException(f"{lod_obj.name} (mat: {material_name}): BF2 only supports a maximum of "
                                           f"{MAX_BONE_LIMIT} bones per material but got {len(bone_list)}")
                 bf2_rig = bf2_lod.new_rig()
+                if not bone_list:
+                    material_name = mesh.materials[material_index].name
+                    self.reporter.warning(f"{lod_obj.name}: (mat: {material_name}): has no weights assigned")
+
                 for bone_name in bone_list:
                     bf2_bone = bf2_rig.new_bone()
                     bf2_bone.id = bone_to_id[bone_name]

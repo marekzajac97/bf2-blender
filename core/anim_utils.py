@@ -9,6 +9,29 @@ from .skeleton import (find_animated_weapon_object, find_active_skeleton,
 
 AUTO_SETUP_ID = 'bf2_auto_setup' # identifier for custom bones and constraints
 
+def _matrix_world(pose_bone):
+    # how blender calculating matrix_basis -> matrix relations
+    # not used anywhere just here in case I forget how it works
+    local = pose_bone.bone.matrix_local
+    basis = pose_bone.matrix_basis
+    parent = pose_bone.parent
+
+    if parent == None:
+        return  local @ basis
+    else:
+        parent_local = parent.bone.matrix_local
+        return _matrix_world(parent) @ (parent_local.inverted() @ local) @ basis
+
+def _matrix_basis_from_world(pose_bone, matrix_world):
+    local = pose_bone.bone.matrix_local
+    parent = pose_bone.parent
+
+    if parent == None:
+        return  local.inverted() @ matrix_world
+    else:
+        parent_local = parent.bone.matrix_local
+        return  parent.matrix.inverted() @ (parent_local @ local.inverted()) @ matrix_world
+
 def _create_ctrl_bone_from(armature, source_bone, name=''):
     name = name if name else source_bone
     b = armature.edit_bones[source_bone]
@@ -444,3 +467,77 @@ def toggle_mesh_mask_mesh_for_active_bone(context):
         mask_mod.vertex_group = bone
     else:
         mask_mod.vertex_group = ""
+
+def _get_bone_fcurves(pose_bone, data_path):
+    armature_obj = pose_bone.id_data
+    path = f'pose.bones["{bpy.utils.escape_identifier(pose_bone.name)}"].{data_path}'
+    fcurves = armature_obj.animation_data.action.fcurves
+    for fcu in fcurves:
+        if fcu.data_path.startswith(path):
+            yield fcu
+
+def _keyframes_as_dict(pose_bone):
+    keyframes = dict()
+    for data_type in ['location', 'rotation_quaternion']:
+        for fcurve in _get_bone_fcurves(pose_bone, data_type):
+            for kp in fcurve.keyframe_points:
+                frame = keyframes.setdefault(int(kp.co[0]), dict())
+                frame_data = frame.setdefault(data_type, dict())
+                frame_data[fcurve.array_index] = kp
+    return keyframes
+
+def _reparent_keyframes(pose_bone, parent):
+    _frame = bpy.context.scene.frame_current
+    keyframes = _keyframes_as_dict(pose_bone)
+    for frame_idx, frame_data in sorted(keyframes.items()):
+        bpy.context.scene.frame_set(frame_idx)
+        bpy.context.view_layer.update()
+
+        if parent:
+            matrix_basis = pose_bone.bone.convert_local_to_pose(
+                        pose_bone.matrix,
+                        pose_bone.bone.matrix_local,
+                        parent_matrix=parent.matrix,
+                        parent_matrix_local=parent.bone.matrix_local,
+                        invert=True
+                    )
+        else:
+            matrix_basis = pose_bone.bone.convert_local_to_pose(
+                pose_bone.matrix,
+                pose_bone.bone.matrix_local,
+                invert=True
+            )    
+
+        pos, rot, _ = matrix_basis.decompose()
+        for data_path, new_data, in [('location', pos), ('rotation_quaternion', rot)]:
+            for data_index, kp in frame_data.get(data_path, {}).items():
+                delta = new_data[data_index] - kp.co[1]
+                kp.handle_right[1] += delta
+                kp.handle_left[1] += delta
+                kp.co[1] += delta
+
+    bpy.context.scene.frame_set(_frame)
+
+def reparent_bones(rig, target_bones, parent_bone):
+    for target_bone in target_bones:
+        if target_bone == parent_bone:
+            continue
+
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.object.mode_set(mode='POSE')
+        target_pose_bone = rig.pose.bones[target_bone]
+        if parent_bone:
+            parent_pose_bone = rig.pose.bones[parent_bone]
+        else:
+            parent_pose_bone = None
+
+        _reparent_keyframes(target_pose_bone, parent_pose_bone)
+
+        bpy.ops.object.mode_set(mode='EDIT')
+        target_edit_bone = rig.data.edit_bones[target_bone]
+        if parent_bone:
+            parent_edit_bone = rig.data.edit_bones[parent_bone]
+        else:
+            parent_edit_bone = None
+        target_edit_bone.parent = parent_edit_bone
+        bpy.ops.object.mode_set(mode='POSE') 
