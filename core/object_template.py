@@ -12,7 +12,7 @@ from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import import_collisionmesh, export_collisionmesh
 from .skeleton import find_all_skeletons, find_rig_attached_to_object
 
-from .utils import delete_object, check_suffix, DEFAULT_REPORTER
+from .utils import delete_object, check_suffix, check_prefix, DEFAULT_REPORTER
 from .exceptions import ImportException, ExportException
 
 NONVIS_PRFX = 'NONVIS_'
@@ -72,8 +72,9 @@ def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUT
         for col_material_idx, col_material_name in root_template.col_material_map.items():
             col_materials[col_material_idx].name = col_material_name
 
-    for geom_idx, geom_obj in enumerate(root_geometry_obj.children):
-        for lod_idx, lod_obj in enumerate(geom_obj.children):
+    for geom_obj in root_geometry_obj.children:
+        for lod_obj in geom_obj.children:
+            geom_idx, lod_idx = check_prefix(lod_obj.name, ('G', 'L'))
             if geometry_type != 'BundledMesh':
                 geom_parts = {'mesh1': lod_obj} # XXX hack
             else:

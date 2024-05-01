@@ -35,8 +35,12 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
            export_collisionmesh(active_obj, self.filepath)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+        self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 
+    def invoke(self, context, _event):
+        self.filepath = context.view_layer.objects.active.name + self.filename_ext
+        return super().invoke(context, _event)
 
 FILE_DESC = "CollisionMesh (.collisionmesh)"
 

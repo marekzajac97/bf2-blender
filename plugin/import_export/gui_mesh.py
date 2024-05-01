@@ -149,8 +149,12 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
                                       tangent_uv_map=self.tangent_uv_map)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+        self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 
+    def invoke(self, context, _event):
+        self.filepath = context.view_layer.objects.active.name + self.filename_ext
+        return super().invoke(context, _event)
 
 class EXPORT_OT_bf2_staticmesh(EXPORT_OT_bf2_mesh):
     bl_idname = "bf2_mesh.export_staticmesh"

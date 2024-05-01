@@ -93,6 +93,7 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
            export_animation(context, self.filepath, bones_to_export=bones_to_export)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+        self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 
 FILE_DESC = "Animation (.baf)"

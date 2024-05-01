@@ -160,14 +160,12 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         active_obj = context.view_layer.objects.active
         object_uv_layers = collect_uv_layers(active_obj)
         default = None
-        try:
-            geom_type, _ = parse_geom_type(active_obj)
-            if geom_type == 'StaticMesh':
-                default = 1 # Detail normal
-            elif geom_type == 'BundledMesh' or geom_type == 'SkinnedMesh':
-                default = 0 # Diffuse/Normal
-        except Exception as e:
-            pass
+
+        geom_type, _ = parse_geom_type(active_obj)
+        if geom_type == 'StaticMesh':
+            default = 1 # Detail normal
+        elif geom_type == 'BundledMesh' or geom_type == 'SkinnedMesh':
+            default = 0 # Diffuse/Normal
 
         # XXX: it is not possible to define a default for dynamic enums
         # the only way is to reorder items in such a way that the default one
@@ -254,7 +252,12 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
-        return context.view_layer.objects.active is not None
+        try:
+            active_obj = context.view_layer.objects.active
+            return active_obj is not None and parse_geom_type(active_obj)
+        except Exception as e:
+            cls.poll_message_set(str(e))
+            return False
 
     def execute(self, context):
         active_obj = context.view_layer.objects.active
@@ -277,9 +280,13 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
             return {'CANCELLED'}
+        self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 
     def invoke(self, context, _event):
+        active_obj = context.view_layer.objects.active
+        _, obj_name = parse_geom_type(active_obj)
+        self.filepath = obj_name + self.filename_ext
         return super().invoke(context, _event)
 
 

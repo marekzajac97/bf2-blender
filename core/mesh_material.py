@@ -449,8 +449,8 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             mult_ndetaila.operation = 'MULTIPLY'
             mult_ndetaila.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
             mult_ndetaila.hide = True
-            
-            mult_ndetaila_values = _sockets(mult_detaila.inputs, 'Value')
+
+            mult_ndetaila_values = _sockets(mult_ndetaila.inputs, 'Value')
             node_tree.links.new(dirt_spec_out, mult_ndetaila_values[1])
             node_tree.links.new(ndetail.outputs['Alpha'], mult_ndetaila_values[0])
             has_alpha_out = mult_ndetaila.outputs['Value']

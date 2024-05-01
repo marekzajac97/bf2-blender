@@ -813,7 +813,7 @@ class MeshExporter:
             bone_to_id = dict()
             rig = find_rig_attached_to_object(lod_obj)
             if rig is None:
-                raise ExportException(f"{lod_obj.name}: does not have 'Armature' modifier or armature does not contain BF2 skeleton metadata")
+                raise ExportException(f"{lod_obj.name}: does not have 'Armature' modifier or 'Object' in the modifier settings does not point to a BF2 skeleton")
             ske_bones = rig['bf2_bones']
 
             for bone_id, ske_bone in enumerate(ske_bones):
