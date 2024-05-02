@@ -1,10 +1,10 @@
 import bpy # type: ignore
 from bpy.props import StringProperty # type: ignore
 
-from . import gui_import_export
-from . import gui_view_3d
-from . import gui_material_props
-from . import gui_object_props
+from . import ops_import_export
+from . import ops_view_3d
+from . import ops_material_props
+from . import ops_object_props
 
 from .. import PLUGIN_NAME
 
@@ -24,16 +24,16 @@ class BF2AddonPreferences(bpy.types.AddonPreferences):
 # ----------------------------------------------------------
 
 def register():
-    gui_object_props.register()
-    gui_material_props.register()
-    gui_import_export.register()
-    gui_view_3d.register()
+    ops_object_props.register()
+    ops_material_props.register()
+    ops_import_export.register()
+    ops_view_3d.register()
     bpy.utils.register_class(BF2AddonPreferences)
 
 def unregister():
     bpy.utils.unregister_class(BF2AddonPreferences)
-    gui_view_3d.unregister()
-    gui_import_export.unregister()
-    gui_material_props.unregister()
-    gui_object_props.unregister()
+    ops_view_3d.unregister()
+    ops_import_export.unregister()
+    ops_material_props.unregister()
+    ops_object_props.unregister()
 

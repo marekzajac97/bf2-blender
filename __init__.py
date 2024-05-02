@@ -32,13 +32,13 @@ bl_info = {
 
 PLUGIN_NAME = __package__
 
-from .plugin import gui_main
+from .operators import ops_main
 
 def register():
-    gui_main.register()
+    ops_main.register()
 
 def unregister():
-    gui_main.unregister()
+    ops_main.unregister()
 
 if __name__ == "__main__":
     register()
