@@ -1,8 +1,8 @@
-import bpy
+import bpy # type: ignore
 import os
 import traceback
-from bpy.props import StringProperty, BoolProperty, CollectionProperty
-from bpy_extras.io_utils import ExportHelper, ImportHelper
+from bpy.props import StringProperty, BoolProperty, CollectionProperty # type: ignore
+from bpy_extras.io_utils import ExportHelper, ImportHelper # type: ignore
 
 from ...core.animation import import_animation, export_animation, get_bones_for_export
 from ...core.skeleton import find_active_skeleton
@@ -19,7 +19,7 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
         name="Setup Controllers",
         description="Create basic animation helper bones and setup IKs, (NOTE: enabling this may slightly alter the elbow orientation)",
         default=False
-    )
+    ) # type: ignore
 
     @classmethod
     def poll(cls, context):
@@ -37,8 +37,8 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
 # -------------------------- Export --------------------------
 
 class BoneExportCollection(bpy.types.PropertyGroup):
-    name: StringProperty(name="", default="")
-    included: BoolProperty(name="", default=True)
+    name: StringProperty(name="", default="") # type: ignore
+    included: BoolProperty(name="", default=True) # type: ignore
 
 
 class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
@@ -52,9 +52,9 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
         default="*.baf",
         options={'HIDDEN'},
         maxlen=1024
-    )
+    ) # type: ignore
 
-    bones_for_export: CollectionProperty(type=BoneExportCollection)
+    bones_for_export: CollectionProperty(type=BoneExportCollection) # type: ignore
 
     @classmethod
     def poll(cls, context):

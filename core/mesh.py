@@ -1,10 +1,10 @@
-import bpy
-import bmesh
+import bpy # type: ignore
+import bmesh # type: ignore
 import os
 import enum
 
 from itertools import chain
-from mathutils import Vector
+from mathutils import Vector # type: ignore
 
 from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
 from .bf2.bf2_common import Mat4

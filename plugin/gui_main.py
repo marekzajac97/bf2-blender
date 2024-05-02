@@ -1,5 +1,5 @@
-import bpy
-from bpy.props import StringProperty
+import bpy # type: ignore
+from bpy.props import StringProperty # type: ignore
 
 from . import gui_import_export
 from . import gui_view_3d
@@ -14,7 +14,7 @@ class BF2AddonPreferences(bpy.types.AddonPreferences):
     mod_directory: StringProperty (
             name="BF2 mod directory",
             subtype="DIR_PATH"
-        )
+        ) # type: ignore
 
     def draw(self, context):
         layout = self.layout

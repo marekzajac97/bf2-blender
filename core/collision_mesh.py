@@ -1,5 +1,5 @@
-import bpy
-import bmesh
+import bpy # type: ignore
+import bmesh # type: ignore
 
 from itertools import cycle
 from .bf2.bf2_collmesh import BF2CollMesh, BF2CollMeshException, GeomPart, Geom, Col, Face, Vec3

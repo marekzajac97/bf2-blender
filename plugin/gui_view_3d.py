@@ -1,8 +1,8 @@
-import bpy
-import bmesh
+import bpy # type: ignore
+import bmesh # type: ignore
 import traceback
 
-from bpy.props import IntProperty, EnumProperty
+from bpy.props import IntProperty, BoolProperty, EnumProperty # type: ignore
 from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
 from ..core.mesh import AnimUv, _flip_uv
 
@@ -47,11 +47,11 @@ class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
 
-        layout.label(text="Please move all 'meshX.CTRL' bones to desired loaction to best match with the weapon meshes.")
+        layout.label(text="Please move every 'meshX.CTRL' bones to the desired loaction, they will be used as pivots for weapon meshes.")
         layout.label(text="You can toggle showing only a specific weapon part that corresponds")
         layout.label(text="to the active bone with 'Mask mesh for active bone' in the top menu.")
         layout.label(text="")
-        layout.label(text="When You are done, select 'Finish setup'")
+        layout.label(text="When You are done, click on 'Finish setup'")
 
     def execute(self, context):
         try:
@@ -103,7 +103,7 @@ class EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix(bpy.types.Operator):
         options={'HIDDEN'},
         min=0,
         max=6
-    )
+    ) # type: ignore
 
     def execute(self, context):
         obj = context.view_layer.objects.active
@@ -175,7 +175,7 @@ class EDIT_MESH_OT_bf2_set_anim_uv_matrix(bpy.types.Operator):
         options={'HIDDEN'},
         min=0,
         max=6
-    )
+    ) # type: ignore
 
     def execute(self, context):
         obj = context.view_layer.objects.active
@@ -220,7 +220,7 @@ class POSE_OT_bf2_change_parent(bpy.types.Operator):
         name="Parent Bone",
         description="Name of the parent bone, select NONE to remove parent",
         items=get_bones
-    )
+    ) # type: ignore
 
     @classmethod
     def poll(cls, context):

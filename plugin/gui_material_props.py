@@ -1,9 +1,9 @@
-import bpy
+import bpy # type: ignore
 import traceback
 import os
 from pathlib import Path
-from bpy.types import Mesh, Material
-from bpy.props import EnumProperty, StringProperty, BoolProperty
+from bpy.types import Mesh, Material # type: ignore
+from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
 from .. import PLUGIN_NAME
 
 from ..core.utils import Reporter
@@ -142,12 +142,12 @@ def on_texture_map_update(self, context, index):
         self[prop] = bpy.path.abspath(self[prop])
 
     if os.path.isabs(self[prop]):
+        self[prop] = os.path.normpath(self[prop])
         if mod_path:
-            if Path(self[prop]).relative_to(mod_path):
-                self[prop] = os.path.relpath(self[prop], start=mod_path)
-                self[prop] = self[prop].replace('\\', '/').lower() # convert to unix format
-            else:
-                self[prop] = 'ERROR: Texture path is not relative to MOD path defined in add-on preferences!'
+            try:
+                self[prop] = Path(self[prop]).relative_to(mod_path).as_posix().lower()
+            except ValueError as e:
+                self[prop] = f'ERROR: Texture path is not relative to MOD path defined in add-on preferences: "{mod_path}"'
         else:
             # TODO don't know how to trigger a warning here
             self[prop] = 'ERROR: MOD path not defined in add-on preferences!'

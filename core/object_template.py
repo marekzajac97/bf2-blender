@@ -1,9 +1,9 @@
-import bpy
+import bpy # type: ignore
 import os
 import math
 from getpass import getuser
-from mathutils import Matrix, Vector, Euler
-from bpy.types import Mesh, Armature
+from mathutils import Matrix, Vector, Euler # type: ignore
+from bpy.types import Mesh, Armature # type: ignore
 
 from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
                              GeometryTemplate, CollisionMeshTemplate)

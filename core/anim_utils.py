@@ -1,36 +1,14 @@
-import bpy
-import bmesh
+import bpy # type: ignore
+import bmesh # type: ignore
 import math
 
-from mathutils import Matrix, Vector
+from mathutils import Matrix, Vector # type: ignore
 from .utils import delete_object_if_exists
-from .skeleton import (find_animated_weapon_object, find_active_skeleton,
+from .skeleton import (find_animated_weapon_object,
+                       find_active_skeleton,
                        ske_weapon_part_ids)
 
 AUTO_SETUP_ID = 'bf2_auto_setup' # identifier for custom bones and constraints
-
-def _matrix_world(pose_bone):
-    # how blender calculating matrix_basis -> matrix relations
-    # not used anywhere just here in case I forget how it works
-    local = pose_bone.bone.matrix_local
-    basis = pose_bone.matrix_basis
-    parent = pose_bone.parent
-
-    if parent == None:
-        return  local @ basis
-    else:
-        parent_local = parent.bone.matrix_local
-        return _matrix_world(parent) @ (parent_local.inverted() @ local) @ basis
-
-def _matrix_basis_from_world(pose_bone, matrix_world):
-    local = pose_bone.bone.matrix_local
-    parent = pose_bone.parent
-
-    if parent == None:
-        return  local.inverted() @ matrix_world
-    else:
-        parent_local = parent.bone.matrix_local
-        return  parent.matrix.inverted() @ (parent_local @ local.inverted()) @ matrix_world
 
 def _create_ctrl_bone_from(armature, source_bone, name=''):
     name = name if name else source_bone
@@ -171,7 +149,7 @@ def rollback_controllers(context):
     bpy.ops.object.mode_set(mode='OBJECT')
     context.view_layer.update()
 
-def setup_controllers(context, step=0):
+def setup_controllers(context, step=0, reapply_keyframes=True):
     rig = find_active_skeleton()
     if not rig:
         return
@@ -184,14 +162,14 @@ def setup_controllers(context, step=0):
         _remove_mesh_mask()
 
     if rig.name.lower() == '3p_setup':
-        _setup_3p_controllers(context, rig, step)
+        _setup_3p_controllers(context, rig, step, reapply_keyframes)
     elif rig.name.lower() == '1p_setup':
-        _setup_1p_controllers(context, rig, step)
+        _setup_1p_controllers(context, rig, step, reapply_keyframes)
 
-def _setup_3p_controllers(context, rig, step):
+def _setup_3p_controllers(context, rig, step, reapply_keyframes):
     pass # TODO
 
-def _setup_1p_controllers(context, rig, step):
+def _setup_1p_controllers(context, rig, step, reapply_keyframes):
     scene = context.scene
     armature = rig.data
     context.view_layer.objects.active = rig
@@ -285,7 +263,7 @@ def _setup_1p_controllers(context, rig, step):
 
     Camerabone.custom_shape = sphere_shape
     Camerabone.custom_shape_scale_xyz = ONES_VEC / Camerabone.length
-    
+
     MESH_BONE_CUBE_SCALE = 0.2
     for mesh_bone in mesh_bones:
         mesh_bone_ctrl = rig.pose.bones[mesh_bone + '.CTRL']
@@ -307,32 +285,35 @@ def _setup_1p_controllers(context, rig, step):
         mesh_bone_offset = mesh_bone_ctrl.bone.matrix_local.translation
         ctrl_bone_to_offset.append((mesh_bone_ctrl, mesh_bone_offset))
 
-    # apply loaded animation for controllers
-    saved_frame = scene.frame_current
-    for frame_idx in range(scene.frame_start, scene.frame_end + 1):
-        scene.frame_set(frame_idx)
+    # re-apply loaded animation for controllers
+    if reapply_keyframes:
+        saved_frame = scene.frame_current
+        for frame_idx in range(scene.frame_start, scene.frame_end + 1):
+            scene.frame_set(frame_idx)
+            context.view_layer.update()
+            for (target, offset) in ctrl_bone_to_offset:
+                source_name = _is_ctrl_of(target.bone)
+                source = rig.pose.bones[source_name]
+
+                target_pos = offset.normalized()
+                target_pos.rotate(source.matrix @ BONE_ROT_FIX)
+                target_pos *= offset.length
+                target_pos += source.matrix.translation
+
+                m = source.matrix.copy()
+                m.translation = target_pos
+                target.matrix = m
+
+                target.keyframe_insert(data_path="location", frame=frame_idx)
+                target.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
+                
+                # delete all keyframes for orignal mesh bones
+                # otherwise the CHILD_OF constraint will mess them up
+                if source_name in mesh_bones:
+                    source.keyframe_delete(data_path="location", frame=frame_idx)
+                    source.keyframe_delete(data_path="rotation_quaternion", frame=frame_idx)
+        scene.frame_set(saved_frame)
         context.view_layer.update()
-        for (target, offset) in ctrl_bone_to_offset:
-            source_name = _is_ctrl_of(target.bone)
-            source = rig.pose.bones[source_name]
-
-            target_pos = offset.normalized()
-            target_pos.rotate(source.matrix @ BONE_ROT_FIX)
-            target_pos *= offset.length
-            target_pos += source.matrix.translation
-
-            m = source.matrix.copy()
-            m.translation = target_pos
-            target.matrix = m
-
-            target.keyframe_insert(data_path="location", frame=frame_idx)
-            target.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
-            
-            # delete all keyframes for orignal mesh bones
-            # otherwise the CHILD_OF constraint will mess them up
-            if source_name in mesh_bones:
-                source.keyframe_delete(data_path="location", frame=frame_idx)
-                source.keyframe_delete(data_path="rotation_quaternion", frame=frame_idx)
 
     # Constraints setup
 
@@ -405,8 +386,6 @@ def _setup_1p_controllers(context, rig, step):
     _create_bone_collection(armature, 'BF2_CAMERABONE', 'Camerabone', 1)
 
     bpy.ops.object.mode_set(mode='OBJECT')
-    scene.frame_set(saved_frame)
-    context.view_layer.update()
 
 def set_hide_all_mesh_bones_in_em(context, hide=True):
     rig = find_active_skeleton()
@@ -506,7 +485,7 @@ def _reparent_keyframes(pose_bone, parent):
                 pose_bone.matrix,
                 pose_bone.bone.matrix_local,
                 invert=True
-            )    
+            )
 
         pos, rot, _ = matrix_basis.decompose()
         for data_path, new_data, in [('location', pos), ('rotation_quaternion', rot)]:

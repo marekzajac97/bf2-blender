@@ -1,7 +1,7 @@
-import bpy
+import bpy # type: ignore
 import traceback
-from bpy.props import StringProperty
-from bpy_extras.io_utils import ImportHelper, ExportHelper
+from bpy.props import StringProperty # type: ignore
+from bpy_extras.io_utils import ImportHelper, ExportHelper # type: ignore
 
 from ...core.skeleton import import_skeleton, export_skeleton
 

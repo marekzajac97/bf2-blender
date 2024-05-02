@@ -1,7 +1,7 @@
-import bpy
+import bpy # type: ignore
 import traceback
-from bpy.props import StringProperty
-from bpy_extras.io_utils import ExportHelper, ImportHelper
+from bpy.props import StringProperty # type: ignore
+from bpy_extras.io_utils import ExportHelper, ImportHelper # type: ignore
 
 from ...core.collision_mesh import import_collisionmesh, export_collisionmesh
 

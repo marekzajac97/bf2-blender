@@ -1,7 +1,7 @@
-import bpy
+import bpy # type: ignore
 import math
 
-from mathutils import Matrix
+from mathutils import Matrix # type: ignore
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame
 from .utils import to_matrix, conv_bf2_to_blender, conv_blender_to_bf2
 from .skeleton import (ske_get_bone_rot, find_active_skeleton,

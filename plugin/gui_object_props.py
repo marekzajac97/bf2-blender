@@ -1,5 +1,5 @@
-import bpy
-from bpy.props import StringProperty
+import bpy # type: ignore
+from bpy.props import StringProperty # type: ignore
 
 class OBJECT_PT_bf2_object(bpy.types.Panel):
     bl_label = "Battlefield 2"

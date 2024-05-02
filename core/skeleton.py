@@ -1,7 +1,7 @@
-import bpy
+import bpy # type: ignore
 import math
 
-from mathutils import Matrix, Vector, Quaternion
+from mathutils import Matrix, Vector, Quaternion # type: ignore
 from .bf2.bf2_skeleton import BF2Skeleton
 from .utils import (to_matrix, conv_bf2_to_blender,
                     conv_blender_to_bf2, delete_object,

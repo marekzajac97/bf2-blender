@@ -1,4 +1,4 @@
-import bpy
+import bpy # type: ignore
 
 from .import_export import gui_animation
 from .import_export import gui_skeleton

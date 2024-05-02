@@ -1,6 +1,6 @@
-import bpy
-from bpy.types import Mesh, Armature, Camera
-from mathutils import Quaternion, Matrix, Vector
+import bpy # type: ignore
+from bpy.types import Mesh, Armature, Camera # type: ignore
+from mathutils import Quaternion, Matrix, Vector # type: ignore
 from .exceptions import ExportException
 from .bf2.bf2_common import Mat4, Quat, Vec3
 

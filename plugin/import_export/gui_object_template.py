@@ -1,7 +1,7 @@
-import bpy
+import bpy # type: ignore
 import traceback
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty
-from bpy_extras.io_utils import ExportHelper, ImportHelper
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty # type: ignore
+from bpy_extras.io_utils import ExportHelper, ImportHelper # type: ignore
 
 from ...core.object_template import import_object, export_object, parse_geom_type, NATIVE_BSP_EXPORT
 from ...core.mesh import collect_uv_layers
@@ -25,13 +25,13 @@ class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
         default=0,
         min=0,
         max=99
-    )
+    ) # type: ignore
 
     skeleton : EnumProperty(
         name="Skeleton",
         description="Name of armature object to apply geom data to",
         items=get_skeletons
-    )
+    ) # type: ignore
 
 class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_object.import"
@@ -43,7 +43,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
         name="Import CollisionMesh",
         description="Load CollisionMesh and merge with the object hierarchy",
         default=False
-    )
+    ) # type: ignore
 
     import_rig_mode : EnumProperty(
         name="Import Rigs",
@@ -54,9 +54,9 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
             ('MANUAL', "Manual", "Manually define the mapping of each geom to a skeleton (armature)", 1),
             ('OFF', "Off", "Skip rig import", 2),
         ]
-    )
+    ) # type: ignore
 
-    skeletons_to_link : CollectionProperty(type=SkeletonsToLinkCollection)
+    skeletons_to_link : CollectionProperty(type=SkeletonsToLinkCollection) # type: ignore
 
     instance=None
 
@@ -185,37 +185,37 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         name="Tangent UV",
         description="UV Layer that you've used to bake the normal map, needed for tangent space generation",
         items=get_uv_layers
-    )
+    ) # type: ignore
 
     gen_lightmap_uv: BoolProperty(
         name="Lightmap UV",
         description="Generate StaticMesh Lightmap UVs if not present",
         default=True
-    )
+    ) # type: ignore
 
     export_geometry: BoolProperty(
         name="Export Geometry",
         description="Export visible mesh geometry to a file",
         default=True
-    )
+    ) # type: ignore
 
     export_collmesh: BoolProperty(
         name="Export CollisionMesh",
         description="Export collision mesh geometry to a file",
         default=True
-    )
+    ) # type: ignore
 
     triangulate: BoolProperty(
         name="Triangulate",
         description="Convert Polygons to Triangles",
         default=True
-    )
+    ) # type: ignore
 
     apply_modifiers: BoolProperty(
         name="Apply Modifiers",
         description="Apply object modifiers",
         default=True
-    )
+    ) # type: ignore
 
     normal_weld_threshold : FloatProperty(
         name="Normal Weld Threshold",
@@ -224,7 +224,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         default=0.999,
         min=0.9,
         max=1.0
-    )
+    ) # type: ignore
 
     tangent_weld_threshold : FloatProperty(
         name="Tangent Weld Threshold",
@@ -233,7 +233,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         default=0.999,
         min=0.9,
         max=1.0
-    )
+    ) # type: ignore
 
     def draw(self, context):
         layout = self.layout

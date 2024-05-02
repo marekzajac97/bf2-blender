@@ -1,7 +1,7 @@
-import bpy
+import bpy # type: ignore
 import traceback
-from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty
-from bpy_extras.io_utils import ImportHelper, ExportHelper
+from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty # type: ignore
+from bpy_extras.io_utils import ImportHelper, ExportHelper # type: ignore
 
 from ...core.mesh import (import_mesh,
                           import_bundledmesh,
@@ -28,20 +28,20 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         description="Geometry to load",
         default=0,
         min=0
-    )
+    ) # type: ignore
 
     lod: IntProperty(
         name="Lod",
         description="Level of detail to load",
         default=0,
         min=0
-    )
+    ) # type: ignore
 
     only_selected_lod: BoolProperty(
         name="Only selected LOD",
         description="When unchecked, loads whole mesh hierarchy, ignoring above options",
         default=False
-    )
+    ) # type: ignore
 
     def draw(self, context):
         layout = self.layout
@@ -134,7 +134,7 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
         description="UV Layer that you've used to bake the normal map, needed for tangent space generation",
         default=1,
         items=get_uv_layers
-    )
+    ) # type: ignore
 
     @classmethod
     def poll(cls, context):
