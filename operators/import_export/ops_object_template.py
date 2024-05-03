@@ -188,8 +188,8 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
     ) # type: ignore
 
     gen_lightmap_uv: BoolProperty(
-        name="Lightmap UV",
-        description="Generate StaticMesh Lightmap UVs if not present",
+        name="Generate lightmap UVs",
+        description="Generate StaticMesh Lightmap UVs for each Lod (UV4) if not present",
         default=True
     ) # type: ignore
 
@@ -202,7 +202,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
     export_collmesh: BoolProperty(
         name="Export CollisionMesh",
         description="Export collision mesh geometry to a file",
-        default=True
+        default=NATIVE_BSP_EXPORT
     ) # type: ignore
 
     triangulate: BoolProperty(
@@ -239,12 +239,16 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         layout = self.layout
 
         layout.prop(self, "tangent_uv_map")
-        layout.prop(self, "gen_lightmap_uv")
+
+        row = layout.row()
+        row.prop(self, "gen_lightmap_uv")
+        row.enabled = self.geom_type == 'StaticMesh'
+
         layout.prop(self, "export_geometry")
         layout.prop(self, "export_collmesh")
         if not NATIVE_BSP_EXPORT and self.export_collmesh:
             layout.label(text='WARNING: Native BSP export module could not be loaded')
-            layout.label(text='CollisionMesh export may take forever for compex meshes')
+            layout.label(text='CollisionMesh export may take forever for complex meshes')
         layout.prop(self, "triangulate")
         layout.prop(self, "apply_modifiers")
         layout.prop(self, "normal_weld_threshold")
@@ -285,8 +289,9 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     def invoke(self, context, _event):
         active_obj = context.view_layer.objects.active
-        _, obj_name = parse_geom_type(active_obj)
+        geom_type, obj_name = parse_geom_type(active_obj)
         self.filepath = obj_name + self.filename_ext
+        self.geom_type = geom_type
         return super().invoke(context, _event)
 
 

@@ -305,7 +305,7 @@ class TemplateManager():
             self.active_template = temp
         else:
             self.active_template = None
-            return 'Activating non exisiting {}'.format(self.type.__name__)
+            return 'Activating non exisiting template {}'.format(template)
 
 class GeometryTemplate(Template):
 

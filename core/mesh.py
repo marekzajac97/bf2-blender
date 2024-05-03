@@ -44,9 +44,9 @@ class AnimUv(enum.IntEnum):
 ANIM_UV_ROTATION_MATRICES = (AnimUv.L_WHEEL_ROTATION, AnimUv.R_WHEEL_ROTATION)
 
 _MESH_TYPES = {
-    'BundledMesh': BF2BundledMesh,
-    'SkinnedMesh': BF2SkinnedMesh,
-    'StaticMesh': BF2StaticMesh
+    'STATICMESH' : BF2StaticMesh,
+    'BUNDLEDMESH' : BF2BundledMesh,
+    'SKINNEDMESH' : BF2SkinnedMesh
 }
 
 # hardcoded BF2 limit
@@ -104,7 +104,7 @@ class MeshImporter:
                  texture_path='', geom_to_ske=None, reporter=DEFAULT_REPORTER):
         self.context = context
         if mesh_type:
-            self.bf2_mesh = _MESH_TYPES[mesh_type](mesh_file)
+            self.bf2_mesh = _MESH_TYPES[mesh_type.upper()](mesh_file)
         else:
             self.bf2_mesh = BF2Mesh.load(mesh_file)
         self.reload = reload
@@ -422,7 +422,7 @@ class MeshExporter:
         self.mesh_geoms = mesh_geoms
         if self.mesh_geoms is None:
             self.mesh_geoms = self.collect_geoms_lods(self.mesh_obj)
-        self.bf2_mesh = _MESH_TYPES[mesh_type](name=mesh_obj.name)
+        self.bf2_mesh = _MESH_TYPES[mesh_type.upper()](name=mesh_obj.name)
         self.gen_lightmap_uv = gen_lightmap_uv
         self.texture_path = texture_path
         self.tangent_uv_map = tangent_uv_map
@@ -532,14 +532,8 @@ class MeshExporter:
             raise ExportException("No UV selected for tangent space generation!")
         mesh.calc_tangents(uvmap=self.tangent_uv_map)
 
-        # map uv channel to uv layer object
-        uv_layers = dict()
-        for uv_chan in range(uv_count):
-            if f'UV{uv_chan}' in mesh.uv_layers:
-                uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
-
         # lightmap UV, if not present, generate it
-        if mesh_type == BF2StaticMesh and 4 not in uv_layers and self.gen_lightmap_uv:
+        if mesh_type == BF2StaticMesh and 'UV4' not in mesh.uv_layers and self.gen_lightmap_uv:
             light_uv_layer = mesh.uv_layers.new(name='UV4')
             light_uv_layer.active = True
             bpy.ops.object.select_all(action='DESELECT')
@@ -548,9 +542,17 @@ class MeshExporter:
             bpy.ops.uv.lightmap_pack(PREF_CONTEXT='ALL_FACES', PREF_PACK_IN_ONE=True,
                                      PREF_NEW_UVLAYER=False, PREF_BOX_DIV=12, PREF_MARGIN_DIV=0.2)
 
-        # BundledMesh specific, map vertex group to part ids
-        vertex_group_to_part_id = dict()
-        if mesh_type == BF2BundledMesh:
+        # map uv channel to uv layer object
+        uv_layers = dict()
+        for uv_chan in range(uv_count):
+            if f'UV{uv_chan}' in mesh.uv_layers:
+                uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
+
+        # number of parts/bones
+        if mesh_type == BF2StaticMesh:
+            bf2_lod.parts = [Mat4()] # XXX: unused in BF2
+        elif mesh_type == BF2BundledMesh:
+            vertex_group_to_part_id = dict()
             for vg in lod_obj.vertex_groups:
                 part_id = None
                 if vg.name.startswith('mesh'):
@@ -562,8 +564,25 @@ class MeshExporter:
                     raise ExportException(f"Invalid vertex group '{vg.name}', expected 'mesh<index>' where index is a positive integer")
                 vertex_group_to_part_id[vg.index] = part_id
 
-        # SkinnedMesh specific, list of bones for each material
-        material_bones = list()
+            # NOTE: some geometry parts migh have no verts assigned at all
+            # that's why we gonna write all groups defined
+            bf2_lod.parts_num = len(vertex_group_to_part_id)
+            if bf2_lod.parts_num > MAX_GEOM_LIMIT:
+                raise ExportException(f"{lod_obj.name}: BF2 only supports a maximum of "
+                                      f"{MAX_GEOM_LIMIT} geometry parts but got {bf2_lod.parts_num}")
+        elif mesh_type == BF2SkinnedMesh:
+            bone_to_matrix = dict()
+            bone_to_id = dict()
+            rig = find_rig_attached_to_object(lod_obj)
+            if rig is None:
+                raise ExportException(f"{lod_obj.name}: does not have 'Armature' modifier or 'Object' in the modifier settings does not point to a BF2 skeleton")
+            ske_bones = rig['bf2_bones']
+
+            for bone_id, ske_bone in enumerate(ske_bones):
+                bone_obj = rig.data.bones[ske_bone]
+                m = bone_obj.matrix_local.copy() @ ske_get_bone_rot(bone_obj).inverted()
+                bone_to_matrix[bone_obj.name] = conv_blender_to_bf2(m)
+                bone_to_id[bone_obj.name] = bone_id
 
         # map materials to verts and faces
         mat_idx_to_verts_faces = dict()
@@ -596,25 +615,73 @@ class MeshExporter:
             if not blend_material.is_bf2_material:
                 raise ExportException(f"Material '{blend_material.name}' is not toggled as BF2 material, check material settngs!")  
 
-            SHADER_TYPE_TO_MESH = {
-                'STATICMESH' : BF2StaticMesh,
-                'BUNDLEDMESH' : BF2BundledMesh,
-                'SKINNEDMESH' : BF2SkinnedMesh
-            }
-
-            if SHADER_TYPE_TO_MESH[blend_material.bf2_shader] != mesh_type:
+            if _MESH_TYPES[blend_material.bf2_shader] != mesh_type:
                 raise ExportException(f"Trying to export '{mesh_type.__name__}' but material '{blend_material.name}'"
                                     f" shader type is set to '{blend_material.bf2_shader}', check material settings!")
 
+            # create matrerial
             bf2_mat : Material = bf2_lod.new_material()
 
-            # get textures
+            # alpha mode
+            if isinstance(bf2_mat, MaterialWithTransparency):
+                bf2_mat.alpha_mode = MaterialWithTransparency.AlphaMode[blend_material.bf2_alpha_mode]
+            
+            # fx shader
+            SHADER_MAPPING = {
+                'STATICMESH' : 'StaticMesh.fx',
+                'BUNDLEDMESH' : 'BundledMesh.fx',
+                'SKINNEDMESH' : 'SkinnedMesh.fx'
+            }
+
+            bf2_mat.fxfile = SHADER_MAPPING[blend_material.bf2_shader]
+
+            # texture paths
             texture_maps = get_material_maps(blend_material)
 
-            # bone names used for this material
-            bone_list = list()
-            material_bones.append(bone_list)
+            # paths should already be relative but convert to linux format just in case (game will not find them otherwise)
+            for txt_map_type, txt_map_file in texture_maps.items():
+                texture_maps[txt_map_type] = txt_map_file.replace('\\', '/').lower()
 
+            if mesh_type == BF2StaticMesh:
+                bf2_mat.technique = get_staticmesh_technique_from_maps(blend_material)
+
+                if not bf2_mat.technique:
+                    raise ExportException(f"Could not find a matching shader technique for texture maps: {texture_maps.keys()} "
+                                        f" defined for material {blend_material.name}:")
+
+                for texture_map in texture_maps.values():
+                    bf2_mat.maps.append(texture_map)
+                bf2_mat.maps.append(SPECULAR_LUT)
+
+                # check required UVs are present
+                for uv_chan in get_staticmesh_uv_channels(texture_maps.keys()):
+                    if uv_chan not in uv_layers:
+                        self.reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
+
+            elif mesh_type == BF2BundledMesh or mesh_type == BF2SkinnedMesh:
+                # XXX: many SkinnedMeshes have just empty technique (idk why) and just work
+                if mesh_type == BF2BundledMesh and not blend_material.bf2_technique:
+                    self.reporter.warning(f"{blend_material.name}: Material is missing technique, check material settings!")
+
+                bf2_mat.technique = blend_material.bf2_technique
+                if 'Diffuse' not in texture_maps:
+                    raise ExportException(f"{blend_material.name}: Material is missing 'Diffuse' Texture map, check material settings!")
+                bf2_mat.maps.append(texture_maps['Diffuse'])
+                if 'Normal' in texture_maps:
+                    bf2_mat.maps.append(texture_maps['Normal'])
+                bf2_mat.maps.append(SPECULAR_LUT)
+                if mesh_type == BF2BundledMesh and 'Shadow' in texture_maps:
+                    bf2_mat.maps.append(texture_maps['Shadow'])
+                # check required UVs are present
+                if 0 not in uv_layers:
+                    self.reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV0', make sure it exists and the name is correct")
+
+            # rigs
+            if mesh_type == BF2SkinnedMesh:
+                bone_list = list() # bone names used for this material
+                bf2_rig = bf2_lod.new_rig()
+
+            # animated UV ratio (BundledMesh)
             if animuv_rot_center:
                 try:
                     u_ratio, v_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], self.texture_path)
@@ -675,6 +742,14 @@ class MeshExporter:
                                 except ValueError:
                                     blendindices[_bone_idx] = len(bone_list)
                                     bone_list.append(_bone_name)
+                                    if len(bone_list) > MAX_BONE_LIMIT:
+                                        raise ExportException(f"{lod_obj.name} (mat: {blend_material.name}): BF2 only supports a maximum of {MAX_BONE_LIMIT} bones per material")
+                                    bf2_bone = bf2_rig.new_bone()
+                                    if _bone_name not in bone_to_id:
+                                        raise ExportException(f"{lod_obj.name} (mat: {blend_material.name}): bone '{_bone_name}' is not present in BF2 skeleton")
+                                    bf2_bone.id = bone_to_id[_bone_name]
+                                    bf2_bone.matrix = bone_to_matrix[_bone_name]
+
                             if abs(sum(_bone_weights) - 1.0) > 0.001:
                                 raise ExportException(f"{lod_obj.name}: Found vertex with weights that are not normalized, all weights must add up to 1!")
                             vert.blendweight = (_bone_weights[0],)
@@ -745,97 +820,8 @@ class MeshExporter:
                 stats += f'\n\tfaces: {len(bf2_mat.faces)}'
                 print(stats)
 
-            ALPHA_MAPPING = {
-                'ALPHA_BLEND': MaterialWithTransparency.AlphaMode.ALPHA_BLEND,
-                'ALPHA_TEST': MaterialWithTransparency.AlphaMode.ALPHA_TEST,
-                'NONE': MaterialWithTransparency.AlphaMode.NONE,
-            }
-
-            if isinstance(bf2_mat, MaterialWithTransparency):
-                bf2_mat.alpha_mode = ALPHA_MAPPING[blend_material.bf2_alpha_mode]
-            
-            SHADER_MAPPING = {
-                'STATICMESH' : 'StaticMesh.fx',
-                'BUNDLEDMESH' : 'BundledMesh.fx',
-                'SKINNEDMESH' : 'SkinnedMesh.fx'
-            }
-
-            bf2_mat.fxfile = SHADER_MAPPING[blend_material.bf2_shader]
-
-            # paths should already be relative but convert to linux format just in case (game will not find them otherwise)
-            for txt_map_type, txt_map_file in texture_maps.items():
-                texture_maps[txt_map_type] = txt_map_file.replace('\\', '/').lower()
-
-            if mesh_type == BF2StaticMesh:
-                bf2_mat.technique = get_staticmesh_technique_from_maps(blend_material)
-
-                if not bf2_mat.technique:
-                    raise ExportException(f"Could not find a matching shader technique for texture maps: {texture_maps.keys()} "
-                                        f" defined for material {blend_material.name}:")
-
-                for texture_map in texture_maps.values():
-                    bf2_mat.maps.append(texture_map)
-                bf2_mat.maps.append(SPECULAR_LUT)
-
-                # check required UVs are present
-                for uv_chan in get_staticmesh_uv_channels(texture_maps.keys()):
-                    if uv_chan not in uv_layers:
-                        self.reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
-
-            elif mesh_type == BF2BundledMesh or mesh_type == BF2SkinnedMesh:
-                # XXX: many SkinnedMeshes have just empty technique (idk why) and just work
-                if mesh_type == BF2BundledMesh and not blend_material.bf2_technique:
-                    self.reporter.warning(f"{blend_material.name}: Material is missing technique, check material settings!")
-
-                bf2_mat.technique = blend_material.bf2_technique
-                if 'Diffuse' not in texture_maps:
-                    raise ExportException(f"{blend_material.name}: Material is missing 'Diffuse' Texture map, check material settings!")
-                bf2_mat.maps.append(texture_maps['Diffuse'])
-                if 'Normal' in texture_maps:
-                    bf2_mat.maps.append(texture_maps['Normal'])
-                bf2_mat.maps.append(SPECULAR_LUT)
-                if mesh_type == BF2BundledMesh and 'Shadow' in texture_maps:
-                    bf2_mat.maps.append(texture_maps['Shadow'])
-                # check required UVs are present
-                if 0 not in uv_layers:
-                    self.reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV0', make sure it exists and the name is correct")
-
-        if mesh_type == BF2StaticMesh:
-            bf2_lod.parts = [Mat4()] # XXX: unused in BF2
-        elif mesh_type == BF2BundledMesh:
-            # XXX: some geometry parts migh have no verts assigned at all, so write all groups defined
-            bf2_lod.parts_num = len(vertex_group_to_part_id)
-            if bf2_lod.parts_num > MAX_GEOM_LIMIT:
-                raise ExportException(f"{lod_obj.name}: BF2 only supports a maximum of "
-                                      f"{MAX_GEOM_LIMIT} geometry parts but got {bf2_lod.parts_num}")
-        elif mesh_type == BF2SkinnedMesh:
-            bone_to_matrix = dict()
-            bone_to_id = dict()
-            rig = find_rig_attached_to_object(lod_obj)
-            if rig is None:
-                raise ExportException(f"{lod_obj.name}: does not have 'Armature' modifier or 'Object' in the modifier settings does not point to a BF2 skeleton")
-            ske_bones = rig['bf2_bones']
-
-            for bone_id, ske_bone in enumerate(ske_bones):
-                bone_obj = rig.data.bones[ske_bone]
-                m = bone_obj.matrix_local.copy() @ ske_get_bone_rot(bone_obj).inverted()
-                bone_to_matrix[bone_obj.name] = conv_blender_to_bf2(m)
-                bone_to_id[bone_obj.name] = bone_id
-
-            for material_index, bone_list in enumerate(material_bones):
-                if len(bone_list) > MAX_BONE_LIMIT:
-                    material_name = mesh.materials[material_index].name
-                    raise ExportException(f"{lod_obj.name} (mat: {material_name}): BF2 only supports a maximum of "
-                                          f"{MAX_BONE_LIMIT} bones per material but got {len(bone_list)}")
-                bf2_rig = bf2_lod.new_rig()
-                if not bone_list:
-                    material_name = mesh.materials[material_index].name
-                    self.reporter.warning(f"{lod_obj.name}: (mat: {material_name}): has no weights assigned")
-
-                for bone_name in bone_list:
-                    bf2_bone = bf2_rig.new_bone()
-                    bf2_bone.id = bone_to_id[bone_name]
-                    bf2_bone.matrix = bone_to_matrix[bone_name]
+            if mesh_type == BF2SkinnedMesh and not bone_list:
+                self.reporter.warning(f"{lod_obj.name}: (mat: {blend_material.name}): has no weights assigned")
 
         mesh.free_tangents()
 
