@@ -24,7 +24,7 @@ bl_info = {
     "author" : "Marek Zajac",
     "description" : "",
     "blender" : (4, 1, 1),
-    "version" : (0, 7, 3),
+    "version" : (0, 7, 4),
     "location" : "",
     "warning" : "",
     "category" : "Import-Export"
