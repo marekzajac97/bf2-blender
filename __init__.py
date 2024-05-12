@@ -22,7 +22,7 @@
 bl_info = {
     "name" : "BF2 Tools",
     "author" : "Marek Zajac",
-    "description" : "",
+    "description" : "Import and export asset files for DICE's Refractor 2 engine",
     "blender" : (4, 1, 1),
     "version" : (0, 7, 4),
     "location" : "",

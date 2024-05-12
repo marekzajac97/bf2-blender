@@ -373,12 +373,17 @@ class ObjectTemplate(Template):
         self.creator_name = ''
         self.physics_type = ObjectTemplate._PhysicsType.NONE
         self.save_in_separate_file = False
+        self.anchor_point = None
 
     def make_script(self, f):
         f.write(f'ObjectTemplate.create {self.type} {self.name}\n')
 
         if self.save_in_separate_file:
             f.write(f'ObjectTemplate.saveInSeparateFile {int(self.save_in_separate_file)}\n')
+
+        if self.anchor_point:
+            f.write(f'ObjectTemplate.anchor {_vec_to_str(self.anchor_point)}\n')
+
         if self.creator_name:
             f.write(f'ObjectTemplate.creator {self.creator_name}\n')
 
@@ -471,6 +476,9 @@ class ObjectTemplate(Template):
     def saveInSeparateFile(self, val):
         self.save_in_separate_file = bool(val)
 
+    @instancemethod
+    def anchor(self, vec):
+        self.anchor_point = _str_to_vec(vec, 3)
 
 class ObjectTemplateManager(TemplateManager):
     MANAGED_TYPE = ObjectTemplate

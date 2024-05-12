@@ -19,6 +19,7 @@ NONVIS_PRFX = 'NONVIS_'
 COL_SUFFIX = '_COL'
 TMP_PREFIX = 'TMP__'
 SKIN_PREFIX = 'SKIN__'
+ANCHOR_PREFIX = 'ANCHOR__'
 
 def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUTO', None), reload=False, reporter=DEFAULT_REPORTER, **kwargs):
     BF2Engine().shutdown() # clear previous state
@@ -85,6 +86,13 @@ def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUT
             _delete_hierarchy_if_has_no_meshes(new_lod)
             _cleanup_unused_materials(new_lod)
 
+    # create anchor
+    if root_template.anchor_point:
+        anchor_obj = bpy.data.objects.new(ANCHOR_PREFIX + root_template.name, None)
+        anchor_obj.parent = root_geometry_obj
+        anchor_obj.location = _swap_zy(root_template.anchor_point)
+        context.scene.collection.objects.link(anchor_obj)
+
     return root_geometry_obj
 
 def parse_geom_type(mesh_obj):
@@ -100,7 +108,24 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                   apply_modifiers=False, triangluate=False, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
 
-    mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
+    # find anchor
+    anchor_obj = None
+    for child in mesh_obj.children:
+        if child.name.startswith(ANCHOR_PREFIX):
+            anchor_obj = child
+            break
+
+    if anchor_obj:
+        anchor_obj.parent = None # temporarily remove as it will be taken as geom
+
+    try:
+        mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
+    except Exception:
+        raise
+    finally:
+        if anchor_obj:
+            anchor_obj.parent = mesh_obj
+
     main_lod, obj_to_geom_part_id = _find_main_lod_and_geom_parts(mesh_geoms)
 
     for geom_obj in mesh_geoms:
@@ -177,6 +202,9 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
 
         for mat, mat_idx in sorted(material_to_index.items(), key=lambda item: item[1]):
             root_obj_template.col_material_map[mat_idx] = mat
+
+    if anchor_obj:
+        root_obj_template.anchor_point = _swap_zy(anchor_obj.location)
 
     print(f"Writing con file to '{con_file}'")
     _dump_con_file(root_obj_template, con_file)

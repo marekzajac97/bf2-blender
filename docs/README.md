@@ -16,7 +16,7 @@ There are two ways of importing BF2 meshes. One is to use `Import -> BF2` menu t
 - `Export -> ObjecTemplate (.con)` shall be used for exporting objects (like 3ds Max exporter, it spits out a `.con` file + visible mesh + collision mesh into `Meshes` sub-directory). Export option will only be available when you have an object active in the viewport. Before reading any further, I highly advise you to import any existing BF2 mesh first (`Import -> ObjecTemplate (.con)`), and look at how everything is set up to make below steps easier to follow.
 
 ## The object hierarchy
-- The active object needs to be the root of the hierarchy. The root needs to be prefixed with the geometry type: `StaticMesh`, `BundledMesh` or `SkinnedMesh`, followed by an underscore and the name of the root ObjectTemplate. Each child of the root object must be an empty object that corresponds to Geom (prefixed with `G<index>__`).
+- The active object needs to be the root of the hierarchy. The root needs to be prefixed with the geometry type: `StaticMesh`, `BundledMesh` or `SkinnedMesh`, followed by an underscore and the name of the root ObjectTemplate. Each child of the root object must be an empty object that corresponds to Geom (prefixed with `G<index>__`). A static may also contain an empty child object which defines its anchor point (prefixed with `ANCHOR__`).
 - Geom represents the same mesh in a different perspective or state e.g. for Soldiers/Weapons/Vehicles Geom0 and Geom1 refer to 1P and 3P meshes respectively. Statics and Vehicles may also have an extra Geom for the destroyed/wreck variant.
 - Each child of the Geom object must be an object that corresponds to Lod (Level of detail) (prefixed with `G<index>L<index>__`) containing mesh data. Each Lod should be a simplified version of the previous one. There must be at least one Lod.
 - Each Lod may contain multiple child objects that will be exported as separate ObjectTemplates using different geometry parts, each Lod must contain the same hierarchy of them. StaticMeshes or SkinnedMeshes usually don't have any parts, so Lod will be just a single object, but for BundledMeshes you might want to have multiple geometry parts (e.g. "hull" as root and a "turret" and "motor" as its child objects). Those objects cannot be empty, each one must contain mesh data to export properly! However, if you just want them to export as invisible but separate logical objects (e.g. the `Engine` ObjectTemplate of the vehicle) you can delete all geometry (verts/faces) from the mesh object.
@@ -54,6 +54,7 @@ In order to rig your model, you must import the BF2 skeleton into your scene. Wh
 StatcMesh
 ```
 StaticMesh_house
+├─ANCHOR__house
 └─G0__house
   ├─G0L0__house [m]
   │ └─NONVIS__G1L0__house
