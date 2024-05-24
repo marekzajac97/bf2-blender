@@ -24,7 +24,7 @@ bl_info = {
     "author" : "Marek Zajac",
     "description" : "Import and export asset files for DICE's Refractor 2 engine",
     "blender" : (4, 1, 1),
-    "version" : (0, 7, 4),
+    "version" : (0, 7, 5),
     "location" : "",
     "warning" : "",
     "category" : "Import-Export"
