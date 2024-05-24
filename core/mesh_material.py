@@ -113,6 +113,17 @@ def get_staticmesh_technique_from_maps(material):
         return technique
     return '' # invalid
 
+def is_staticmesh_map_allowed(material, mapname):
+    technique = ''
+    for i, map_type in enumerate(TEXTURE_MAPS[material.bf2_shader]):
+        if map_type == mapname:
+            technique += map_type
+            continue
+        map_filepath = material.get(f"texture_slot_{i}", '')
+        if map_filepath:
+            technique += map_type
+    return technique in STATICMESH_TECHNIQUES
+
 TEXTURE_MAPS = {
     'STATICMESH': STATICMESH_TEXUTRE_MAP_TYPES,
     'BUNDLEDMESH': BUNDLEDMESH_TEXTURE_MAP_TYPES,
@@ -177,16 +188,23 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         elif material.bf2_shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
             uvs = {0}
 
+    # special staticmesh OG shaders
+    is_leaf = is_trunk = False
+    if material.bf2_shader == 'STATICMESH':
+        is_vegitation = material.is_bf2_vegitation
+        is_leaf = is_vegitation and len(texture_maps) == 1
+        is_trunk = is_vegitation and len(texture_maps) > 1
+
     # alpha mode
     has_alpha = False
-    if material.bf2_alpha_mode == 'ALPHA_BLEND':
-        has_alpha = True
-        material.blend_method = 'BLEND'
-    elif material.bf2_alpha_mode == 'ALPHA_TEST':
+    if material.bf2_alpha_mode == 'NONE' or is_trunk:
+        material.blend_method = 'OPAQUE'
+    elif material.bf2_alpha_mode == 'ALPHA_TEST' or is_leaf:
         has_alpha = True
         material.blend_method = 'CLIP'
-    elif material.bf2_alpha_mode == 'NONE':
-        material.blend_method = 'OPAQUE'
+    elif material.bf2_alpha_mode == 'ALPHA_BLEND':
+        has_alpha = True
+        material.blend_method = 'BLEND'
     else:
         raise RuntimeError(f"Unknown alpha mode '{material.bf2_alpha_mode}'")
 
@@ -374,6 +392,25 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
 
         # ---- diffuse ----
         if detail:
+            if is_trunk:
+                # multiply detail by 2
+                boost_detail = node_tree.nodes.new('ShaderNodeMixRGB')
+                boost_detail.inputs['Fac'].default_value = 1
+                boost_detail.blend_type = 'MULTIPLY'
+                boost_detail.location = (0 * NODE_WIDTH, 0 * NODE_HEIGHT)
+                boost_detail.hide = True
+
+                value_2 = node_tree.nodes.new('ShaderNodeValue')
+                value_2.outputs['Value'].default_value = 2.0
+                boost_detail.location = (0 * NODE_WIDTH, 0 * NODE_HEIGHT)
+                boost_detail.hide = True
+
+                node_tree.links.new(value_2.outputs['Value'], boost_detail.inputs['Color1'])
+                node_tree.links.new(detail.outputs['Color'], boost_detail.inputs['Color2'])
+                detail_color_out = boost_detail.outputs['Color']
+            else:
+                detail_color_out = detail.outputs['Color']
+
             # multiply detail and base color
             multiply_detail = node_tree.nodes.new('ShaderNodeMixRGB')
             multiply_detail.inputs['Fac'].default_value = 1
@@ -382,7 +419,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             multiply_detail.hide = True
 
             node_tree.links.new(base.outputs['Color'], multiply_detail.inputs['Color1'])
-            node_tree.links.new(detail.outputs['Color'], multiply_detail.inputs['Color2'])
+            node_tree.links.new(detail_color_out, multiply_detail.inputs['Color2'])
             detail_out = multiply_detail.outputs['Color']
         else:
             detail_out = base.outputs[0]
@@ -398,7 +435,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             node_tree.links.new(crack.outputs['Color'], mix_crack.inputs['Color2'])
             crack_out = mix_crack.outputs['Color']
         else:
-            crack_out =  detail_out
+            crack_out = detail_out
 
         if dirt:
             # multiply dirt and diffuse
@@ -418,54 +455,54 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         node_tree.links.new(dirt_out, shader_base_color)
 
         # ---- specular ----
-        # TODO: this is wrong for vegitation
-        if dirt and detail:
-            # dirt.r * dirt.g * dirt.b
-            dirt_rgb_mult = node_tree.nodes.new('ShaderNodeGroup')
-            dirt_rgb_mult.node_tree = _create_multiply_rgb_shader_node()
-            dirt_rgb_mult.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
-            dirt_rgb_mult.hide = True
+        if not is_vegitation:
+            if dirt and detail:
+                # dirt.r * dirt.g * dirt.b
+                dirt_rgb_mult = node_tree.nodes.new('ShaderNodeGroup')
+                dirt_rgb_mult.node_tree = _create_multiply_rgb_shader_node()
+                dirt_rgb_mult.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                dirt_rgb_mult.hide = True
 
-            node_tree.links.new(dirt.outputs['Color'], dirt_rgb_mult.inputs['color'])
+                node_tree.links.new(dirt.outputs['Color'], dirt_rgb_mult.inputs['color'])
 
-            # multiply that with detailmap alpha
-            mult_detaila = node_tree.nodes.new('ShaderNodeMath')
-            mult_detaila.operation = 'MULTIPLY'
-            mult_detaila.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
-            mult_detaila.hide = True
+                # multiply that with detailmap alpha
+                mult_detaila = node_tree.nodes.new('ShaderNodeMath')
+                mult_detaila.operation = 'MULTIPLY'
+                mult_detaila.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                mult_detaila.hide = True
 
-            mult_detaila_values = _sockets(mult_detaila.inputs, 'Value')
-            node_tree.links.new(dirt_rgb_mult.outputs['value'], mult_detaila_values[1])
-            node_tree.links.new(detail.outputs['Alpha'], mult_detaila_values[0])
-            dirt_spec_out = mult_detaila.outputs['Value']
-        elif detail:
-            dirt_spec_out = detail.outputs['Alpha']
-        else:
-            dirt_spec_out = None
+                mult_detaila_values = _sockets(mult_detaila.inputs, 'Value')
+                node_tree.links.new(dirt_rgb_mult.outputs['value'], mult_detaila_values[1])
+                node_tree.links.new(detail.outputs['Alpha'], mult_detaila_values[0])
+                dirt_spec_out = mult_detaila.outputs['Value']
+            elif detail:
+                dirt_spec_out = detail.outputs['Alpha']
+            else:
+                dirt_spec_out = None
 
-        if has_alpha and ndetail:
-            # mult with detaimap normal alpha
-            mult_ndetaila = node_tree.nodes.new('ShaderNodeMath')
-            mult_ndetaila.operation = 'MULTIPLY'
-            mult_ndetaila.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
-            mult_ndetaila.hide = True
+            if has_alpha and ndetail:
+                # mult with detaimap normal alpha
+                mult_ndetaila = node_tree.nodes.new('ShaderNodeMath')
+                mult_ndetaila.operation = 'MULTIPLY'
+                mult_ndetaila.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                mult_ndetaila.hide = True
 
-            mult_ndetaila_values = _sockets(mult_ndetaila.inputs, 'Value')
-            node_tree.links.new(dirt_spec_out, mult_ndetaila_values[1])
-            node_tree.links.new(ndetail.outputs['Alpha'], mult_ndetaila_values[0])
-            has_alpha_out = mult_ndetaila.outputs['Value']
-        elif detail:
-            has_alpha_out = dirt_spec_out
-        else:
-            has_alpha_out = None
+                mult_ndetaila_values = _sockets(mult_ndetaila.inputs, 'Value')
+                node_tree.links.new(dirt_spec_out, mult_ndetaila_values[1])
+                node_tree.links.new(ndetail.outputs['Alpha'], mult_ndetaila_values[0])
+                has_alpha_out = mult_ndetaila.outputs['Value']
+            elif detail:
+                has_alpha_out = dirt_spec_out
+            else:
+                has_alpha_out = None
 
-        if has_alpha_out:
-            node_tree.links.new(has_alpha_out, shader_specular)
+            if has_alpha_out:
+                node_tree.links.new(has_alpha_out, shader_specular)
 
-            reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
-            reduce_roughness.inputs['To Min'].default_value = ROUGHNESS_BASE
-            node_tree.links.new(has_alpha_out, reduce_roughness.inputs['Value'])
-            node_tree.links.new(reduce_roughness.outputs["Result"], shader_roughness)
+                reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
+                reduce_roughness.inputs['To Min'].default_value = ROUGHNESS_BASE
+                node_tree.links.new(has_alpha_out, reduce_roughness.inputs['Value'])
+                node_tree.links.new(reduce_roughness.outputs["Result"], shader_roughness)
 
         # ---- normal  ----
 

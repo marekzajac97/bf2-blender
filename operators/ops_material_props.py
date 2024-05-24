@@ -1,13 +1,14 @@
 import bpy # type: ignore
 import traceback
 import os
+import re
 from pathlib import Path
 from bpy.types import Mesh, Material # type: ignore
 from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
 from .. import PLUGIN_NAME
 
 from ..core.utils import Reporter
-from ..core.mesh_material import setup_material, get_staticmesh_technique_from_maps
+from ..core.mesh_material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
 
 MATERIAL_TYPES = [
     ('STATICMESH', 'StaticMesh', "", 0),
@@ -21,6 +22,9 @@ ALPHA_MODES = [
     ('ALPHA_BLEND', 'Alpha Blend', "", 1),
     ('ALPHA_TEST', 'Alpha Test', "", 2),
 ]
+
+INSENSITIVE_ALPHA_TEST = re.compile(re.escape('alpha_test'), re.IGNORECASE)
+INSENSITIVE_ALPHA = re.compile(re.escape('alpha'), re.IGNORECASE)
 
 def _get_active_material(context):
     active_obj = context.view_layer.objects.active
@@ -81,6 +85,10 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
             col.prop(material, "bf2_technique")
             col.enabled = material.is_bf2_material and material.bf2_shader != 'STATICMESH'
 
+            col = self.layout.column()
+            col.prop(material, "is_bf2_vegitation")
+            col.enabled = material.is_bf2_material and material.bf2_shader == 'STATICMESH'
+
             row = self.layout.row(align=True)
             row.label(text="Alpha Mode")
             for item in ALPHA_MODES:
@@ -102,12 +110,35 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                 if material.bf2_shader == 'BUNDLEDMESH':
                     col.prop(material, "texture_slot_2", text="Shadow")
             else:
+                is_vegitation = material['is_bf2_vegitation']
+
+                col = self.layout.column()
                 col.prop(material, "texture_slot_0", text="Base")
+
+                col = self.layout.column()
                 col.prop(material, "texture_slot_1", text="Detail")
+                col.enabled = is_staticmesh_map_allowed(material, "Detail")
+
+                col = self.layout.column()
                 col.prop(material, "texture_slot_2", text="Dirt")
+                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "Dirt")
+
+                col = self.layout.column()
                 col.prop(material, "texture_slot_3", text="Crack")
+                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "Crack")
+
+                col = self.layout.column()
                 col.prop(material, "texture_slot_4", text="Detail Normal")
+                col.enabled = is_staticmesh_map_allowed(material, "NDetail")
+
+                col = self.layout.column()
                 col.prop(material, "texture_slot_5", text="Crack Normal")
+                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "NCrack")
+
+            mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+            if not mod_path:
+                col = self.layout.column()
+                col.label(text='WARNING: Mod Path is not defined in add-on preferences, textures will not load', icon='ERROR')
 
             col = self.layout.column()
             col.operator(MESH_OT_bf2_apply_material.bl_idname, text="Apply Material")
@@ -115,23 +146,32 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
 def _update_techinique_default_value(material):
     if not material.is_bf2_material:
         material['bf2_technique'] = ''
+        return
 
     if material.bf2_shader == 'STATICMESH':
         material['bf2_technique'] = get_staticmesh_technique_from_maps(material)
     elif material.bf2_shader == 'BUNDLEDMESH':
         if material.bf2_alpha_mode == 'ALPHA_BLEND':
-            material['bf2_technique'] = 'Alpha'
+            if 'alpha' not in material['bf2_technique'].lower():
+                material['bf2_technique'] += 'Alpha' # XXX: Remdul says this is wrong/not used anyway
         elif material.bf2_alpha_mode == 'ALPHA_TEST':
-            material['bf2_technique'] = 'Alpha_Test'
-        else:
+            if 'alpha_test' not in material['bf2_technique'].lower():
+                material['bf2_technique'] += 'Alpha_Test'
+        elif material['bf2_technique'] == '':
             material['bf2_technique'] = 'ColormapGloss'
     elif material.bf2_shader == 'SKINNEDMESH':
-        material['bf2_technique'] = 'Humanskin'
+        if material['bf2_technique'] == '':
+            material['bf2_technique'] = 'Humanskin'
 
 def on_shader_update(self, context):
+    self['bf2_technique'] = ''
+    if self.bf2_shader != 'STATICMESH':
+        self['is_bf2_vegitation'] = False
     _update_techinique_default_value(self)
 
 def on_alpha_mode_update(self, context):
+    self['bf2_technique'] = INSENSITIVE_ALPHA_TEST.sub('', self['bf2_technique'])
+    self['bf2_technique'] = INSENSITIVE_ALPHA.sub('', self['bf2_technique'])
     _update_techinique_default_value(self)
 
 def on_texture_map_update(self, context, index):
@@ -157,6 +197,17 @@ def on_texture_map_update(self, context, index):
     if self.bf2_shader == 'STATICMESH':
         _update_techinique_default_value(self)
 
+def on_is_vegitation_update(self, context):
+    if self.bf2_shader != 'STATICMESH':
+        return
+    if not self.is_bf2_vegitation:
+        return
+    # clear Dirt, Crack, NCrack
+    self['texture_slot_2'] = ''
+    self['texture_slot_3'] = ''
+    self['texture_slot_5'] = ''
+    _update_techinique_default_value(self)
+
 def _create_texture_slot(index):
     return StringProperty(
         name=f"Texture{index} Path",
@@ -169,8 +220,15 @@ def _create_texture_slot(index):
 def register():
     Material.is_bf2_material = BoolProperty(
         name="Is BF2 Material",
-        description="Enable this to auto-generate Shader Nodes",
+        description="Enable this to mark the material to export as BF2 material",
         default=False
+    )
+
+    Material.is_bf2_vegitation = BoolProperty(
+        name="Is Vegitation",
+        description="Enable this if StaticMesh shall use vegitation shaders (it does not affect export)",
+        default=False,
+        update=on_is_vegitation_update
     )
 
     Material.bf2_alpha_mode = EnumProperty(
@@ -218,4 +276,5 @@ def unregister():
     del Material.bf2_shader
     del Material.bf2_technique
     del Material.bf2_alpha_mode
+    del Material.is_bf2_vegitation
     del Material.is_bf2_material

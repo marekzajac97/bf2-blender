@@ -103,6 +103,7 @@ class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
                  texture_path='', geom_to_ske=None, reporter=DEFAULT_REPORTER):
         self.context = context
+        self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
         if mesh_type:
             self.bf2_mesh = _MESH_TYPES[mesh_type.upper()](mesh_file)
         else:
@@ -288,6 +289,9 @@ class MeshImporter:
                 material['bf2_alpha_mode'] = bf2_mat.alpha_mode
             else:
                 material['bf2_alpha_mode'] = MaterialWithTransparency.AlphaMode.NONE
+
+            if isinstance(bf2_mesh, BF2StaticMesh):
+                material['is_bf2_vegitation'] = self.is_vegitation
 
             setup_material(material, uvs=uvs.keys(), texture_path=self.texture_path, reporter=self.reporter)
 

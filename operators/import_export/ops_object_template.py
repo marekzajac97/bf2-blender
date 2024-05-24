@@ -247,7 +247,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         layout.prop(self, "export_geometry")
         layout.prop(self, "export_collmesh")
         if not NATIVE_BSP_EXPORT and self.export_collmesh:
-            layout.label(text='WARNING: Native BSP export module could not be loaded')
+            layout.label(text='WARNING: Native BSP export module could not be loaded', icon='ERROR')
             layout.label(text='CollisionMesh export may take forever for complex meshes')
         layout.prop(self, "triangulate")
         layout.prop(self, "apply_modifiers")
