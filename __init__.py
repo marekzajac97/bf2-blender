@@ -24,9 +24,11 @@ bl_info = {
     "author" : "Marek Zajac",
     "description" : "Import and export asset files for DICE's Refractor 2 engine",
     "blender" : (4, 1, 1),
-    "version" : (0, 7, 5),
-    "location" : "",
+    "version" : (0, 7, 6),
+    "location": "File -> Import/Export -> BF2",
     "warning" : "",
+    "doc_url": "https://github.com/marekzajac97/bf2-blender/blob/main/docs/README.md",
+    "tracker_url": "https://github.com/marekzajac97/bf2-blender/issues/new",
     "category" : "Import-Export"
 }
 

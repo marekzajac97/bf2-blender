@@ -108,9 +108,9 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                 col.prop(material, "texture_slot_0", text="Diffuse")
                 col.prop(material, "texture_slot_1", text="Normal")
                 if material.bf2_shader == 'BUNDLEDMESH':
-                    col.prop(material, "texture_slot_2", text="Shadow")
+                    col.prop(material, "texture_slot_2", text="Wreck")
             else:
-                is_vegitation = material['is_bf2_vegitation']
+                is_vegitation = material.is_bf2_vegitation
 
                 col = self.layout.column()
                 col.prop(material, "texture_slot_0", text="Base")

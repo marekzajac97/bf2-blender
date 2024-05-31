@@ -9,13 +9,6 @@ I'm probably like 15 years late but anyway, here are some tools for importing an
 - BundledMesh (`.bundledMesh`) import/export
 - CollisionMesh (`.collisionMesh`) import/export
 
-## Limitations and known issues:
-- CollisionMesh exports to a slightly older file version (9) than 3DsMax exporter (10), which may make BF2 regenerate some missing data on load time, not a big deal.
-- Generating `.samples` for StaticMeshes is not yet supported, use [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/)!
-- SkinnedMeshes using Object Space normal maps will have shading issues when deformed/animated inside of Blender.
-
-Please report any other issues found!
-
 ## Compatibility
 Blender 4.1 only, pre-build binaries available for Windows, Linux and macOS (Intel). For other platforms see building instructions at [BSP Builder](bsp_builder/README.md).
 
@@ -26,6 +19,14 @@ NOTE: Removing the add-on through Blender **will not work properly**, you have t
 
 ## Usage
 - Head over to the [Documentation](docs/README.md) for details on how to use this add-on
+
+## Limitations and known issues:
+- Generating `.samples` for StaticMeshes is not yet supported, use [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/)!
+- SkinnedMeshes using Object Space normal maps will have shading issues when deformed/animated inside of Blender.
+- Blender does not allow to import custom tangent data, therefore when re-exporting meshes, vertex tangents always get re-calculated. This may increase the number of unique vertices being exported. Generated tangents may also be totally wrong if the normal map used was not generated using Mikk TSpace method (which Blender uses).
+- CollisionMesh exports to a slightly older file version (9) than 3DsMax exporter (10). Latest file version contains some extra data for drawing debug meshes which is disabled by default in-game anyway.
+
+Please report any other issues found!
 
 ## Credits
 - [rpoxo](https://github.com/rpoxo) for the [BF2 mesh file parser](https://github.com/rpoxo/bf2mesh) (MIT License)

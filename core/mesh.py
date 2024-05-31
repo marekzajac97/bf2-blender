@@ -26,6 +26,8 @@ from .mesh_material import (setup_material,
                             get_staticmesh_uv_channels,
                             get_tex_type_to_file_mapping,
                             get_material_maps,
+                            texture_suffix_is_valid,
+                            get_texture_suffix,
                             TEXTURE_MAPS)
 
 _DEBUG = False
@@ -99,9 +101,8 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
     return exporter.export_mesh()
 
 class MeshImporter:
-
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
-                 texture_path='', geom_to_ske=None, reporter=DEFAULT_REPORTER):
+                 texture_path='', geom_to_ske=None, merge_materials=True, reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
         if mesh_type:
@@ -112,26 +113,31 @@ class MeshImporter:
         self.texture_path = texture_path
         self.geom_to_ske = geom_to_ske
         self.reporter = reporter
+        self.mesh_materials = []
+        self.mesh_name = self.bf2_mesh.name
+        self.merge_materials = merge_materials
 
     def import_mesh(self, name='', geom=None, lod=None):
-        name = name or self.bf2_mesh.name
+        if name:
+            self.mesh_name = name
+        self._cleanup_old_materials()
         if geom is None and lod is None:
-            if self.reload: delete_object_if_exists(name)
-            root_obj = bpy.data.objects.new(name, None)
+            if self.reload: delete_object_if_exists(self.mesh_name)
+            root_obj = bpy.data.objects.new(self.mesh_name, None)
             self.context.scene.collection.objects.link(root_obj)
             for geom_idx, _ in enumerate(self.bf2_mesh.geoms):
-                geom_name = self.build_mesh_prefix(geom_idx) + name
+                geom_name = self.build_mesh_prefix(geom_idx) + self.mesh_name
                 if self.reload: delete_object_if_exists(geom_name)
                 geom_obj = bpy.data.objects.new(geom_name, None)
                 geom_obj.parent = root_obj
                 self.context.scene.collection.objects.link(geom_obj)
                 for lod_idx, _ in enumerate(self.bf2_mesh.geoms[geom_idx].lods):
-                    lod_obj = self._import_mesh_lod(self.build_mesh_prefix(geom_idx, lod_idx) + name,
+                    lod_obj = self._import_mesh_lod(self.build_mesh_prefix(geom_idx, lod_idx) + self.mesh_name,
                                                     self.bf2_mesh.geoms[geom_idx].lods[lod_idx])
                     lod_obj.parent = geom_obj
             return root_obj
         else:
-            return self._import_mesh_lod(name, self.bf2_mesh.geoms[geom].lods[lod])
+            return self._import_mesh_lod(self.mesh_name, self.bf2_mesh.geoms[geom].lods[lod])
 
     @staticmethod
     def build_mesh_prefix(geom=None, lod=None):
@@ -148,47 +154,10 @@ class MeshImporter:
         if self.reload:
             delete_object_if_exists(name)
 
-        verts = list()
-        faces = list()
-
-        for mat in bf2_lod.materials:
-            f_offset = len(verts)
-            mat_faces = list()
-            for face in mat.faces:
-                face_verts = _invert_face([v + f_offset for v in face])
-                mat_faces.append(face_verts)
-            faces.append(mat_faces)
-
-            for vert in mat.vertices:
-                verts.append(_swap_zy(vert.position))
-
-        bm = bmesh.new()
-        for vert in verts:
-            bm.verts.new(vert)
-
-        bm.verts.ensure_lookup_table()
-        bm.verts.index_update()
-
-        for material_index, mat_faces in enumerate(faces):
-            for face in mat_faces:
-                face_verts = [bm.verts[i] for i in face]
-                try:
-                    bm_face = bm.faces.new(face_verts)
-                    bm_face.material_index = material_index
-                except ValueError:
-                    pass
-                    # XXX: some meshes (e.g. vBF2 usrif_remington11-87)
-                    # produce "face already exists" error
-                    # even though vert indexes are unique
-                    # I don't know wtf is going on, so lets just ignore it
-
-        mesh = bpy.data.meshes.new(name)
-        bm.to_mesh(mesh)
-        bm.free()
-
-        has_anim_uv = isinstance(bf2_mesh, BF2BundledMesh) and bf2_mesh.has_uv(1) and bf2_mesh.has_blend_indices()
-
+        
         has_normals = bf2_mesh.has_normal()
+        has_anim_uv = (isinstance(bf2_mesh, BF2BundledMesh) and
+                       bf2_mesh.has_uv(1) and bf2_mesh.has_blend_indices())
 
         uv_count = 5 if isinstance(bf2_mesh, BF2StaticMesh) else 1
         uvs = dict()
@@ -201,16 +170,18 @@ class MeshImporter:
         vertex_animuv_rot_center = list()
         vertex_animuv_matrix_index = list()
 
-        for mat in bf2_lod.materials:
+        mesh_materials = list()
 
-            if has_anim_uv and mat.maps:
-                try:
-                    u_ratio, v_ratio = _get_anim_uv_ratio(mat.maps[0], self.texture_path)
-                except Exception:
-                    u_ratio = v_ratio = 1.0
-                    self.reporter.warning(f"Could not read texture file size: {mat.maps[0]}")
+        bm = bmesh.new()
+        vertex_offset = 0
 
-            for vert in mat.vertices:
+        for bf2_mat in bf2_lod.materials:
+            uv_ratio = None
+
+            # create vertices
+            for vert in bf2_mat.vertices:
+                bm.verts.new(_swap_zy(vert.position))
+
                 # Normals
                 if has_normals:
                     vertex_normals.append(_swap_zy(vert.normal))
@@ -221,22 +192,95 @@ class MeshImporter:
                 for uv_chan, vertex_uv in uvs.items():
                     uv = getattr(vert, f'texcoord{uv_chan}')
                     if has_anim_uv and uv_matrix_idx in ANIM_UV_ROTATION_MATRICES:
+                        if uv_ratio is None:
+                            try:
+                                uv_ratio = _get_anim_uv_ratio(bf2_mat.maps[0], self.texture_path)
+                            except Exception:
+                                uv_ratio = (1.0, 1.0)
+                                self.reporter.warning(f"Could not read texture size: {bf2_mat.maps[0]}")
                         # FIX UVs for animated parts
                         # UV1 is actual UV, UV0 is just center of UV rotation / shift
                         # and needs to be corected by texture size ratio as well
                         vert_animuv_center = vert.texcoord1
-                        uv = (uv[0] + vert_animuv_center[0] * u_ratio,
-                            uv[1] + vert_animuv_center[1] * v_ratio)
+                        uv = (uv[0] + vert_animuv_center[0] * uv_ratio[0],
+                            uv[1] + vert_animuv_center[1] * uv_ratio[1])
                     uv = _flip_uv(uv)
                     vertex_uv.append(uv)
 
-                # # Animated UVs data
+                # Animated UVs data
                 if has_anim_uv:
                     if uv_matrix_idx in ANIM_UV_ROTATION_MATRICES:
                         vertex_animuv_rot_center.append(Vector(vert.texcoord0))
                     else:
                         vertex_animuv_rot_center.append(Vector((0, 0)))
                     vertex_animuv_matrix_index.append(uv_matrix_idx)
+
+            bm.verts.ensure_lookup_table()
+            bm.verts.index_update()
+
+            # create materials
+            mat_idx = self._get_unique_material_index(bf2_mat)
+            mat_name = f'{self.mesh_name}_material_{mat_idx}'
+            if mat_name in bpy.data.materials.keys():
+                material = bpy.data.materials[mat_name]
+            else:
+                material = bpy.data.materials.new(mat_name)
+                material.is_bf2_material = True
+                try:
+                    SHADER_ENUM = ['STATICMESH', 'BUNDLEDMESH', 'SKINNEDMESH']
+                    material['bf2_shader'] = SHADER_ENUM.index(bf2_mat.fxfile[:-3].upper()) # XXX needs to be enum val
+                except KeyError:
+                    raise ImportError(f"Bad shader '{bf2_mat.fxfile}'")
+
+                material['bf2_technique'] = bf2_mat.technique
+                if material.bf2_shader == 'STATICMESH' and 'parallaxdetail' in material.bf2_technique:
+                    self.reporter.warning(f"Ignoring technique 'parallaxdetail', (not supported)")
+                    material['bf2_technique'] = material['bf2_technique'].replace('parallaxdetail', '')
+
+                texture_map_types = TEXTURE_MAPS[material.bf2_shader]
+                texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
+                for map_type, map_file in texture_maps.items():
+                    type_index = texture_map_types.index(map_type)
+                    material[f"texture_slot_{type_index}"] = map_file
+
+                if isinstance(bf2_mat, MaterialWithTransparency):
+                    material['bf2_alpha_mode'] = bf2_mat.alpha_mode
+                else:
+                    material['bf2_alpha_mode'] = MaterialWithTransparency.AlphaMode.NONE
+
+                if isinstance(bf2_mesh, BF2StaticMesh):
+                    material['is_bf2_vegitation'] = self.is_vegitation
+
+                setup_material(material, uvs=uvs.keys(), texture_path=self.texture_path, reporter=self.reporter)
+
+            try:
+                material_index = mesh_materials.index(material)
+            except ValueError:
+                material_index = len(mesh_materials)
+                mesh_materials.append(material)
+ 
+            # create faces
+            for face in bf2_mat.faces:
+                face_verts = [bm.verts[v + vertex_offset] for v in _invert_face(face)]
+                try:
+                    bm_face = bm.faces.new(face_verts)
+                    bm_face.material_index = material_index
+                except ValueError:
+                    pass
+                    # XXX: some meshes (e.g. vBF2 usrif_remington11-87)
+                    # produce "face already exists" error
+                    # even though vert indexes are unique
+                    # I don't know wtf is going on, so lets just ignore it
+
+            vertex_offset += len(bf2_mat.vertices)
+
+        mesh = bpy.data.meshes.new(name)
+        bm.to_mesh(mesh)
+        bm.free()
+
+        # apply materials
+        for material in mesh_materials:
+            mesh.materials.append(material)
 
         # apply normals
         if has_normals:
@@ -255,45 +299,6 @@ class MeshImporter:
             uvlayer = mesh.uv_layers.new(name=f'UV{uv_chan}')
             for l in mesh.loops:
                 uvlayer.data[l.index].uv = vertex_uv[l.vertex_index]
-
-        # create materials
-        for i, bf2_mat in enumerate(bf2_lod.materials):
-            mat_name = f'{name}_material_{i}'
-            try:
-                material = bpy.data.materials[mat_name]
-                bpy.data.materials.remove(material, do_unlink=True)
-            except:
-                pass
-            material = bpy.data.materials.new(mat_name)
-            mesh.materials.append(material)
-
-            material.is_bf2_material = True
-            try:
-                SHADER_MAPPING = {'STATICMESH' : 0, 'BUNDLEDMESH' : 1, 'SKINNEDMESH' : 2}
-                material['bf2_shader'] = SHADER_MAPPING[bf2_mat.fxfile[:-3].upper()]
-            except KeyError:
-                raise ImportError(f"Bad shader '{bf2_mat.fxfile}'")
-
-            material['bf2_technique'] = bf2_mat.technique
-            if material.bf2_shader == 'STATICMESH' and 'parallaxdetail' in material.bf2_technique:
-                self.reporter.warning(f"Ignoring technique 'parallaxdetail', (not supported)")
-                material['bf2_technique'] = material['bf2_technique'].replace('parallaxdetail', '')
-
-            texture_map_types = TEXTURE_MAPS[material.bf2_shader]
-            texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
-            for map_type, map_file in texture_maps.items():
-                type_index = texture_map_types.index(map_type)
-                material[f"texture_slot_{type_index}"] = map_file
-
-            if isinstance(bf2_mat, MaterialWithTransparency):
-                material['bf2_alpha_mode'] = bf2_mat.alpha_mode
-            else:
-                material['bf2_alpha_mode'] = MaterialWithTransparency.AlphaMode.NONE
-
-            if isinstance(bf2_mesh, BF2StaticMesh):
-                material['is_bf2_vegitation'] = self.is_vegitation
-
-            setup_material(material, uvs=uvs.keys(), texture_path=self.texture_path, reporter=self.reporter)
 
         mesh_obj = bpy.data.objects.new(name, mesh)
         self.context.scene.collection.objects.link(mesh_obj)
@@ -413,6 +418,58 @@ class MeshImporter:
             self.reporter.warning(f"No skeleton (amrature) found for Geom {geom_idx}")
         return skeleton
 
+    def _cleanup_old_materials(self):
+        self.mesh_materials = []
+        for material in list(bpy.data.materials):
+            if material.name.startswith(f'{self.mesh_name}_material_'):
+                bpy.data.materials.remove(material, do_unlink=True)
+
+    def _get_unique_material_index(self, other_bf2_mat):
+        merge_materials = self.merge_materials
+        bone_count = 0
+        if merge_materials and isinstance(self.bf2_mesh, BF2SkinnedMesh):
+            for geom in self.bf2_mesh.geoms:
+                for lod in geom.lods:
+                    try:
+                        material_index = lod.materials.index(other_bf2_mat)
+                        rig = lod.rigs[material_index]
+                        bone_count = len(rig.bones)
+                    except ValueError:
+                        pass           
+
+        if merge_materials:
+            for mat_idx, mat_data in enumerate(self.mesh_materials):
+                bf2_mat = mat_data['bf2_mat']
+                if type(bf2_mat) != type(other_bf2_mat):
+                    continue
+                if bf2_mat.fxfile.lower() != other_bf2_mat.fxfile.lower():
+                    continue
+                if bf2_mat.technique.lower() != other_bf2_mat.technique.lower():
+                    continue
+                if len(bf2_mat.maps) != len(other_bf2_mat.maps):
+                    continue
+                textures_eq = True
+                for texture_map, other_texture_map in zip(bf2_mat.maps, other_bf2_mat.maps):
+                    if texture_map.lower() != other_texture_map.lower():
+                        textures_eq = False
+                        break
+                if not textures_eq:
+                    continue
+                if (isinstance(bf2_mat, MaterialWithTransparency) and
+                    bf2_mat.alpha_mode != other_bf2_mat.alpha_mode):
+                    continue
+                if mat_data['bone_count'] + bone_count > MAX_BONE_LIMIT:
+                    self.reporter.warning("Cannot merge material, bone limit has been reached")
+                    break
+                mat_data['bone_count'] += bone_count
+                return mat_idx
+
+        mat_idx = len(self.mesh_materials)
+        mat_data = {'bf2_mat': other_bf2_mat, 'bone_count': bone_count}
+        self.mesh_materials.append(mat_data)
+        return mat_idx
+
+
 class MeshExporter:
 
     def __init__(self, mesh_obj, mesh_file, mesh_type,
@@ -496,6 +553,11 @@ class MeshExporter:
             geom_idx = check_prefix(geom_obj.name, ('G', ))
             if geom_idx in mesh_geoms:
                 raise ExportException(f"mesh object '{mesh_obj.name}' has duplicated G{geom_idx}")
+            if tuple(geom_obj.location) != (0, 0, 0):
+                raise ExportException(f"{geom_obj.name}: location of the geom object must be (0, 0, 0) but got '{geom_obj.location}'")
+            if tuple(geom_obj.rotation_quaternion) != (1, 0, 0, 0):
+                raise ExportException(f"{geom_obj.name}: geom object must have no rotation '{geom_obj.rotation_quaternion}'")
+
             mesh_geoms[geom_idx] = geom_obj
         for _, geom_obj in sorted(mesh_geoms.items()):
             lods = list()
@@ -643,8 +705,13 @@ class MeshExporter:
             texture_maps = get_material_maps(blend_material)
 
             # paths should already be relative but convert to linux format just in case (game will not find them otherwise)
+            # check texture suffixes as well, wrong suffix can cause shading bugs especially for normal maps
             for txt_map_type, txt_map_file in texture_maps.items():
-                texture_maps[txt_map_type] = txt_map_file.replace('\\', '/').lower()
+                filepath = txt_map_file.replace('\\', '/').lower()
+                texture_maps[txt_map_type] = filepath
+
+                if not texture_suffix_is_valid(filepath, txt_map_type):
+                    self.reporter.warning(f"{txt_map_type} texture map '{filepath}' does not have valid suffix, expected '{get_texture_suffix(txt_map_type)}'")
 
             if mesh_type == BF2StaticMesh:
                 bf2_mat.technique = get_staticmesh_technique_from_maps(blend_material)
@@ -674,23 +741,19 @@ class MeshExporter:
                 if 'Normal' in texture_maps:
                     bf2_mat.maps.append(texture_maps['Normal'])
                 bf2_mat.maps.append(SPECULAR_LUT)
-                if mesh_type == BF2BundledMesh and 'Shadow' in texture_maps:
-                    bf2_mat.maps.append(texture_maps['Shadow'])
+                if mesh_type == BF2BundledMesh and 'Wreck' in texture_maps:
+                    bf2_mat.maps.append(texture_maps['Wreck'])
                 # check required UVs are present
                 if 0 not in uv_layers:
                     self.reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV0', make sure it exists and the name is correct")
+
+            # animated UVs (lazy resolve)
+            uv_ratio = None
 
             # rigs
             if mesh_type == BF2SkinnedMesh:
                 bone_list = list() # bone names used for this material
                 bf2_rig = bf2_lod.new_rig()
-
-            # animated UV ratio (BundledMesh)
-            if animuv_rot_center:
-                try:
-                    u_ratio, v_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], self.texture_path)
-                except (ValueError, FileNotFoundError) as e:
-                    raise ExportException(str(e)) from e
 
             # map each loop to vert index in vertex array
             loop_to_vert_idx = [-1] * len(mesh.loops)
@@ -783,13 +846,19 @@ class MeshExporter:
                     if self.has_animated_uvs:
                         vert.texcoord1 = (0, 0)
                         if animuv_rot_center and blendindices[3] in ANIM_UV_ROTATION_MATRICES:
+                            if uv_ratio is None:
+                                try:
+                                    uv_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], self.texture_path)
+                                except (ValueError, FileNotFoundError) as e:
+                                    raise ExportException(f"{lod_obj.name} (mat: {blend_material.name}): Cannot determine texture size ratio due to error: {e}")
+
                             # take the original UV and substract rotation center
                             # scale by texture size ratio, move to TEXCOORD1
                             # keeping only the center of rotation in TEXCOORD0
                             uv = vert.texcoord0
                             vert_animuv_center = animuv_rot_center.data[vert_idx].vector
-                            vert.texcoord1 = ((uv[0] - vert_animuv_center[0]) / u_ratio,
-                                            (uv[1] - vert_animuv_center[1]) / v_ratio)
+                            vert.texcoord1 = ((uv[0] - vert_animuv_center[0]) / uv_ratio[0],
+                                            (uv[1] - vert_animuv_center[1]) / uv_ratio[1])
                             vert.texcoord0 = vert_animuv_center
 
                     # check if loop can be merged, if so, add reference to the same loop

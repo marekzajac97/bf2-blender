@@ -43,6 +43,12 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         default=False
     ) # type: ignore
 
+    merge_materials: BoolProperty(
+        name="Merge Materials",
+        description="Merge repeating BF2 materials into one Blender material (NOTE: might be force disabled on SkinnedMeshes when bone limit per material is reached)",
+        default=True
+    ) # type: ignore
+
     def draw(self, context):
         layout = self.layout
 
@@ -83,6 +89,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
 
             self.__class__.IMPORT_FUNC(context, self.filepath,
                                        texture_path=mod_path,
+                                       merge_materials=self.merge_materials
                                        **kwargs)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())

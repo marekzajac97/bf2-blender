@@ -25,8 +25,36 @@ STATICMESH_TECHNIQUES = [
 ]
 
 STATICMESH_TEXUTRE_MAP_TYPES = ['Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack']
-BUNDLEDMESH_TEXTURE_MAP_TYPES = ['Diffuse', 'Normal', 'Shadow']
+BUNDLEDMESH_TEXTURE_MAP_TYPES = ['Diffuse', 'Normal', 'Wreck']
 SKINNEDMESH_TEXTURE_MAP_TYPES = ['Diffuse', 'Normal']
+
+TEXTURE_MAPS = {
+    'STATICMESH': STATICMESH_TEXUTRE_MAP_TYPES,
+    'BUNDLEDMESH': BUNDLEDMESH_TEXTURE_MAP_TYPES,
+    'SKINNEDMESH': SKINNEDMESH_TEXTURE_MAP_TYPES
+}
+
+TEXTURE_TYPE_TO_SUFFIXES = {
+    # BundledMesh/SkinnedMesh
+    'Diffuse': ('_c',),
+    'Normal': ('_b', '_b_os'),
+    'Wreck': ('_w',),
+    # StaticMesh
+    'Base': ('_c',),
+    'Detail': ('_de','_c'),
+    'Dirt': ('_di','_w'),
+    'Crack': ('_cr',),
+    'NDetail': ('_deb','_b'),
+    'NCrack': ('_crb',)
+}
+
+def get_texture_suffix(texture_type):
+    return TEXTURE_TYPE_TO_SUFFIXES[texture_type][0]
+
+def texture_suffix_is_valid(texture_path, texture_type):
+    map_filename = os.path.splitext(os.path.basename(texture_path))[0]
+    suffixes = TEXTURE_TYPE_TO_SUFFIXES[texture_type]
+    return any([map_filename.endswith(sfx) for sfx in suffixes])
 
 def _create_bf2_axes_swap():
     if 'BF2AxesSwap' in bpy.data.node_groups:
@@ -124,12 +152,6 @@ def is_staticmesh_map_allowed(material, mapname):
             technique += map_type
     return technique in STATICMESH_TECHNIQUES
 
-TEXTURE_MAPS = {
-    'STATICMESH': STATICMESH_TEXUTRE_MAP_TYPES,
-    'BUNDLEDMESH': BUNDLEDMESH_TEXTURE_MAP_TYPES,
-    'SKINNEDMESH': SKINNEDMESH_TEXTURE_MAP_TYPES
-}
-
 def get_material_maps(material):
     texture_maps = OrderedDict()
     for i, map_type in enumerate(TEXTURE_MAPS[material.bf2_shader]):
@@ -145,9 +167,14 @@ def get_tex_type_to_file_mapping(material, texture_files):
     if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         map_name_to_file['Diffuse'] = texture_files[0]
         if len(texture_files) > 1:
-            map_name_to_file['Normal'] = texture_files[1]
+            if material.bf2_shader == 'SKINNEDMESH':
+                map_name_to_file['Normal'] = texture_files[1]
+            elif texture_suffix_is_valid(texture_files[1], 'Normal'): # guess which is which by suffix
+                map_name_to_file['Normal'] = texture_files[1]
+            else:
+                map_name_to_file['Wreck'] = texture_files[1]
         if len(texture_files) > 2:
-            map_name_to_file['Shadow'] = texture_files[2]
+            map_name_to_file['Wreck'] = texture_files[2]
     elif material.bf2_shader == 'STATICMESH':
         if material.bf2_technique not in STATICMESH_TECHNIQUES:
             raise ImportException(f'Unsupported staticmesh technique "{material.bf2_technique}"')
@@ -256,7 +283,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
 
         diffuse = texture_nodes['Diffuse']
         normal = texture_nodes.get('Normal')
-        shadow = texture_nodes.get('Shadow')
+        shadow = texture_nodes.get('Wreck')
 
         node_tree.links.new(uv_map_nodes[UV_CHANNEL].outputs['UV'], diffuse.inputs['Vector'])
         if normal:
@@ -539,7 +566,6 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
 
         # ---- transparency ------
         if has_alpha:
-            # TODO alpha blend for statics, is this even used ?
             if detail:
                 alpha_output = detail.outputs['Alpha']
             else:

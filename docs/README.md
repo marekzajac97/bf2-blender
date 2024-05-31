@@ -25,7 +25,7 @@ There are two ways of importing BF2 meshes. One is to use `Import -> BF2` menu t
 ## Materials and UVs
 - Each material that is assigned to any visible mesh must be set up for export. To setup BF2 material go to `Material Properties`, you should see `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate settings: `Alpha Mode`, `Shader` and `Technique` (BundledMesh/SkinnedMesh only) as well as desired texture maps to load.
     - For StaticMesh: There will be 6 texture slots for Base, Detail, Dirt, Crack, Detail Normal, and Crack Normal. Only Base texture is mandatory, if others are not meant to be used, leave them empty.
-    - For BundledMesh: There should be 3 texture slots for Diffuse, Normal, and Shadow. Only Diffuse texture is mandatory, if others are not meant to be used, leave them empty.
+    - For BundledMesh: There should be 3 texture slots for Diffuse, Normal, and Wreck. Only Diffuse texture is mandatory, if others are not meant to be used, leave them empty.
     - For SkinnedMesh: There should be 2 texture slots for Diffuse and Normal. Only Diffuse texture is mandatory, if Normal is not meant to be used, leave it empty.
 - Clicking on `Apply Material` changes some material settings, loads textures and builds a tree of Shader Nodes that try to mimic BF2 rendering.
 - Each LOD's mesh must have a minimum of 1 and a maximum of 5 UV layers assigned and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:

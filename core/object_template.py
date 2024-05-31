@@ -21,6 +21,16 @@ TMP_PREFIX = 'TMP__'
 SKIN_PREFIX = 'SKIN__'
 ANCHOR_PREFIX = 'ANCHOR__'
 
+class GeomPartInfo:
+    def __init__(self, part_id, obj) -> None:
+        self.part_id = part_id
+        self.name = _strip_prefix(obj.name)
+        self.bf2_object_type = obj.bf2_object_type
+        self.location = obj.location.copy()
+        self.rotation_quaternion = obj.rotation_quaternion.copy()
+        self.matrix_local = obj.matrix_local.copy()
+        self.children = []
+
 def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUTO', None), reload=False, reporter=DEFAULT_REPORTER, **kwargs):
     BF2Engine().shutdown() # clear previous state
     obj_template_manager = BF2Engine().get_manager(ObjectTemplate)
@@ -126,17 +136,22 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
         if anchor_obj:
             anchor_obj.parent = mesh_obj
 
-    main_lod, obj_to_geom_part_id = _find_main_lod_and_geom_parts(mesh_geoms)
+    obj_to_geom_part = _find_geom_parts(mesh_geoms)
+
+    for obj_name, geom_part in obj_to_geom_part.items():
+        if geom_part.part_id == 0:
+            root_geom_part = geom_part
+            break
 
     for geom_obj in mesh_geoms:
         for lod_obj in geom_obj:
-            _verify_lods_consistency(main_lod, lod_obj)
+            _verify_lods_consistency(root_geom_part, lod_obj)
 
     collmesh_parts, obj_to_col_part_id = _find_collmeshes(mesh_geoms)
 
-    root_obj_template = _create_object_template(main_lod, obj_to_geom_part_id, obj_to_col_part_id)
+    root_obj_template = _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id)
     if root_obj_template is None:
-        raise ExportException(f"root object '{main_lod.name}' is missing ObjectTemplate type, check object properties!")
+        raise ExportException(f"root object '{root_geom_part.name}' is missing ObjectTemplate type, check object properties!")
     root_obj_template.save_in_separate_file = True
     root_obj_template.creator_name = getuser()
     root_obj_template.geom = GeometryTemplate(geometry_type, obj_name)
@@ -155,7 +170,7 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
     try:
         if geometry_type == 'BundledMesh':
             print(f"joining LODs...")
-            _join_lods(temp_mesh_geoms, obj_to_geom_part_id)
+            _join_lods(temp_mesh_geoms, obj_to_geom_part)
 
             root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
 
@@ -210,33 +225,27 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
     _dump_con_file(root_obj_template, con_file)
 
 
-def _find_main_lod_and_geom_parts(mesh_geoms):
-    main_lod = None
-    main_obj_to_part_id = None
-    parts_num = 0
+def _find_geom_parts(mesh_geoms):
+    obj_to_part = dict()
     for geom_obj in mesh_geoms:
         for lod_obj in geom_obj:
-            geom_parts = list()
-            obj_to_part_id = dict()
-            _collect_geometry_parts(lod_obj, geom_parts, obj_to_part_id)
-            lod_parts_num = len(geom_parts)
-            if lod_parts_num > parts_num:
-                parts_num = lod_parts_num
-                main_lod = lod_obj
-                main_obj_to_part_id = obj_to_part_id
+            _collect_geometry_parts(lod_obj, obj_to_part)
+    return obj_to_part
 
-    return main_lod, main_obj_to_part_id
-
-def _collect_geometry_parts(obj, geom_parts, obj_to_part_id):
-    part_id = len(geom_parts)
+def _collect_geometry_parts(obj, obj_to_part):
     object_name = _strip_prefix(obj.name)
-    obj_to_part_id[object_name] = part_id
-    geom_parts.append(obj)
-    # process childs
-    for _, child_obj in sorted([(child.name, child) for child in obj.children]):
+    geom_part = obj_to_part.get(object_name)
+    if geom_part is None:
+        part_id = len(obj_to_part)
+        geom_part = GeomPartInfo(part_id, obj)
+        obj_to_part[object_name] = geom_part        
+
+    for _, child_obj in sorted([(_strip_prefix(child.name), child) for child in obj.children]):
         if not _is_colmesh_dummy(child_obj):
-            _collect_geometry_parts(child_obj, geom_parts, obj_to_part_id)
-    return geom_parts
+            child_geom_part = _collect_geometry_parts(child_obj, obj_to_part)
+            if child_geom_part not in geom_part.children:
+                geom_part.children.append(child_geom_part)
+    return geom_part
 
 def _find_collmeshes(mesh_geoms):
     collmesh_parts_per_geom = list()
@@ -292,48 +301,47 @@ def _collect_collmesh_parts(obj, collmesh_parts, obj_to_part_id):
 def _is_colmesh_dummy(obj):
     return obj.name.lower().startswith(NONVIS_PRFX.lower())
 
-def _verify_lods_consistency(main_lod_obj, lod_obj):
-    main_lod_name = _strip_prefix(main_lod_obj.name)
+def _verify_lods_consistency(root_geom_part, lod_obj):
     lod_name = _strip_prefix(lod_obj.name)
 
     if any([c.isspace() for c in lod_obj.name]):
-            raise ExportException(f"'{child_obj.name}' name contain spaces!")
+        raise ExportException(f"'{child_obj.name}' name contain spaces!")
 
     if lod_obj.data is None:
         raise ExportException(f"Object '{lod_obj.name}' has no mesh data! If you don't want it to contain any, simply make it a mesh object and delete all vertices")
 
     def _inconsistency(item, val, exp_val):
-        raise ExportException(f"{lod_obj.name}: Inconsistent {item} for different LODs, got '{val}' but expected '{exp_val}'")
+        raise ExportException(f"{lod_obj.name}: Inconsistent {item} for different Geoms/LODs, got '{val}' but other Geom/LOD has '{exp_val}'")
 
-    if lod_name != main_lod_name:
-        _inconsistency('object names', lod_obj.name, main_lod_obj.name)
-    if lod_obj.bf2_object_type != main_lod_obj.bf2_object_type:
-        _inconsistency('BF2 Object Types', lod_obj.bf2_object_type, main_lod_obj.bf2_object_type)
-    if (main_lod_obj.location - lod_obj.location).length > 0.0001:
-        _inconsistency('object locations', lod_obj.location, main_lod_obj.location)
-    if main_lod_obj.rotation_quaternion.rotation_difference(lod_obj.rotation_quaternion).angle > 0.0001:
-        _inconsistency('object rotations', lod_obj.rotation_quaternion, main_lod_obj.rotation_quaternion)
+    if lod_name != root_geom_part.name:
+        _inconsistency('object names', lod_obj.name, root_geom_part.name)
+    if lod_obj.bf2_object_type != root_geom_part.bf2_object_type:
+        _inconsistency('BF2 Object Types', lod_obj.bf2_object_type, root_geom_part.bf2_object_type)
+    if (root_geom_part.location - lod_obj.location).length > 0.0001:
+        _inconsistency('object locations', lod_obj.location, root_geom_part.location)
+    if root_geom_part.rotation_quaternion.rotation_difference(lod_obj.rotation_quaternion).angle > 0.0001:
+        _inconsistency('object rotations', lod_obj.rotation_quaternion, root_geom_part.rotation_quaternion)
 
-    main_lod_children = dict()
-    for child_obj in main_lod_obj.children:
-        main_lod_children[_strip_prefix(child_obj.name)] = child_obj
+    root_geom_children = dict()
+    for child_geom_part in root_geom_part.children:
+        root_geom_children[child_geom_part.name] = child_geom_part
 
     for child_obj in lod_obj.children:
         child_name = _strip_prefix(child_obj.name)
         if _is_colmesh_dummy(child_obj):
             continue
-        if child_name not in main_lod_children:
+        if child_name not in root_geom_children:
             raise ExportException(f"Unexpected object '{child_obj.name}' found, hierarchy does not match with other LOD(s)")
 
-        prev_lod_child = main_lod_children[child_name]
-        _verify_lods_consistency(prev_lod_child, child_obj)
+        geom_part_child = root_geom_children[child_name]
+        _verify_lods_consistency(geom_part_child, child_obj)
 
-def _create_object_template(obj, obj_to_geom_part_id, obj_to_col_part_id, is_vehicle=None) -> ObjectTemplate:
-    if obj.bf2_object_type == '': # special case, geom part which has no object template (see GenericFirearm)
+def _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id, is_vehicle=None) -> ObjectTemplate:
+    if root_geom_part.bf2_object_type == '': # special case, geom part which has no object template (see GenericFirearm)
         return None
 
-    obj_name = _strip_prefix(obj.name)
-    obj_template = ObjectTemplate(obj.bf2_object_type, obj_name)
+    obj_name = root_geom_part.name
+    obj_template = ObjectTemplate(root_geom_part.bf2_object_type, obj_name)
 
     if is_vehicle is None: # root object
         # TODO: no idea how to properly detect whether the exported object
@@ -347,13 +355,13 @@ def _create_object_template(obj, obj_to_geom_part_id, obj_to_col_part_id, is_veh
         obj_template.has_collision_physics = True
         obj_template.col_part = obj_to_col_part_id[obj_name]
 
-    if obj_name in obj_to_geom_part_id:
-        obj_template.geom_part = obj_to_geom_part_id[obj_name]
+    if obj_name in obj_to_geom_part:
+        obj_template.geom_part = obj_to_geom_part[obj_name].part_id
 
-    for _, child_obj in sorted([(child.name, child) for child in obj.children]):
+    for _, child_obj in sorted([(child.name, child) for child in root_geom_part.children]):
         if _is_colmesh_dummy(child_obj): # skip collmeshes
             continue
-        child_template = _create_object_template(child_obj, obj_to_geom_part_id, obj_to_col_part_id, is_vehicle)
+        child_template = _create_object_template(child_obj, obj_to_geom_part, obj_to_col_part_id, is_vehicle)
         if child_template is None:
             continue
         child_object = ObjectTemplate.ChildObject(child_template.name)
@@ -720,16 +728,16 @@ def _create_mesh_vertex_group(obj, obj_to_vertex_group):
         if not _is_colmesh_dummy(child_obj):
             _create_mesh_vertex_group(child_obj, obj_to_vertex_group)
 
-def _map_objects_to_vertex_groups(obj, obj_to_geom_part_id, obj_to_vertex_group):
+def _map_objects_to_vertex_groups(obj, obj_to_geom_part, obj_to_vertex_group):
     org_obj_name = _strip_tmp_prefix(obj.name)
     obj_name = _strip_prefix(org_obj_name)
-    part_id = obj_to_geom_part_id[obj_name]
+    part_id = obj_to_geom_part[obj_name].part_id
     group_name = f'mesh{part_id + 1}'
     obj_to_vertex_group[obj_name] = group_name
 
     for child_obj in obj.children:
         if not _is_colmesh_dummy(child_obj):
-            _map_objects_to_vertex_groups(child_obj, obj_to_geom_part_id, obj_to_vertex_group)
+            _map_objects_to_vertex_groups(child_obj, obj_to_geom_part, obj_to_vertex_group)
 
 def _select_all_geometry_parts(obj):
     obj.select_set(True)
@@ -737,10 +745,10 @@ def _select_all_geometry_parts(obj):
         if not _is_colmesh_dummy(child_obj):
             _select_all_geometry_parts(child_obj)
 
-def _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part_id):
+def _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part):
     # first, assign one vertex group for each mesh which corresponds to geom part id
     obj_to_vertex_group = dict()
-    _map_objects_to_vertex_groups(lod_obj, obj_to_geom_part_id, obj_to_vertex_group)
+    _map_objects_to_vertex_groups(lod_obj, obj_to_geom_part, obj_to_vertex_group)
     _create_mesh_vertex_group(lod_obj, obj_to_vertex_group)
 
     # select all geom parts with meshes
@@ -749,11 +757,10 @@ def _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part_id):
     _select_all_geometry_parts(lod_obj)
     bpy.ops.object.join()
 
-
-def _join_lods(mesh_geoms, obj_to_geom_part_id):
+def _join_lods(mesh_geoms, obj_to_geom_part):
     for geom_obj in mesh_geoms:
         for lod_obj in geom_obj:
-            _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part_id)
+            _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part)
 
 def _duplicate_object(obj, recursive=True, prefix=TMP_PREFIX):
     bpy.context.view_layer.objects.active = obj

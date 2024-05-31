@@ -56,6 +56,12 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
         ]
     ) # type: ignore
 
+    merge_materials: BoolProperty(
+        name="Merge Materials",
+        description="Merge repeating BF2 materials into one Blender material (NOTE: might be force disabled on SkinnedMeshes when bone limit per material is reached)",
+        default=True
+    ) # type: ignore
+
     skeletons_to_link : CollectionProperty(type=SkeletonsToLinkCollection) # type: ignore
 
     instance=None
@@ -94,6 +100,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
                           import_collmesh=self.import_collmesh,
                           import_rig=(self.import_rig_mode, geom_to_ske),
                           texture_path=mod_path,
+                          merge_materials=self.merge_materials,
                           reporter=Reporter(self.report))
         except ImportException as e:
             self.report({"ERROR"}, str(e))
