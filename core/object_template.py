@@ -31,7 +31,8 @@ class GeomPartInfo:
         self.matrix_local = obj.matrix_local.copy()
         self.children = []
 
-def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUTO', None), reload=False, reporter=DEFAULT_REPORTER, **kwargs):
+def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUTO', None),
+                  reload=False, weld_verts=False, reporter=DEFAULT_REPORTER, **kwargs):
     BF2Engine().shutdown() # clear previous state
     obj_template_manager = BF2Engine().get_manager(ObjectTemplate)
     geom_template_manager = BF2Engine().get_manager(GeometryTemplate)
@@ -47,18 +48,27 @@ def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUT
             if root_template is None:
                 root_template = object_template
             else:
-                raise ImportException(f"{con_filepath}: found multiple root objects: {root_template}, {object_template}, which one to import?")
+                raise ImportException(f"{con_filepath}: found multiple root objects: {root_template.name}, {object_template.name}, which one to import?")
     if root_template is None:
         raise ImportException(f"{con_filepath}: root object not found!")
 
     if not root_template.geom:
         ImportException(f"The imported object '{root_template.name}' has no geometry set")
-    
-    geometry_template = geom_template_manager.templates[root_template.geom.lower()]
+
+    _verify_template(root_template)
+
+    geometry_template_name = root_template.geom.lower()
+    if geometry_template_name not in geom_template_manager.templates:
+        raise ImportException(f"Geometry '{collmesh_template_name}' is not defined")
+
+    geometry_template = geom_template_manager.templates[geometry_template_name]
 
     collmesh_template = None
     if root_template.collmesh:
-        collmesh_template = col_template_manager.templates[root_template.collmesh.lower()]
+        collmesh_template_name = root_template.collmesh.lower()
+        if collmesh_template_name not in col_template_manager.templates:
+            raise ImportException(f"Collision mesh '{collmesh_template_name}' is not defined")
+        collmesh_template = col_template_manager.templates[collmesh_template_name]
 
     con_dir = os.path.dirname(con_filepath)
     geometry_type = geometry_template.geometry_type
@@ -90,6 +100,11 @@ def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUT
                 geom_parts = {'mesh1': lod_obj} # XXX hack
             else:
                 geom_parts = _split_mesh_by_vertex_groups(context, lod_obj)
+
+            if weld_verts:
+                for geom_part_obj in geom_parts.values():
+                    _weld_verts(geom_part_obj)
+
             new_lod = _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom_idx, lod_idx)
             new_lod.parent = geom_obj
             _fix_unassigned_parts(geom_obj, new_lod)
@@ -376,7 +391,7 @@ def _strip_prefix(s):
     for char_idx, _ in enumerate(s):
         if s[char_idx:].startswith('__'):
             return s[char_idx+2:]
-    return ExportException(f"'{s}' has no GxLx__ prefix!")
+    raise ExportException(f"'{s}' has no GxLx__ prefix!")
 
 def _object_hierarchy_has_any_meshes(obj, parent_bones):
     if obj.data and isinstance(obj.data, Mesh) and len(obj.data.vertices):
@@ -838,6 +853,17 @@ def _triangulate(obj):
     bpy.ops.object.mode_set(mode='OBJECT')
     obj.hide_set(hide)
 
+def _weld_verts(obj):
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='VERT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.remove_doubles(threshold=0.0001)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
 def _get_nr_of_animted_uvs(mesh_geoms):
     matrix_set = set()
     for geom_obj in mesh_geoms:
@@ -920,3 +946,13 @@ def get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_n
         else:
             raise ImportException(f'Unhandled import_rig_mode {import_rig_mode}')
         return geom_to_ske
+
+def _verify_template(root_obj_template):
+    part_id_to_obj_template = dict()
+    def _check_geom_part_unique(obj_template):
+        if obj_template.geom_part in part_id_to_obj_template:
+            raise ImportException(f"'{obj_template.name}' has the same ObjectTemplate.geometryPart index as '{part_id_to_obj_template[obj_template.geom_part].name}'")
+        part_id_to_obj_template[obj_template.geom_part] = obj_template
+        for child in obj_template.children:
+            _check_geom_part_unique(child.template)
+    _check_geom_part_unique(root_obj_template)

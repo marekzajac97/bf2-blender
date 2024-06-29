@@ -102,7 +102,8 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
-                 texture_path='', geom_to_ske=None, merge_materials=True, reporter=DEFAULT_REPORTER):
+                 texture_path='', geom_to_ske=None, merge_materials=True,
+                 reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
         if mesh_type:
@@ -425,19 +426,25 @@ class MeshImporter:
                 bpy.data.materials.remove(material, do_unlink=True)
 
     def _get_unique_material_index(self, other_bf2_mat):
-        merge_materials = self.merge_materials
+        material_index = lod_index = geom_index = -1
         bone_count = 0
-        if merge_materials and isinstance(self.bf2_mesh, BF2SkinnedMesh):
-            for geom in self.bf2_mesh.geoms:
-                for lod in geom.lods:
-                    try:
-                        material_index = lod.materials.index(other_bf2_mat)
-                        rig = lod.rigs[material_index]
-                        bone_count = len(rig.bones)
-                    except ValueError:
-                        pass           
 
-        if merge_materials:
+        if self.merge_materials:
+            if isinstance(self.bf2_mesh, BF2SkinnedMesh):
+                for geom_idx, geom in enumerate(self.bf2_mesh.geoms):
+                    if material_index != -1:
+                        break
+                    for lod_idx, lod in enumerate(geom.lods):
+                        try:
+                            material_index = lod.materials.index(other_bf2_mat)
+                            rig = lod.rigs[material_index]
+                            bone_count = len(rig.bones)
+                            geom_index = geom_idx
+                            lod_index = lod_idx
+                            break
+                        except ValueError:
+                            pass   
+
             for mat_idx, mat_data in enumerate(self.mesh_materials):
                 bf2_mat = mat_data['bf2_mat']
                 if type(bf2_mat) != type(other_bf2_mat):
@@ -458,14 +465,20 @@ class MeshImporter:
                 if (isinstance(bf2_mat, MaterialWithTransparency) and
                     bf2_mat.alpha_mode != other_bf2_mat.alpha_mode):
                     continue
-                if mat_data['bone_count'] + bone_count > MAX_BONE_LIMIT:
-                    self.reporter.warning("Cannot merge material, bone limit has been reached")
+
+                material_bone_count = mat_data['geom_to_bone_count'].setdefault(geom_index, 0)
+                if material_bone_count + bone_count > MAX_BONE_LIMIT:
+                    self.reporter.warning(f"Geom{geom_index} Lod{lod_index}: cannot merge material {material_index}, bone limit has been reached")
                     break
-                mat_data['bone_count'] += bone_count
+                mat_data['geom_to_bone_count'][geom_index] += bone_count
+
+                # self.reporter.warning(f"Geom{geom_index} Lod{lod_index}: material {material_index} has been merged")
                 return mat_idx
 
         mat_idx = len(self.mesh_materials)
-        mat_data = {'bf2_mat': other_bf2_mat, 'bone_count': bone_count}
+        geom_to_bone_count = dict()
+        geom_to_bone_count[geom_index] = bone_count
+        mat_data = {'bf2_mat': other_bf2_mat, 'geom_to_bone_count': geom_to_bone_count}
         self.mesh_materials.append(mat_data)
         return mat_idx
 
@@ -908,7 +921,9 @@ class MeshExporter:
             return False
         for uv_chan in range(uv_count):
             uv_attr = f'texcoord{uv_chan}'
-            if getattr(this, uv_attr) != getattr(other, uv_attr):
+            this_uv = getattr(this, uv_attr)
+            other_uv = getattr(other, uv_attr)
+            if any([abs(this_uv[i] - other_uv[i]) > 0.0001 for i in (0, 1)]):
                 return False
         return True
 

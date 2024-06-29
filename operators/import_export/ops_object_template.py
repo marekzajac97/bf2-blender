@@ -62,6 +62,12 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
         default=True
     ) # type: ignore
 
+    weld_verts: BoolProperty(
+        name="Weld Vertices",
+        description="Welds vertices based on their proximity. Export process splits some of the vertices as their per-face attribute values (normals, tangents, UVs etc) differ",
+        default=False
+    ) # type: ignore
+
     skeletons_to_link : CollectionProperty(type=SkeletonsToLinkCollection) # type: ignore
 
     instance=None
@@ -86,6 +92,12 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
             row.operator(IMPORT_OT_bf2_object_skeleton_add.bl_idname, text='', icon='ADD')
             row.operator(IMPORT_OT_bf2_object_skeleton_remove.bl_idname, text='', icon='REMOVE')
 
+        col = layout.column()
+        col.prop(self, "merge_materials")
+
+        col = layout.column()
+        col.prop(self, "weld_verts")
+
     def execute(self, context):
         mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
 
@@ -101,6 +113,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
                           import_rig=(self.import_rig_mode, geom_to_ske),
                           texture_path=mod_path,
                           merge_materials=self.merge_materials,
+                          weld_verts=self.weld_verts,
                           reporter=Reporter(self.report))
         except ImportException as e:
             self.report({"ERROR"}, str(e))

@@ -61,6 +61,9 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         col.prop(self, "lod")
         col.enabled = self.only_selected_lod
 
+        col = layout.column()
+        col.prop(self, "merge_materials")
+
     def invoke(self, context, _event):
         try:
             # suggest to load only single LOD whe skeleton got imported previoulsy
@@ -89,7 +92,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
 
             self.__class__.IMPORT_FUNC(context, self.filepath,
                                        texture_path=mod_path,
-                                       merge_materials=self.merge_materials
+                                       merge_materials=self.merge_materials,
                                        **kwargs)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())

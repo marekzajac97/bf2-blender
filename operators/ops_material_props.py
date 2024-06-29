@@ -77,17 +77,19 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
             col = self.layout.column()
             col.prop(material, "is_bf2_material")
 
+            enabled = material.is_bf2_material
+
             col = self.layout.column()
             col.prop(material, "bf2_shader")
-            col.enabled = material.is_bf2_material
+            col.enabled = enabled
 
             col = self.layout.column()
             col.prop(material, "bf2_technique")
-            col.enabled = material.is_bf2_material and material.bf2_shader != 'STATICMESH'
+            col.enabled = enabled and material.bf2_shader != 'STATICMESH'
 
             col = self.layout.column()
             col.prop(material, "is_bf2_vegitation")
-            col.enabled = material.is_bf2_material and material.bf2_shader == 'STATICMESH'
+            col.enabled = enabled and material.bf2_shader == 'STATICMESH'
 
             row = self.layout.row(align=True)
             row.label(text="Alpha Mode")
@@ -101,7 +103,7 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                 elif identifier == 'ALPHA_BLEND':
                     item_layout.enabled = material.bf2_shader == 'BUNDLEDMESH'
 
-            row.enabled = material.is_bf2_material
+            row.enabled = enabled
 
             col = self.layout.column()
             if material.bf2_shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
@@ -114,26 +116,27 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
 
                 col = self.layout.column()
                 col.prop(material, "texture_slot_0", text="Base")
+                col.enabled = enabled
 
                 col = self.layout.column()
                 col.prop(material, "texture_slot_1", text="Detail")
-                col.enabled = is_staticmesh_map_allowed(material, "Detail")
+                col.enabled = enabled and is_staticmesh_map_allowed(material, "Detail")
 
                 col = self.layout.column()
                 col.prop(material, "texture_slot_2", text="Dirt")
-                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "Dirt")
+                col.enabled = enabled and not is_vegitation and is_staticmesh_map_allowed(material, "Dirt")
 
                 col = self.layout.column()
                 col.prop(material, "texture_slot_3", text="Crack")
-                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "Crack")
+                col.enabled = enabled and not is_vegitation and is_staticmesh_map_allowed(material, "Crack")
 
                 col = self.layout.column()
                 col.prop(material, "texture_slot_4", text="Detail Normal")
-                col.enabled = is_staticmesh_map_allowed(material, "NDetail")
+                col.enabled = enabled and is_staticmesh_map_allowed(material, "NDetail")
 
                 col = self.layout.column()
                 col.prop(material, "texture_slot_5", text="Crack Normal")
-                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "NCrack")
+                col.enabled = enabled and not is_vegitation and is_staticmesh_map_allowed(material, "NCrack")
 
             mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
             if not mod_path:
