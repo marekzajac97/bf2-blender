@@ -776,9 +776,8 @@ class MeshExporter:
             total_loops_count = 0
 
             # create material's vertices
-            for vert_idx, loops in vert_loops.items():
-                if vert_idx not in blend_vert_set: # filter only vertices for this material
-                    continue
+            this_material_vert_loops = filter(lambda x: x[0] in blend_vert_set, vert_loops.items())
+            for vert_idx, loops in this_material_vert_loops: 
     
                 unique_loops = dict() # loop_idx -> vertex
                 merged_loops = dict() # loop_idx -> unique loop idx
