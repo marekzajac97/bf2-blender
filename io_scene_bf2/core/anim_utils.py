@@ -150,7 +150,7 @@ def rollback_controllers(context):
     bpy.ops.object.mode_set(mode='OBJECT')
     context.view_layer.update()
 
-def setup_controllers(context, step=0, reapply_keyframes=True):
+def setup_controllers(context, step=0):
     rig = find_active_skeleton()
     if not rig:
         return
@@ -163,14 +163,14 @@ def setup_controllers(context, step=0, reapply_keyframes=True):
         _remove_mesh_mask()
 
     if rig.name.lower() == '3p_setup':
-        _setup_3p_controllers(context, rig, step, reapply_keyframes)
+        _setup_3p_controllers(context, rig, step)
     elif rig.name.lower() == '1p_setup':
-        _setup_1p_controllers(context, rig, step, reapply_keyframes)
+        _setup_1p_controllers(context, rig, step)
 
-def _setup_3p_controllers(context, rig, step, reapply_keyframes):
+def _setup_3p_controllers(context, rig, step):
     pass # TODO
 
-def _setup_1p_controllers(context, rig, step, reapply_keyframes):
+def _setup_1p_controllers(context, rig, step):
     scene = context.scene
     armature = rig.data
     context.view_layer.objects.active = rig
@@ -287,34 +287,44 @@ def _setup_1p_controllers(context, rig, step, reapply_keyframes):
         ctrl_bone_to_offset.append((mesh_bone_ctrl, mesh_bone_offset))
 
     # re-apply loaded animation for controllers
-    if reapply_keyframes:
-        saved_frame = scene.frame_current
-        for frame_idx in range(scene.frame_start, scene.frame_end + 1):
-            scene.frame_set(frame_idx)
+    saved_frame = scene.frame_current
+    keyframes_to_delete = {}
+
+    for (target, offset) in ctrl_bone_to_offset:
+        source_name = _is_ctrl_of(target.bone)
+        source = rig.pose.bones[source_name]
+
+        keyframes = _keyframes_as_dict(source)
+        for frame_idx, frame_data in sorted(keyframes.items()):
+            context.scene.frame_set(frame_idx)
             context.view_layer.update()
-            for (target, offset) in ctrl_bone_to_offset:
-                source_name = _is_ctrl_of(target.bone)
-                source = rig.pose.bones[source_name]
 
-                target_pos = offset.normalized()
-                target_pos.rotate(source.matrix @ BONE_ROT_FIX)
-                target_pos *= offset.length
-                target_pos += source.matrix.translation
+            target_pos = offset.normalized()
+            target_pos.rotate(source.matrix @ BONE_ROT_FIX)
+            target_pos *= offset.length
+            target_pos += source.matrix.translation
 
-                m = source.matrix.copy()
-                m.translation = target_pos
-                target.matrix = m
+            m = source.matrix.copy()
+            m.translation = target_pos
+            target.matrix = m
 
-                target.keyframe_insert(data_path="location", frame=frame_idx)
-                target.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
-                
-                # delete all keyframes for orignal mesh bones
-                # otherwise the CHILD_OF constraint will mess them up
-                if source_name in mesh_bones:
-                    source.keyframe_delete(data_path="location", frame=frame_idx)
-                    source.keyframe_delete(data_path="rotation_quaternion", frame=frame_idx)
-        scene.frame_set(saved_frame)
-        context.view_layer.update()
+            for data_path in ('location', 'rotation_quaternion'):
+                for data_index, _ in frame_data.get(data_path, {}).items():
+                    target.keyframe_insert(data_path=data_path, index=data_index, frame=frame_idx)
+
+                    # delete all keyframes for orignal mesh bones
+                    # otherwise the CHILD_OF constraint will mess them up
+                    if source_name in mesh_bones:
+                        to_delete = keyframes_to_delete.setdefault(source_name, [])
+                        to_delete.append({'data_path': data_path, 'index': data_index, 'frame': frame_idx})
+
+    scene.frame_set(saved_frame)
+    context.view_layer.update()
+
+    for source_name, to_delete in keyframes_to_delete.items():
+        source = rig.pose.bones[source_name]
+        for kwargs in to_delete:
+            source.keyframe_delete(**kwargs)
 
     # Constraints setup
 
