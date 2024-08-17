@@ -1,6 +1,7 @@
 import bpy # type: ignore
 import bmesh # type: ignore
 import math
+import re
 
 from mathutils import Matrix, Vector # type: ignore
 from .utils import delete_object_if_exists
@@ -38,14 +39,14 @@ def _create_mesh_object(name):
     obj = bpy.data.objects.new(name, mesh)
     return obj
 
-def _create_bone_collection(armature, name, bone_prfx, theme_idx):
+def _create_bone_collection(armature, name, bone_pattern, theme_idx):
     if name in armature.collections:
         coll = armature.collections[name]
         armature.collections.remove(coll)
     coll = armature.collections.new(name=name)
 
     for bone in armature.bones:
-        if bone.name.startswith(bone_prfx):
+        if re.match(bone_pattern, bone.name):
             bone.color.palette = f'THEME{theme_idx:>02}'
             coll.assign(bone)
 
@@ -185,9 +186,9 @@ def _setup_1p_controllers(context, rig, step, reapply_keyframes):
     ZERO_VEC = Vector((0, 0, 0))
 
     if step != 2:
-        # Create new bones
         bpy.ops.object.mode_set(mode='EDIT')
 
+        # Create new bones
         _create_ctrl_bone_from(armature, source_bone='L_wrist')
         _create_ctrl_bone_from(armature, source_bone='R_wrist')
         _create_ctrl_bone_from(armature, source_bone='L_arm')
@@ -380,10 +381,11 @@ def _setup_1p_controllers(context, rig, step, reapply_keyframes):
         if bone.name not in finger_bones and not _is_ctrl_of(bone) and bone.name not in UNHIDE_BONE:
             bone.hide = True # hidden in Pose and Object modes
 
-    _create_bone_collection(armature, 'BF2_LEFT_ARM', 'L_', 3)
-    _create_bone_collection(armature, 'BF2_RIGHT_ARM', 'R_', 4)
-    _create_bone_collection(armature, 'BF2_MESH_BONES', 'mesh', 9)
-    _create_bone_collection(armature, 'BF2_CAMERABONE', 'Camerabone', 1)
+    _create_bone_collection(armature, 'BF2_LEFT_ARM', r'^L_.*', 3) # green
+    _create_bone_collection(armature, 'BF2_LEFT_FINGERS', r'^L_(pink|index|point|ring|thumb)_\d$', 3) # green
+    _create_bone_collection(armature, 'BF2_RIGHT_ARM', r'^R_.*', 4) # blue
+    _create_bone_collection(armature, 'BF2_RIGHT_FINGERS', r'^R_(pink|index|point|ring|thumb)_\d$', 4) # blue
+    _create_bone_collection(armature, 'BF2_MESH_BONES', r'^mesh\d+', 9) # yellow
 
     bpy.ops.object.mode_set(mode='OBJECT')
 

@@ -49,7 +49,7 @@ class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
         layout = self.layout
 
         layout.label(text="Please move each 'meshX.CTRL' bone to the desired loaction,")
-        layout.label(text="it will be used as pivot for the weapon part.")
+        layout.label(text="it will be used as pivot for the corresponding weapon part.")
         layout.label(text="You can toggle showing only a specific weapon part that corresponds")
         layout.label(text="to the active bone with 'Mask mesh for active bone' in the top menu.")
         layout.label(text="")
