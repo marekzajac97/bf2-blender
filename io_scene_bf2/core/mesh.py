@@ -9,7 +9,6 @@ from mathutils import Vector # type: ignore
 from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
 from .bf2.bf2_common import Mat4
 from .bf2.bf2_mesh.bf2_visiblemesh import Material, MaterialWithTransparency, Vertex, VertexAttribute
-from .bf2.bf2_mesh.bf2_types import D3DDECLTYPE, D3DDECLUSAGE
 from .bf2.fileutils import FileUtils
 
 from .exceptions import ImportException, ExportException
@@ -517,26 +516,24 @@ class MeshExporter:
         return self.bf2_mesh  
 
     def _setup_vertex_attributes(self):
-        vert_attrs = self.bf2_mesh.vertex_attributes
-        mesh_type = type(self.bf2_mesh)
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.POSITION))
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.NORMAL))
-        if mesh_type == BF2SkinnedMesh:
-            vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT1, D3DDECLUSAGE.BLENDWEIGHT))
+        self.bf2_mesh.add_vert_attr('FLOAT3', 'POSITION')
+        self.bf2_mesh.add_vert_attr('FLOAT3', 'NORMAL')
+        if isinstance(self.bf2_mesh, BF2SkinnedMesh):
+            self.bf2_mesh.add_vert_attr('FLOAT1', 'BLENDWEIGHT')
 
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.D3DCOLOR, D3DDECLUSAGE.BLENDINDICES))
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD0))
+        self.bf2_mesh.add_vert_attr('D3DCOLOR', 'BLENDINDICES')
+        self.bf2_mesh.add_vert_attr('FLOAT2', 'TEXCOORD0')
         if self.has_animated_uvs:
-            vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
+            self.bf2_mesh.add_vert_attr('FLOAT2', 'TEXCOORD1')
 
-        elif mesh_type == BF2StaticMesh:
+        elif isinstance(self.bf2_mesh, BF2StaticMesh):
             # XXX: do we need all those texcoords for vertex if none of the materials use dirt, crack etc??
-            vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD1))
-            vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD2))
-            vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD3))
+            self.bf2_mesh.add_vert_attr('FLOAT2', 'TEXCOORD1')
+            self.bf2_mesh.add_vert_attr('FLOAT2', 'TEXCOORD2')
+            self.bf2_mesh.add_vert_attr('FLOAT2', 'TEXCOORD3')
             if self.gen_lightmap_uv or self._has_lightmap_uv():
-                vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT2, D3DDECLUSAGE.TEXCOORD4))
-        vert_attrs.append(VertexAttribute(D3DDECLTYPE.FLOAT3, D3DDECLUSAGE.TANGENT))
+                self.bf2_mesh.add_vert_attr('FLOAT2', 'TEXCOORD4')
+        self.bf2_mesh.add_vert_attr('FLOAT3', 'TANGENT')
 
     def _has_anim_uv(self):
         if not isinstance(self.bf2_mesh, BF2BundledMesh):

@@ -220,14 +220,14 @@ public:
         polys.reserve(faces.size());
         std::vector<size_t> poly_indexes;
         poly_indexes.reserve(faces.size());
-        for (int i = 0; i < faces.size(); ++i) {
+        for (size_t i = 0; i < faces.size(); ++i) {
             const Face& face = faces[i];
             poly_indexes.push_back(i);
             polys.push_back(Poly(face, verts));
         }
 
         planes.reserve(vert_count * 3);
-        for (int i = 0; i < vert_count; ++i) {
+        for (size_t i = 0; i < vert_count; ++i) {
             Vec3 vertx = verts[i];
             AxisPlanes planes_per_axis = {
                 Plane(vertx.x, 0),

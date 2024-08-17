@@ -1,14 +1,21 @@
 # BSP Builder
-The pure-python implementation of the CollisionMesh export exists but it's painfully slow, therefore this C++ exstenstion module is required for a fast CollisionMesh export.
+A python native extenstion module for fast binary space partitioning of BF2 collision meshes. The pure-python implementation of this module does exist as well but it's painfully slow, therefore it's only used as a backup.
 
 ## Prerequisites
 - A compiler with C++14 support
-- CMake >= 3.4 (or 3.14+ on Windows)
-- A Python install with version matching Blender's interpreter
+- A python installation with version matching target Blender's interpreter. Alternatively, just the target Blender build can be used by setting your `PATH` variable to point to its python executable.
+
+    - on Windows
+    ```
+    set PATH="<BLENDER_INSTAL_DIR>\<BLENDER_VERSION>\python\bin;%PATH%"
+    ```
+
+    - on Unix (Linux/macOS)
+    ```
+    export PATH="<BLENDER_INSTAL_DIR>/<BLENDER_VERSION>/python/bin:$PATH"
+    ```
 
 ## Building
 ```
-mkdir build && cd build
-cmake ..
-make
+python setup.py build_ext --build-lib ../io_scene_bf2/core/bf2/
 ```

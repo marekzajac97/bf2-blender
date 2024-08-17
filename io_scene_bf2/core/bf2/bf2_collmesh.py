@@ -1,19 +1,22 @@
+import os
 from typing import Dict, List, Tuple, Optional
+from inspect import getmodule
+from importlib.machinery import ExtensionFileLoader, EXTENSION_SUFFIXES
+from types import ModuleType
 
 from .fileutils import FileUtils
-
+from .bsp_builder import BspBuilder
 from .bf2_common import Vec3, calc_bounds, load_n_elems
 
-NATIVE_BSP_EXPORT = True
+def is_native_extension(module: ModuleType) -> bool:
+    if isinstance(getattr(module, '__loader__', None), ExtensionFileLoader):
+        return True
+    return os.path.splitext(module.__file__)[1] in EXTENSION_SUFFIXES
 
-try:
-    from .bsp_builder import BspBuilder
-except ImportError as e:
-    print(f"Error importing BSP builder '{e}'. Falling back to slow af python implementation")
-    NATIVE_BSP_EXPORT = False
-    from .py_bsp_builder import BspBuilder
+NATIVE_BSP_EXPORT = is_native_extension(getmodule(BspBuilder))
 
-import os
+if not NATIVE_BSP_EXPORT:
+    print(f"Unable to import native BSP builder. Falling back to slow af python implementation")
 
 class BF2CollMeshException(Exception):
     pass

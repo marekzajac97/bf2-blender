@@ -1,4 +1,6 @@
 __pycache__/
 *.code-workspace
 *.pyd
-release/
+.vscode/
+*.zip
+*.so

@@ -5,6 +5,7 @@ import traceback
 from bpy.props import IntProperty, BoolProperty, EnumProperty # type: ignore
 from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
 from ..core.mesh import AnimUv, _flip_uv
+from ..core.object_template import parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 
 def _bf2_setup_started(context):
     context.scene['bf2_is_setup'] = True
@@ -47,7 +48,8 @@ class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
 
-        layout.label(text="Please move every 'meshX.CTRL' bones to the desired loaction, they will be used as pivots for weapon meshes.")
+        layout.label(text="Please move each 'meshX.CTRL' bone to the desired loaction,")
+        layout.label(text="it will be used as pivot for the weapon part.")
         layout.label(text="You can toggle showing only a specific weapon part that corresponds")
         layout.label(text="to the active bone with 'Mask mesh for active bone' in the top menu.")
         layout.label(text="")
@@ -92,6 +94,7 @@ def menu_func_view3d(self, context):
     self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_end.bl_idname, text="Finish setup")
     self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_mask.bl_idname, text="Mask mesh for active bone")
 
+# --------------------------------------------------------------------
 
 class EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix(bpy.types.Operator):
     bl_idname = "bf2_mesh.select_uv_matrix"
@@ -202,40 +205,49 @@ class EDIT_MESH_MT_bf2_submenu(bpy.types.Menu):
         self.layout.operator(op_matrix, text="Set Left Track Translation").uv_matrix_index = AnimUv.L_TRACK_TRANSLATION
         self.layout.operator(op_matrix, text="Set Right Track Translation").uv_matrix_index = AnimUv.R_TRACK_TRANSLATION
 
+# --------------------------------------------------------------------
+
 class POSE_OT_bf2_change_parent(bpy.types.Operator):
     bl_idname = "bf2_armature.change_parent"
     bl_label = "Change Parent"
-    bl_description = "Change parent of the the bone withouth breaking the animation"
-
-    def get_bones(self, context):
-        armature = context.view_layer.objects.active.data
-        items = []
-        for i, bone in enumerate(armature.bones):
-            if bone.name.endswith('CTRL'):
-                items.append((bone.name, bone.name, "", i))
-        items.append(('NONE', 'NONE', "", len(items)))
-        return items
-
-    parent_bone : EnumProperty(
-        name="Parent Bone",
-        description="Name of the parent bone, select NONE to remove parent",
-        items=get_bones
-    ) # type: ignore
+    bl_description = "Parents all selected bones to the active bone while also adjusting all position/rotation keyframes"
 
     @classmethod
     def poll(cls, context):
-        return context.selected_pose_bones_from_active_object
-
-    def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
+        parent = context.active_pose_bone
+        if not parent or parent not in context.selected_pose_bones_from_active_object:
+            cls.poll_message_set("No active bone")
+            return False
+        selected = list(filter(lambda b: b.name != parent.name, context.selected_pose_bones_from_active_object))
+        if not selected:
+            cls.poll_message_set("No bones selected (need at least two, the active one will be the parent)")
+            return False
+        return True
 
     def execute(self, context):
         rig = context.view_layer.objects.active
-        bones = [b.name for b in context.selected_pose_bones_from_active_object]
-        parent_bone = self.parent_bone
-        if parent_bone == 'NONE':
-            parent_bone = None
+        parent_bone = context.active_pose_bone.name
+        bones = list(filter(lambda b: b != parent_bone, map(lambda b: b.name, context.selected_pose_bones_from_active_object)))
         reparent_bones(rig, bones, parent_bone)
+        return {'FINISHED'}
+
+
+class POSE_OT_bf2_clear_parent(bpy.types.Operator):
+    bl_idname = "bf2_armature.clear_parent"
+    bl_label = "Clear Parent"
+    bl_description = "Clears parent of all selected bones while also adjusting all position/rotation keyframes"
+
+    @classmethod
+    def poll(cls, context):
+        if not context.selected_pose_bones_from_active_object:
+            cls.poll_message_set("No bones selected")
+            return False
+        return True
+
+    def execute(self, context):
+        rig = context.view_layer.objects.active
+        bones = list(map(lambda b: b.name, context.selected_pose_bones_from_active_object))
+        reparent_bones(rig, bones, None)
         return {'FINISHED'}
 
 def menu_func_edit_mesh(self, context):
@@ -246,14 +258,77 @@ class POSE_MT_bf2_submenu(bpy.types.Menu):
     bl_label = "Battlefield 2"
 
     def draw(self, context):
-        op_reparent = POSE_OT_bf2_change_parent.bl_idname
-        self.layout.operator(op_reparent)
+        self.layout.operator(POSE_OT_bf2_change_parent.bl_idname)
+        self.layout.operator(POSE_OT_bf2_clear_parent.bl_idname)
 
 def menu_func_pose(self, context):
     self.layout.menu(POSE_MT_bf2_submenu.bl_idname, text="BF2")
 
+# --------------------------------------------------------------------
+
+class OBJECT_SHOWHIDE_OT_bf2_show_hide(bpy.types.Operator):
+    bl_idname = "bf2_object.hide_col"
+    bl_label = "Show/Hide Collision Meshes"
+    bl_description = "Show/Hide all Collision Meshes"
+
+    show: BoolProperty(
+        name="Show CollisionMesh",
+        default=False
+    ) # type: ignore
+
+    def _exec(self, obj):
+        if obj is None:
+            return
+        if obj.name.startswith(NONVIS_PRFX):
+            for col in obj.children:
+                if COL_SUFFIX in col.name:
+                    col.hide_set(not self.show)
+        for child in obj.children:
+            self._exec(child)
+
+    def execute(self, context):
+        try:
+            self._exec(self.root)
+        except Exception as e:
+            self.report({"ERROR"}, traceback.format_exc())
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        self.root = self.find_root(context.view_layer.objects.active)
+        return self.execute(context)
+
+    @classmethod
+    def find_root(cls, obj):
+        if obj is None:
+            return None
+        if parse_geom_type_safe(obj):
+            return obj
+        return cls.find_root(obj.parent)
+
+    @classmethod
+    def poll(cls, context):
+        try:
+            return cls.find_root(context.view_layer.objects.active)
+        except Exception as e:
+            cls.poll_message_set(str(e))
+            return False
+
+class OBJECT_SHOWHIDE_MT_bf2_submenu(bpy.types.Menu):
+    bl_idname = "OBJECT_MT_bf2_submenu"
+    bl_label = "Battlefield 2"
+
+    def draw(self, context):
+        self.layout.operator(OBJECT_SHOWHIDE_OT_bf2_show_hide.bl_idname, text="Show Collision Meshes").show = True
+        self.layout.operator(OBJECT_SHOWHIDE_OT_bf2_show_hide.bl_idname, text="Hide Collision Meshes").show = False
+
+
+def menu_func_object_showhide(self, context):
+    self.layout.menu(OBJECT_SHOWHIDE_MT_bf2_submenu.bl_idname, text="BF2")
+
+
 def register():
     bpy.utils.register_class(POSE_OT_bf2_change_parent)
+    bpy.utils.register_class(POSE_OT_bf2_clear_parent)
     bpy.utils.register_class(POSE_MT_bf2_submenu)
     bpy.types.VIEW3D_MT_pose.append(menu_func_pose)
 
@@ -270,7 +345,15 @@ def register():
     bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_end)
     bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_mask)
 
+    bpy.utils.register_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
+    bpy.utils.register_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
+    bpy.types.VIEW3D_MT_object_showhide.append(menu_func_object_showhide)
+
 def unregister():
+    bpy.types.VIEW3D_MT_object_showhide.remove(menu_func_object_showhide)
+    bpy.utils.unregister_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
+    bpy.utils.unregister_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
+
     bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_mask)
     bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_end)
     bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_begin)
@@ -286,4 +369,5 @@ def unregister():
 
     bpy.types.VIEW3D_MT_pose.remove(menu_func_pose)
     bpy.utils.unregister_class(POSE_MT_bf2_submenu)
+    bpy.utils.unregister_class(POSE_OT_bf2_clear_parent)
     bpy.utils.unregister_class(POSE_OT_bf2_change_parent)

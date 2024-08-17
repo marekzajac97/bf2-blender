@@ -4,12 +4,76 @@ import struct
 import math
 from typing import List, Optional, Tuple
 
-from .bf2_types import D3DDECLTYPE, D3DDECLUSAGE, D3DPRIMITIVETYPE, USED, UNUSED
+
 from ..fileutils import FileUtils
 from ..bf2_common import Vec3, Mat4, load_n_elems, calc_bounds
 
 class BF2MeshException(Exception):
     pass
+
+# copy-pastes from D3DX9 SDK
+class D3DDECLTYPE(enum.IntEnum):
+    FLOAT1 = 0  # 1D float expanded to (value, 0., 0., 1.)
+    FLOAT2 = 1  # 2D float expanded to (value, value, 0., 1.)
+    FLOAT3 = 2  # 3D float expanded to (value, value, value, 1.)
+    FLOAT4 = 3  # 4D float
+    D3DCOLOR = 4  # 4D packed unsigned bytes mapped to 0. to 1. range
+    UBYTE4 = 5
+    SHORT2 = 6
+    SHORT4 = 7
+    UBYTE4N = 8
+    SHORT2N = 9
+    SHORT4N = 10
+    USHORT2N = 11
+    USHORT4N = 12
+    UDEC3 = 13
+    DEC3N = 14
+    FLOAT16_2 = 15
+    FLOAT16_4 = 16
+    UNUSED = 17  # When the type field in a decl is unused.
+
+    def get_struct_fmt(self):
+        _TYPE_TO_FORMAT = {
+            D3DDECLTYPE.FLOAT1: '1f',
+            D3DDECLTYPE.FLOAT2: '2f',
+            D3DDECLTYPE.FLOAT3: '3f',
+            D3DDECLTYPE.FLOAT4: '4f',
+            D3DDECLTYPE.D3DCOLOR: '4B',
+            D3DDECLTYPE.UNUSED: '', # will evaluate to 0 using calcsize
+        }
+
+        return _TYPE_TO_FORMAT[self]
+
+
+class D3DDECLUSAGE(enum.IntEnum):
+    POSITION = 0
+    BLENDWEIGHT = 1
+    BLENDINDICES = 2
+    NORMAL = 3
+    PSIZE = 4
+    TEXCOORD0 = 5
+    TANGENT = 6
+    BINORMAL = 7
+    TESSFACTOR = 8
+    POSITIONT = 9
+    COLOR = 10
+    FOG = 11
+    DEPTH = 12
+    SAMPLE = 13
+    # BF2 custom enums
+    TEXCOORD1 = 1 << 8 | 5
+    TEXCOORD2 = 2 << 8 | 5
+    TEXCOORD3 = 3 << 8 | 5
+    TEXCOORD4 = 4 << 8 | 5
+
+
+class D3DPRIMITIVETYPE(enum.IntEnum):
+    POINTLIST = 1
+    LINELIST = 2
+    LINESTRIP = 3
+    TRIANGLELIST = 4
+    TRIANGLESTRIP = 5
+    TRIANGLEFAN = 6
 
 
 class Vertex:
@@ -97,7 +161,7 @@ class Material:
             vertex = Vertex()
             self.vertices.append(vertex)
             for vertex_attr in vertex_attributes:
-                if vertex_attr._flag == UNUSED:
+                if vertex_attr._flag == VertexAttribute.UNUSED:
                     continue
                 fmt = vertex_attr.decl_type.get_struct_fmt()
                 size = struct.calcsize(fmt)
@@ -111,7 +175,7 @@ class Material:
         self._vnum = len(self.vertices)
         for vertex in self.vertices:
             for vertex_attr in vertex_attributes:
-                if vertex_attr._flag == UNUSED:
+                if vertex_attr._flag == VertexAttribute.UNUSED:
                     continue
                 fmt = vertex_attr.decl_type.get_struct_fmt()
                 vertex_attr_value = getattr(vertex, vertex_attr.decl_usage.name.lower())
@@ -316,6 +380,9 @@ class Geom:
 
 
 class VertexAttribute:
+    USED = 0
+    UNUSED = 255
+
     def __init__(self, decl_type : D3DDECLTYPE, decl_usage : D3DDECLUSAGE):
         self._flag = None # USED\UNUSED
         self._offset = None # byte offset from vertex_buffer start
@@ -396,7 +463,7 @@ class BF2VisibleMesh():
         self.geoms = load_n_elems(f, self._GEOM_TYPE, count=f.read_dword())
         self.vertex_attributes = load_n_elems(f, VertexAttribute, count=f.read_dword())
 
-        if self.vertex_attributes[-1]._flag == UNUSED:
+        if self.vertex_attributes[-1]._flag == VertexAttribute.UNUSED:
             # skip unused, dunno what is the purpouse of this
             self.vertex_attributes.pop()
 
@@ -438,10 +505,10 @@ class BF2VisibleMesh():
 
             vertex_decl_size = 0
             for vertex_attr in self.vertex_attributes:
-                if vertex_attr._flag == UNUSED:
+                if vertex_attr._flag == VertexAttribute.UNUSED:
                     continue
                 vertex_attr._offset = vertex_decl_size
-                vertex_attr._flag = USED
+                vertex_attr._flag = VertexAttribute.USED
                 vertex_attr.save(f)
                 fmt = vertex_attr.decl_type.get_struct_fmt()
                 vertex_decl_size += struct.calcsize(fmt)
@@ -449,7 +516,7 @@ class BF2VisibleMesh():
             # add last dummy attribute that always is set to unused for _reasons_
             unused_attr = VertexAttribute(D3DDECLTYPE.UNUSED, 0)
             unused_attr._offset = 0
-            unused_attr._flag = UNUSED
+            unused_attr._flag = VertexAttribute.UNUSED
             unused_attr.save(f)
 
             f.write_dword(D3DPRIMITIVETYPE.TRIANGLELIST)
@@ -489,6 +556,10 @@ class BF2VisibleMesh():
             for geom in self.geoms:
                 for lod in geom.lods:
                     lod.save_materials(f)
+
+    def add_vert_attr(self, decl_type, decl_usage):
+        vert_attr = VertexAttribute(D3DDECLTYPE[decl_type], D3DDECLUSAGE[decl_usage])
+        self.vertex_attributes.append(vert_attr)
 
     def _has_vert_attr(self, decl_usage):
         for vert_attr in self.vertex_attributes:

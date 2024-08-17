@@ -129,6 +129,12 @@ def parse_geom_type(mesh_obj):
     geometry_type = GeometryTemplate.TYPES[gt]
     return geometry_type, obj_name
 
+def parse_geom_type_safe(mesh_obj):
+    try:
+        return parse_geom_type(mesh_obj)
+    except Exception:
+        return None
+
 def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                   apply_modifiers=False, triangluate=False, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
