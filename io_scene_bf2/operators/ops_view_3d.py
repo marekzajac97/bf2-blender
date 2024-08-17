@@ -4,17 +4,16 @@ import traceback
 
 from bpy.props import IntProperty, BoolProperty, EnumProperty # type: ignore
 from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
+from ..core.skeleton import is_bf2_seketon
 from ..core.mesh import AnimUv, _flip_uv
 from ..core.object_template import parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 
-def _bf2_setup_started(context):
-    context.scene['bf2_is_setup'] = True
+def _bf2_setup_started(context, rig):
+    context.scene['bf2_is_setup'] = rig.name
     bpy.types.VIEW3D_MT_editor_menus.append(menu_func_view3d)
 
-
 def _bf2_is_setup(context):
-    return 'bf2_is_setup' in context.scene and context.scene['bf2_is_setup']
-
+    return context.scene.get('bf2_is_setup')
 
 def _bf2_setup_finished(context):
     if 'bf2_is_setup' in context.scene:
@@ -44,6 +43,7 @@ class IMPORT_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
 class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
     bl_idname = "bf2_animation.anim_ctrl_setup_begin"
     bl_label = "Setup controllers"
+    bl_description = "Setup animation controller bones and basic IK constraints (for 1P animations only!)"
 
     def draw(self, context):
         layout = self.layout
@@ -55,17 +55,23 @@ class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
         layout.label(text="")
         layout.label(text="When You are done, click on 'Finish setup'")
 
+    @classmethod
+    def poll(cls, context):
+        rig = context.view_layer.objects.active
+        return rig and is_bf2_seketon(rig)
+
     def execute(self, context):
         try:
-            setup_controllers(context, step=1)
-            _bf2_setup_started(context)
+            setup_controllers(context, self.rig, step=1)
+            _bf2_setup_started(context, self.rig)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        self.rig = context.view_layer.objects.active
         return context.window_manager.invoke_props_dialog(self, width=500)
-    
+
     def cancel(self, context):
         bpy.ops.bf2_animation.anim_ctrl_setup_begin('INVOKE_DEFAULT')
 
@@ -76,13 +82,15 @@ class IMPORT_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            setup_controllers(context, step=2)
+            setup_controllers(context, self.rig, step=2)
             _bf2_setup_finished(context)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        rig_name = _bf2_is_setup(context)
+        self.rig = bpy.data.objects[rig_name]
         return self.execute(context)
 
     @classmethod
@@ -260,6 +268,7 @@ class POSE_MT_bf2_submenu(bpy.types.Menu):
     def draw(self, context):
         self.layout.operator(POSE_OT_bf2_change_parent.bl_idname)
         self.layout.operator(POSE_OT_bf2_clear_parent.bl_idname)
+        self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_begin.bl_idname)
 
 def menu_func_pose(self, context):
     self.layout.menu(POSE_MT_bf2_submenu.bl_idname, text="BF2")

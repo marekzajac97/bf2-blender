@@ -48,6 +48,9 @@ def find_all_skeletons():
             rig_objs.append(obj)
     return rig_objs
 
+def is_bf2_seketon(obj):
+    return 'bf2_bones' in obj.keys()
+
 def find_animated_weapon_object():
     rig = find_active_skeleton()
     if not rig:

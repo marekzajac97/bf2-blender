@@ -29,6 +29,7 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
         try:
            import_animation(context, self.filepath)
            if self.setup_ctrls:
+               context.view_layer.objects.active = find_active_skeleton()
                bpy.ops.bf2_animation.anim_ctrl_setup_begin('INVOKE_DEFAULT')
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())

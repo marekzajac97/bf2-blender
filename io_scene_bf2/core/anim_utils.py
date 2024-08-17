@@ -150,11 +150,7 @@ def rollback_controllers(context):
     bpy.ops.object.mode_set(mode='OBJECT')
     context.view_layer.update()
 
-def setup_controllers(context, step=0):
-    rig = find_active_skeleton()
-    if not rig:
-        return
-
+def setup_controllers(context, rig, step=0):
     # cleanup previuous
     if step != 2:
         rollback_controllers(context)
@@ -462,6 +458,8 @@ def toggle_mesh_mask_mesh_for_active_bone(context):
 def _get_bone_fcurves(pose_bone, data_path):
     armature_obj = pose_bone.id_data
     path = f'pose.bones["{bpy.utils.escape_identifier(pose_bone.name)}"].{data_path}'
+    if armature_obj.animation_data is None:
+        return
     fcurves = armature_obj.animation_data.action.fcurves
     for fcu in fcurves:
         if fcu.data_path.startswith(path):

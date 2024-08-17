@@ -564,9 +564,9 @@ class MeshExporter:
             if geom_idx in mesh_geoms:
                 raise ExportException(f"mesh object '{mesh_obj.name}' has duplicated G{geom_idx}")
             if tuple(geom_obj.location) != (0, 0, 0):
-                raise ExportException(f"{geom_obj.name}: location of the geom object must be (0, 0, 0) but got '{geom_obj.location}'")
+                raise ExportException(f"{geom_obj.name}: geom object must not be moved relative to its root (actual location: {geom_obj.location})")
             if tuple(geom_obj.rotation_quaternion) != (1, 0, 0, 0):
-                raise ExportException(f"{geom_obj.name}: geom object must have no rotation '{geom_obj.rotation_quaternion}'")
+                raise ExportException(f"{geom_obj.name}: geom object must not be rotated relative to its root, (actual rotation: {geom_obj.rotation_quaternion})")
 
             mesh_geoms[geom_idx] = geom_obj
         for _, geom_obj in sorted(mesh_geoms.items()):
@@ -581,6 +581,10 @@ class MeshExporter:
                 _, lod_idx = check_prefix(lod_obj.name, ('G', 'L'))
                 if lod_idx in mesh_lods:
                     raise ExportException(f"geom '{geom_obj.name}' has duplicated L{lod_idx}")
+                if tuple(lod_obj.location) != (0, 0, 0):
+                    raise ExportException(f"{lod_obj.name}: lod object must not be moved relative to its geom (actual location: {lod_obj.location})")
+                if tuple(lod_obj.rotation_quaternion) != (1, 0, 0, 0):
+                    raise ExportException(f"{lod_obj.name}: lod object must not be rotated relative to its geom, (actual rotation: {lod_obj.rotation_quaternion})")
                 mesh_lods[lod_idx] = lod_obj
             for _, lod_obj in sorted(mesh_lods.items()):
                 if lod_obj.data is None:
