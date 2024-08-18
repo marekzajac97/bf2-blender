@@ -250,13 +250,13 @@ class Col:
     @classmethod
     def load(cls, f : FileUtils, version):
         obj = cls()
-        obj.col_type : Col.ColType = f.read_dword()
+        obj.col_type = f.read_dword()
 
-        obj.faces : List[Face] = load_n_elems(f, Face, count=f.read_dword())
+        obj.faces = load_n_elems(f, Face, count=f.read_dword())
 
         vertnum = f.read_dword()
-        obj.verts : List[Vec3] = load_n_elems(f, Vec3, count=vertnum)
-        obj.vert_materials : List[int] = [f.read_word() for _ in range(vertnum)]
+        obj.verts = load_n_elems(f, Vec3, count=vertnum)
+        obj.vert_materials = [f.read_word() for _ in range(vertnum)]
 
         obj.min = Vec3.load(f)
         obj.max = Vec3.load(f)
@@ -309,12 +309,12 @@ class Col:
 
 class Geom:
     def __init__(self):
-        self.cols : List[Col] = []
+        self.cols = []
 
     @classmethod
     def load(cls, f : FileUtils, version):
         obj = cls()
-        obj.cols : List[Col] = load_n_elems(f, Col, count=f.read_dword(), version=version)
+        obj.cols = load_n_elems(f, Col, count=f.read_dword(), version=version)
         return obj
     
     def save(self, f : FileUtils, **kwargs):
@@ -330,7 +330,7 @@ class GeomPart:
     @classmethod
     def load(cls, f : FileUtils, version):
         obj = cls()
-        obj.geoms : List[Geom] = load_n_elems(f, Geom, count=f.read_dword(), version=version)
+        obj.geoms = load_n_elems(f, Geom, count=f.read_dword(), version=version)
         return obj
 
     def save(self, f : FileUtils, **kwargs):

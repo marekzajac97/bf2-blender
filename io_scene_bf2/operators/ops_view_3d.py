@@ -2,7 +2,7 @@ import bpy # type: ignore
 import bmesh # type: ignore
 import traceback
 
-from bpy.props import IntProperty, BoolProperty
+from bpy.props import IntProperty, BoolProperty # type: ignore
 from ..core.utils import Reporter
 from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
 from ..core.skeleton import is_bf2_skeleton
