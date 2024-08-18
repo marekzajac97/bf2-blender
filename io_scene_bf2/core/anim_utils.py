@@ -4,12 +4,22 @@ import math
 import re
 
 from mathutils import Matrix, Vector # type: ignore
-from .utils import delete_object_if_exists
+from .utils import DEFAULT_REPORTER, delete_object_if_exists
 from .skeleton import (find_animated_weapon_object,
                        find_active_skeleton,
                        ske_weapon_part_ids)
 
 AUTO_SETUP_ID = 'bf2_auto_setup' # identifier for custom bones and constraints
+
+# inverse matrix to treat bones pointing 'up' as having no rotation
+BONE_ROT_FIX = Matrix.Rotation(math.radians(-90), 4, 'X')
+
+# offset of the knee/elbow IK pole
+POLE_OFFSET = 0.5
+
+# constatnts
+ONES_VEC = Vector((1, 1, 1))
+ZERO_VEC = Vector((0, 0, 0))
 
 def _create_ctrl_bone_from(armature, source_bone, name=''):
     name = name if name else source_bone
@@ -92,6 +102,30 @@ def _create_sphere_mesh_shape(mesh, size=1, axes=[0, 1, 2]):
     bm.to_mesh(mesh)
     bm.free()
 
+def _create_bone_shapes(context):
+    CUBE_SHAPE_SIZE = 0.07
+    CUBE_SHAPE_NAME = '_CubeBoneShape'
+    RING_SHAPE_SIZE = 0.04
+    RING_SHAPE_NAME = '_RingBoneShape'
+    SPHERE_SHAPE_NAME = '_SphereBoneShape'
+    SPHERE_SHAPE_SIZE = 0.02
+
+    shapes = dict()
+
+    shapes['CUBE'] = _create_shape(name=CUBE_SHAPE_NAME, size=CUBE_SHAPE_SIZE, type='CUBE')
+    shapes['SPHERE'] = _create_shape(name=SPHERE_SHAPE_NAME, size=SPHERE_SHAPE_SIZE, type='SPHERE') 
+    shapes['RING'] = _create_shape(name=RING_SHAPE_NAME, size=RING_SHAPE_SIZE, type='RING')
+
+    context.scene.collection.objects.link(shapes['CUBE'])
+    context.collection.objects.link(shapes['SPHERE'])
+    context.collection.objects.link(shapes['RING'])
+
+    return shapes
+
+def _apply_shape(bone, shape, scale=1.0):
+    bone.custom_shape = shape
+    bone.custom_shape_scale_xyz = (ONES_VEC / bone.length) * scale
+
 def _calc_weapon_mesh_contoller_pos():
     bone_to_pos = dict()
     obj = find_animated_weapon_object()
@@ -123,6 +157,45 @@ def _get_active_mesh_bones():
         for vg in obj.vertex_groups:
             mesh_bones.add(vg.name)
     return mesh_bones
+
+def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
+    saved_frame = context.scene.frame_current
+    keyframes_to_delete = {}
+    for (target, offset) in ctrl_bone_to_offset:
+        source_name = _is_ctrl_of(target.bone)
+        source = rig.pose.bones[source_name]
+
+        keyframes = _keyframes_as_dict(source)
+        for frame_idx, frame_data in sorted(keyframes.items()):
+            context.scene.frame_set(frame_idx)
+            context.view_layer.update()
+
+            target_pos = offset.normalized()
+            target_pos.rotate(source.matrix @ BONE_ROT_FIX)
+            target_pos *= offset.length
+            target_pos += source.matrix.translation
+
+            m = source.matrix.copy()
+            m.translation = target_pos
+            target.matrix = m
+
+            for data_path in ('location', 'rotation_quaternion'):
+                for data_index, _ in frame_data.get(data_path, {}).items():
+                    target.keyframe_insert(data_path=data_path, index=data_index, frame=frame_idx)
+
+                    # delete all keyframes for orignal mesh bones
+                    # otherwise the CHILD_OF constraint will mess them up
+                    if source_name in mesh_bones:
+                        to_delete = keyframes_to_delete.setdefault(source_name, [])
+                        to_delete.append({'data_path': data_path, 'index': data_index, 'frame': frame_idx})
+
+    context.scene.frame_set(saved_frame)
+    context.view_layer.update()
+
+    for source_name, to_delete in keyframes_to_delete.items():
+        source = rig.pose.bones[source_name]
+        for kwargs in to_delete:
+            source.keyframe_delete(**kwargs)
 
 def rollback_controllers(context):
     rig = find_active_skeleton()
@@ -164,22 +237,245 @@ def setup_controllers(context, rig, step=0):
         _setup_1p_controllers(context, rig, step)
 
 def _setup_3p_controllers(context, rig, step):
-    pass # TODO
-
-def _setup_1p_controllers(context, rig, step):
-    scene = context.scene
     armature = rig.data
     context.view_layer.objects.active = rig
 
-    # inverse matrix to treat bones pointing 'up' as having no rotation
-    BONE_ROT_FIX = Matrix.Rotation(math.radians(-90), 4, 'X')
+    if step != 2:
+        bpy.ops.object.mode_set(mode='EDIT')
 
-    # offset of the elbow IK pole
-    POLE_OFFSET = 0.5
+        # Create new bones
+        _create_ctrl_bone_from(armature, source_bone='L_wrist')
+        _create_ctrl_bone_from(armature, source_bone='R_wrist')
+        _create_ctrl_bone_from(armature, source_bone='left_shoulder')
+        _create_ctrl_bone_from(armature, source_bone='right_shoulder')
 
-    # constatnts
-    ONES_VEC = Vector((1, 1, 1))
-    ZERO_VEC = Vector((0, 0, 0))
+        _create_ctrl_bone_from(armature, source_bone='right_foot')
+        _create_ctrl_bone_from(armature, source_bone='left_foot')
+
+        # Arms controllers
+        left_elbow = armature.edit_bones['left_elbow']
+        left_elbow_CTRL_pos = Vector((1, 0, 0))
+        left_elbow_CTRL_pos.rotate(left_elbow.matrix @ BONE_ROT_FIX)
+        left_elbow_CTRL_pos *= POLE_OFFSET
+        left_elbow_CTRL_pos += left_elbow.head
+
+        right_elbow = armature.edit_bones['right_elbow']
+        right_elbow_CTRL_pos = Vector((1, 0, 0))
+        right_elbow_CTRL_pos.rotate(right_elbow.matrix @ BONE_ROT_FIX)
+        right_elbow_CTRL_pos *= -POLE_OFFSET
+        right_elbow_CTRL_pos += right_elbow.head
+
+        _create_ctrl_bone(armature, source_bone='left_elbow', pos=left_elbow_CTRL_pos)
+        _create_ctrl_bone(armature, source_bone='right_elbow', pos=right_elbow_CTRL_pos)
+
+        left_knee = armature.edit_bones['left_knee']
+        left_knee_CTRL_pos = Vector((0, 1, 0))
+        left_knee_CTRL_pos.rotate(left_knee.matrix @ BONE_ROT_FIX)
+        left_knee_CTRL_pos *= POLE_OFFSET
+        left_knee_CTRL_pos += left_knee.head
+
+        right_knee = armature.edit_bones['right_knee']
+        right_knee_CTRL_pos = Vector((0, 1, 0))
+        right_knee_CTRL_pos.rotate(right_knee.matrix @ BONE_ROT_FIX)
+        right_knee_CTRL_pos *= POLE_OFFSET
+        right_knee_CTRL_pos += right_knee.head
+
+        _create_ctrl_bone(armature, source_bone='left_knee', pos=left_knee_CTRL_pos)
+        _create_ctrl_bone(armature, source_bone='right_knee', pos=right_knee_CTRL_pos)
+
+        # meshX controllers
+        meshbone_to_pos = _calc_weapon_mesh_contoller_pos()
+        mesh_bones = meshbone_to_pos.keys()
+
+        for mesh_bone, pos in meshbone_to_pos.items():
+            # dummy for COPY_TRANSFORMS constraint
+            _create_ctrl_bone_from(armature, source_bone=mesh_bone, name=f'{mesh_bone}_dummy')
+            # actual controller bone
+            _create_ctrl_bone(armature, source_bone=f'{mesh_bone}_dummy.CTRL', name=mesh_bone, pos=pos)
+    else:
+        mesh_bones = _get_active_mesh_bones()
+
+    if step == 1:
+        return
+
+    bpy.ops.object.mode_set(mode='POSE')
+
+    L_wrist_CTRL = rig.pose.bones['L_wrist.CTRL']
+    R_wrist_CTRL = rig.pose.bones['R_wrist.CTRL']
+    left_shoulder_CTRL = rig.pose.bones['left_shoulder.CTRL']
+    right_shoulder_CTRL = rig.pose.bones['right_shoulder.CTRL']
+    right_elbow_CTRL = rig.pose.bones['right_elbow.CTRL']
+    left_elbow_CTRL = rig.pose.bones['left_elbow.CTRL']
+    right_foot_CTRL = rig.pose.bones['right_foot.CTRL']
+    left_foot_CTRL = rig.pose.bones['left_foot.CTRL']
+    right_knee_CTRL = rig.pose.bones['right_knee.CTRL']
+    left_knee_CTRL = rig.pose.bones['left_knee.CTRL']
+
+    shapes = _create_bone_shapes(context)
+    _apply_shape(L_wrist_CTRL, shapes['RING'], scale=1.2)
+    _apply_shape(R_wrist_CTRL, shapes['RING'], scale=1.2)
+    _apply_shape(right_shoulder_CTRL, shapes['CUBE'])
+    _apply_shape(left_shoulder_CTRL, shapes['CUBE'])
+    _apply_shape(right_elbow_CTRL, shapes['CUBE'])
+    _apply_shape(left_elbow_CTRL, shapes['CUBE'])
+    _apply_shape(right_foot_CTRL, shapes['SPHERE'], scale=3)
+    _apply_shape(left_foot_CTRL, shapes['SPHERE'], scale=3)
+    _apply_shape(right_knee_CTRL, shapes['CUBE'])
+    _apply_shape(left_knee_CTRL, shapes['CUBE'])
+
+    _apply_shape(rig.pose.bones['root'], shapes['SPHERE'], scale=2)
+
+    face_bones = ['left_lower_lip', 'right_lower_lip',
+                  'left_eye', 'right_eye', 'right_upper_lip', 'left_upper_lip',
+                  'left_eyebrow', 'right_eyebrow', 'left_mouht', 'right_mouth',
+                  'right_eyelid', 'left_eyelid', 'left_cheek', 'right_cheek']
+
+    for face_bone in face_bones:
+        _apply_shape(rig.pose.bones[face_bone], shapes['CUBE'], scale=0.1)
+
+    for mesh_bone in mesh_bones:
+        mesh_bone_ctrl = rig.pose.bones[mesh_bone + '.CTRL']
+        _apply_shape(mesh_bone_ctrl, shapes['CUBE'], scale=0.2)
+
+    # re-apply loaded animation for controllers
+    ctrl_bone_to_offset = [
+        (L_wrist_CTRL, ZERO_VEC),
+        (R_wrist_CTRL, ZERO_VEC),
+        (right_shoulder_CTRL, ZERO_VEC),
+        (left_shoulder_CTRL, ZERO_VEC),
+        (right_elbow_CTRL, Vector((-POLE_OFFSET, 0, 0))),
+        (left_elbow_CTRL, Vector((POLE_OFFSET, 0, 0))),
+        (right_foot_CTRL, ZERO_VEC),
+        (left_foot_CTRL, ZERO_VEC),
+        (left_knee_CTRL, Vector((0, POLE_OFFSET, 0))),
+        (right_knee_CTRL, Vector((0, POLE_OFFSET, 0))),
+    ]
+
+    # first pass: transfer keyframes from actual mesh bones to dummies
+    for mesh_bone in mesh_bones:
+        mesh_bone_dummy = rig.pose.bones[mesh_bone + '_dummy.CTRL']
+        ctrl_bone_to_offset.append((mesh_bone_dummy, ZERO_VEC))  
+
+    _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset)
+
+    # second pass: transfer keyframes from dummies to actual controllers
+    ctrl_bone_to_offset = list()
+    dummy_mesh_ctrls = set()
+    for mesh_bone in mesh_bones:
+        dummy_mesh_ctrls.add(mesh_bone + '_dummy.CTRL')
+        mesh_bone_ctrl = rig.pose.bones[mesh_bone + '.CTRL']
+        mesh_bone_offset = mesh_bone_ctrl.bone.matrix_local.translation
+        ctrl_bone_to_offset.append((mesh_bone_ctrl, mesh_bone_offset))
+ 
+    _reapply_animation_to_ctrls(context, rig, dummy_mesh_ctrls, ctrl_bone_to_offset)
+
+    # Constraints setup
+
+    # meshX bones controllers
+    for mesh_bone in mesh_bones:
+        dummy = mesh_bone + '_dummy.CTRL'
+        ctrl = mesh_bone + '.CTRL'
+        cp_trans = rig.pose.bones[mesh_bone].constraints.new(type='COPY_TRANSFORMS')
+        cp_trans.target = rig
+        cp_trans.subtarget = dummy
+        cp_trans.name = AUTO_SETUP_ID + '_COPY_TRANSFORM_' + mesh_bone
+
+        child_of = rig.pose.bones[dummy].constraints.new(type='CHILD_OF')
+        child_of.target = rig
+        child_of.subtarget = ctrl
+        child_of.name = AUTO_SETUP_ID + '_CHILD_OF_' + mesh_bone
+
+    # wrist rotation
+    cp_rot = rig.pose.bones['L_wrist'].constraints.new(type='COPY_ROTATION')
+    cp_rot.target = rig
+    cp_rot.subtarget = L_wrist_CTRL.name
+    cp_rot.name = AUTO_SETUP_ID + '_COPY_ROTATION_L_wrist'
+
+    cp_rot = rig.pose.bones['R_wrist'].constraints.new(type='COPY_ROTATION')
+    cp_rot.target = rig
+    cp_rot.subtarget = R_wrist_CTRL.name
+    cp_rot.name = AUTO_SETUP_ID + '_COPY_ROTATION_R_wrist'
+
+    # IK
+    ik = rig.pose.bones['left_collar'].constraints.new(type='IK')
+    ik.target = rig
+    ik.subtarget = left_shoulder_CTRL.name
+    ik.chain_count = 1
+    ik.name = AUTO_SETUP_ID + '_IK_left_collar'
+
+    ik = rig.pose.bones['left_wrist1'].constraints.new(type='IK')
+    ik.target = rig
+    ik.subtarget = L_wrist_CTRL.name
+    ik.pole_target = rig
+    ik.pole_subtarget = left_elbow_CTRL.name
+    ik.pole_angle = 0
+    ik.chain_count = 5
+    ik.name = AUTO_SETUP_ID + '_IK_left_wrist1'
+
+    ik = rig.pose.bones['right_collar'].constraints.new(type='IK')
+    ik.target = rig
+    ik.subtarget = right_shoulder_CTRL.name
+    ik.chain_count = 1
+    ik.name = AUTO_SETUP_ID + '_IK_right_collar'
+
+    ik = rig.pose.bones['right_ullna'].constraints.new(type='IK')
+    ik.target = rig
+    ik.subtarget = R_wrist_CTRL.name
+    ik.pole_target = rig
+    ik.pole_subtarget = right_elbow_CTRL.name
+    ik.pole_angle = math.radians(180)
+    ik.chain_count = 4
+    ik.name = AUTO_SETUP_ID + '_IK_right_ullna'
+
+    # legs
+    cp_rot = rig.pose.bones['left_foot'].constraints.new(type='COPY_ROTATION')
+    cp_rot.target = rig
+    cp_rot.subtarget = left_foot_CTRL.name
+    cp_rot.name = AUTO_SETUP_ID + '_COPY_ROTATION_left_foot'
+
+    cp_rot = rig.pose.bones['right_foot'].constraints.new(type='COPY_ROTATION')
+    cp_rot.target = rig
+    cp_rot.subtarget = right_foot_CTRL.name
+    cp_rot.name = AUTO_SETUP_ID + '_COPY_ROTATION_right_foot'
+
+    ik = rig.pose.bones['left_lowerleg'].constraints.new(type='IK')
+    ik.target = rig
+    ik.subtarget = left_foot_CTRL.name
+    ik.pole_target = rig
+    ik.pole_subtarget = left_knee_CTRL.name
+    ik.pole_angle = math.radians(-90)
+    ik.chain_count = 3
+    ik.name = AUTO_SETUP_ID + '_IK_left_lowerleg'
+
+    ik = rig.pose.bones['right_lowerleg'].constraints.new(type='IK')
+    ik.target = rig
+    ik.subtarget = right_foot_CTRL.name
+    ik.pole_target = rig
+    ik.pole_subtarget = right_knee_CTRL.name
+    ik.pole_angle = math.radians(-90)
+    ik.chain_count = 3
+    ik.name = AUTO_SETUP_ID + '_IK_right_lowerleg'
+
+    # declutter viewport by changing bone display mode
+    # and hiding all bones except controllers and finger bones
+    finger_bones = [p + n + s for p in {'right_', 'left_'} for n in {'index', 'ring', 'thumb'} for s in {'1', '2', '3'}]
+    whitelist = face_bones + finger_bones + ['head', 'neck', 'chin', 'joint20', 'torso', 'spine3', 'spine2', 'root']
+    blacklist = dummy_mesh_ctrls
+    rig.show_in_front = True
+    armature.display_type = 'WIRE'
+    for pose_bone in rig.pose.bones:
+        bone = pose_bone.bone
+        if bone.name in blacklist or not _is_ctrl_of(bone) and bone.name not in whitelist:
+            bone.hide = True # hidden in Pose and Object modes
+
+    _create_bone_collection(armature, 'BF2_LEFT_FINGERS', r'^left_(index|ring|thumb)\d$', 3) # green
+    _create_bone_collection(armature, 'BF2_RIGHT_FINGERS', r'^right_(index|ring|thumb)\d$', 4) # blue
+    _create_bone_collection(armature, 'BF2_WEAPON_BONES', r'^mesh[1-8]', 9) # yellow
+    _create_bone_collection(armature, 'BF2_KIT_BONES', r'^mesh(9|1[0-6])$', 1) # red
+
+def _setup_1p_controllers(context, rig, step):
+    armature = rig.data
+    context.view_layer.objects.active = rig
 
     if step != 2:
         bpy.ops.object.mode_set(mode='EDIT')
@@ -229,43 +525,19 @@ def _setup_1p_controllers(context, rig, step):
 
     Camerabone = rig.pose.bones['Camerabone']
 
-    # apply custom shapes
-    CUBE_SHAPE_SIZE = 0.07
-    CUBE_SHAPE_NAME = '_CubeBoneShape'
-    RING_SHAPE_SIZE = 0.04
-    RING_SHAPE_NAME = '_RingBoneShape'
-    SPHERE_SHAPE_NAME = '_SphereBoneShape'
-    SPHERE_SHAPE_SIZE = 0.02
+    shapes = _create_bone_shapes(context)
 
-    cube_shape = _create_shape(name=CUBE_SHAPE_NAME, size=CUBE_SHAPE_SIZE, type='CUBE')
-    sphere_shape = _create_shape(name=SPHERE_SHAPE_NAME, size=SPHERE_SHAPE_SIZE, type='SPHERE') 
-    ring_shape = _create_shape(name=RING_SHAPE_NAME, size=RING_SHAPE_SIZE, type='RING')
+    _apply_shape(L_wrist_CTRL, shapes['RING'])
+    _apply_shape(R_wrist_CTRL, shapes['RING'])
+    _apply_shape(L_elbow_CTRL, shapes['CUBE'])
+    _apply_shape(R_elbow_CTRL, shapes['CUBE'])
+    _apply_shape(L_arm_CTRL, shapes['CUBE'])
+    _apply_shape(R_arm_CTRL, shapes['CUBE'])
+    _apply_shape(Camerabone, shapes['SPHERE'])
 
-    scene.collection.objects.link(cube_shape)
-    scene.collection.objects.link(sphere_shape)
-    scene.collection.objects.link(ring_shape)
-    
-    L_wrist_CTRL.custom_shape = ring_shape
-    L_wrist_CTRL.custom_shape_scale_xyz = ONES_VEC / L_wrist_CTRL.length
-    R_wrist_CTRL.custom_shape = ring_shape
-    R_wrist_CTRL.custom_shape_scale_xyz = ONES_VEC / R_wrist_CTRL.length
-    L_elbow_CTRL.custom_shape = cube_shape
-    L_elbow_CTRL.custom_shape_scale_xyz = ONES_VEC / L_elbow_CTRL.length
-    R_elbow_CTRL.custom_shape = cube_shape
-    R_elbow_CTRL.custom_shape_scale_xyz = ONES_VEC / R_elbow_CTRL.length
-    L_arm_CTRL.custom_shape = cube_shape
-    L_arm_CTRL.custom_shape_scale_xyz = ONES_VEC / L_arm_CTRL.length
-    R_arm_CTRL.custom_shape = cube_shape
-    R_arm_CTRL.custom_shape_scale_xyz = ONES_VEC / R_arm_CTRL.length
-
-    Camerabone.custom_shape = sphere_shape
-    Camerabone.custom_shape_scale_xyz = ONES_VEC / Camerabone.length
-
-    MESH_BONE_CUBE_SCALE = 0.2
     for mesh_bone in mesh_bones:
         mesh_bone_ctrl = rig.pose.bones[mesh_bone + '.CTRL']
-        mesh_bone_ctrl.custom_shape = cube_shape
-        mesh_bone_ctrl.custom_shape_scale_xyz = (ONES_VEC / Camerabone.length) * MESH_BONE_CUBE_SCALE
+        _apply_shape(mesh_bone_ctrl, shapes['CUBE'], scale=0.2)
 
     # ctrl to offset mapping
     ctrl_bone_to_offset = [
@@ -283,44 +555,7 @@ def _setup_1p_controllers(context, rig, step):
         ctrl_bone_to_offset.append((mesh_bone_ctrl, mesh_bone_offset))
 
     # re-apply loaded animation for controllers
-    saved_frame = scene.frame_current
-    keyframes_to_delete = {}
-
-    for (target, offset) in ctrl_bone_to_offset:
-        source_name = _is_ctrl_of(target.bone)
-        source = rig.pose.bones[source_name]
-
-        keyframes = _keyframes_as_dict(source)
-        for frame_idx, frame_data in sorted(keyframes.items()):
-            context.scene.frame_set(frame_idx)
-            context.view_layer.update()
-
-            target_pos = offset.normalized()
-            target_pos.rotate(source.matrix @ BONE_ROT_FIX)
-            target_pos *= offset.length
-            target_pos += source.matrix.translation
-
-            m = source.matrix.copy()
-            m.translation = target_pos
-            target.matrix = m
-
-            for data_path in ('location', 'rotation_quaternion'):
-                for data_index, _ in frame_data.get(data_path, {}).items():
-                    target.keyframe_insert(data_path=data_path, index=data_index, frame=frame_idx)
-
-                    # delete all keyframes for orignal mesh bones
-                    # otherwise the CHILD_OF constraint will mess them up
-                    if source_name in mesh_bones:
-                        to_delete = keyframes_to_delete.setdefault(source_name, [])
-                        to_delete.append({'data_path': data_path, 'index': data_index, 'frame': frame_idx})
-
-    scene.frame_set(saved_frame)
-    context.view_layer.update()
-
-    for source_name, to_delete in keyframes_to_delete.items():
-        source = rig.pose.bones[source_name]
-        for kwargs in to_delete:
-            source.keyframe_delete(**kwargs)
+    _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset)
 
     # Constraints setup
 
@@ -375,16 +610,13 @@ def _setup_1p_controllers(context, rig, step):
 
     # declutter viewport by changing bone display mode
     # and hiding all bones except controllers and finger bones
-    UNHIDE_BONE = ['Camerabone', 'L_collar', 'R_collar'] # exception list
+    finger_bones = [p + n + s for p in {'L_', 'R_'} for n in {'pink', 'index', 'point', 'ring', 'thumb'} for s in {'_1', '_2', '_3'}]
+    whitelist = finger_bones + ['Camerabone', 'L_collar', 'R_collar']
     rig.show_in_front = True
     armature.display_type = 'WIRE'
-    FINGER_PREFIXES = {'L_', 'R_'}
-    FINGER_NAMES = {'pink', 'index', 'point', 'ring', 'thumb'}
-    FINGER_SUFFIXES = {'_1', '_2', '_3'}
-    finger_bones = [p + n + s for p in FINGER_PREFIXES for n in FINGER_NAMES for s in FINGER_SUFFIXES]
     for pose_bone in rig.pose.bones:
         bone = pose_bone.bone
-        if bone.name not in finger_bones and not _is_ctrl_of(bone) and bone.name not in UNHIDE_BONE:
+        if not _is_ctrl_of(bone) and bone.name not in whitelist:
             bone.hide = True # hidden in Pose and Object modes
 
     _create_bone_collection(armature, 'BF2_LEFT_ARM', r'^L_.*', 3) # green
@@ -507,7 +739,7 @@ def _reparent_keyframes(pose_bone, parent):
 
     bpy.context.scene.frame_set(_frame)
 
-def reparent_bones(rig, target_bones, parent_bone):
+def reparent_bones(rig, target_bones, parent_bone, reporter=DEFAULT_REPORTER):
     for target_bone in target_bones:
         if target_bone == parent_bone:
             continue
@@ -519,6 +751,9 @@ def reparent_bones(rig, target_bones, parent_bone):
             parent_pose_bone = rig.pose.bones[parent_bone]
         else:
             parent_pose_bone = None
+
+        if target_bone in rig['bf2_bones']:
+            reporter.warning("Chaning parent of the BF2 skeleton bone, this will mess up your export!")
 
         _reparent_keyframes(target_pose_bone, parent_pose_bone)
 

@@ -2,7 +2,8 @@ import bpy # type: ignore
 import bmesh # type: ignore
 import traceback
 
-from bpy.props import IntProperty, BoolProperty, EnumProperty # type: ignore
+from bpy.props import IntProperty, BoolProperty
+from ..core.utils import Reporter
 from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
 from ..core.skeleton import is_bf2_seketon
 from ..core.mesh import AnimUv, _flip_uv
@@ -43,7 +44,7 @@ class IMPORT_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
 class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
     bl_idname = "bf2_animation.anim_ctrl_setup_begin"
     bl_label = "Setup controllers"
-    bl_description = "Setup animation controller bones and basic IK constraints (for 1P animations only!)"
+    bl_description = "Setup animation controller bones and basic IK constraints"
 
     def draw(self, context):
         layout = self.layout
@@ -236,7 +237,7 @@ class POSE_OT_bf2_change_parent(bpy.types.Operator):
         rig = context.view_layer.objects.active
         parent_bone = context.active_pose_bone.name
         bones = list(filter(lambda b: b != parent_bone, map(lambda b: b.name, context.selected_pose_bones_from_active_object)))
-        reparent_bones(rig, bones, parent_bone)
+        reparent_bones(rig, bones, parent_bone, reporter=Reporter(self.report))
         return {'FINISHED'}
 
 
@@ -255,7 +256,7 @@ class POSE_OT_bf2_clear_parent(bpy.types.Operator):
     def execute(self, context):
         rig = context.view_layer.objects.active
         bones = list(map(lambda b: b.name, context.selected_pose_bones_from_active_object))
-        reparent_bones(rig, bones, None)
+        reparent_bones(rig, bones, None, reporter=Reporter(self.report))
         return {'FINISHED'}
 
 def menu_func_edit_mesh(self, context):
