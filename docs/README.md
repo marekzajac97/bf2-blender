@@ -48,10 +48,9 @@ In order to rig your model, you must import the BF2 skeleton into your scene. Wh
 
 ## Example object hierarchies
 
-`[m]` tag indicates that the object contains mesh data.
+<details>
+  <summary>StaticMesh</summary>
 
-
-StatcMesh
 ```
 StaticMesh_house
 ├─ANCHOR__house
@@ -65,8 +64,11 @@ StaticMesh_house
   ├─G0L1__house [m]
   └─G0L2__house [m]
 ```
+</details>
 
-BunldedMesh (a simple weapon)
+<details>
+  <summary>BunldedMesh (a simple weapon)</summary>
+
 ```
 BunldedMesh_gun
 ├─G0__gun
@@ -88,8 +90,11 @@ BunldedMesh_gun
     ├─G1L2__gun_1_mag
     └─G1L2__gun_2_bolt
 ```
+</details>
 
-BunldedMesh (a simple vehicle)
+<details>
+  <summary>BunldedMesh (a simple vehicle)</summary>
+
 ```
 BundledMesh_car
 ├─G0__car
@@ -141,9 +146,12 @@ BundledMesh_car
   │   └─G2L0__car__COL1 [m]
   ├─G2L1__car [m]
   └─G2L2__car [m]
-``` 
+```
+</details>
 
-SkinnedMesh (a soldier)
+<details>
+  <summary>SkinnedMesh (a soldier)</summary>
+
 ```
 SkinnedMesh_soldier
 └─G0__soldier
@@ -153,3 +161,10 @@ SkinnedMesh_soldier
   ├─G1L1__soldier [m]
   └─G1L2__soldier [m]
 ```
+</details>
+
+`[m]` tag indicates that the object contains mesh data.
+
+# Tutorials
+- [StaticMesh - hierarchy, materials and export (by Ason)](https://www.youtube.com/watch?v=H97o0d3zkoY)
+- [BundledMesh - simple weapon export (by Krayt)](https://www.youtube.com/watch?v=crQRXm-4lxQ)
