@@ -67,7 +67,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
     def invoke(self, context, _event):
         try:
             # suggest to load only single LOD whe skeleton got imported previoulsy
-            self.rig = find_active_skeleton()
+            self.rig = find_active_skeleton(context)
             if self.rig:
                 self.only_selected_lod = True
                 if self.rig.name in ('1p_setup', '3p_setup'):

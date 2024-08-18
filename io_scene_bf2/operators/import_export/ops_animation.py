@@ -23,13 +23,17 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
 
     @classmethod
     def poll(cls, context):
-        return find_active_skeleton() is not None
+        return find_active_skeleton(context) is not None
+
+    def invoke(self, context, _event):
+        self.rig = find_active_skeleton(context)
+        return super().invoke(context, _event)
 
     def execute(self, context):
         try:
-           import_animation(context, self.filepath)
+           import_animation(context, self.rig, self.filepath)
            if self.setup_ctrls:
-               context.view_layer.objects.active = find_active_skeleton()
+               context.view_layer.objects.active = self.rig
                bpy.ops.bf2_animation.anim_ctrl_setup_begin('INVOKE_DEFAULT')
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
@@ -59,7 +63,7 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
-        return find_active_skeleton() is not None
+        return find_active_skeleton(context) is not None
 
     def draw(self, context):
         layout = self.layout
@@ -69,9 +73,9 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
             layout.prop(prop, "included", text=prop["name"])
 
     def invoke(self, context, _event):
-
+        self.rig = find_active_skeleton(context)
         try:
-            bones = get_bones_for_export()
+            bones = get_bones_for_export(self.rig)
         except Exception as e:
             print(e)
             bones = dict()
@@ -91,7 +95,7 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
                 bones_to_export.append(item.name)
 
         try:
-           export_animation(context, self.filepath, bones_to_export=bones_to_export)
+           export_animation(context, self.rig, self.filepath, bones_to_export=bones_to_export)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         self.report({"INFO"}, 'Export complete')

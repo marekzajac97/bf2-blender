@@ -4,18 +4,17 @@ import math
 from mathutils import Matrix # type: ignore
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame
 from .utils import to_matrix, conv_bf2_to_blender, conv_blender_to_bf2
-from .skeleton import (ske_get_bone_rot, find_active_skeleton,
+from .skeleton import (ske_get_bone_rot,
                        find_animated_weapon_object, ske_weapon_part_ids)
 
-def get_bones_for_export():
-    rig = find_active_skeleton()
+def get_bones_for_export(rig):
     if not rig:
         return dict()
 
     ske_bones = rig['bf2_bones']
 
     inc_mesh_bones = set()
-    obj = find_animated_weapon_object()
+    obj = find_animated_weapon_object(rig)
     if obj:
         vertex_group_id_to_name = dict()
         for vg in obj.vertex_groups:
@@ -32,12 +31,9 @@ def get_bones_for_export():
             inc_bones[ske_bone] = True
     return inc_bones
 
-def export_animation(context, baf_file, bones_to_export=None, fstart=None, fend=None):
+def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, fend=None):
     scene = context.scene
-    rig = find_active_skeleton()
-    if not rig:
-        raise RuntimeError("No active skeleton found!")
-    
+
     fstart = scene.frame_start if fstart is None else fstart
     fend = scene.frame_end if fend is None else fend
     
@@ -86,17 +82,11 @@ def export_animation(context, baf_file, bones_to_export=None, fstart=None, fend=
     baf.export(baf_file)
 
 
-def import_animation(context, baf_file):
+def import_animation(context, rig, baf_file):
     scene = context.scene
-
     baf = BF2Animation(baf_file)
 
-    rig = find_active_skeleton()
-    if not rig:
-        raise RuntimeError("need to import skeleton first!")
-
     armature = rig.data
- 
     context.view_layer.objects.active = rig
     
     bpy.ops.object.mode_set(mode='POSE')

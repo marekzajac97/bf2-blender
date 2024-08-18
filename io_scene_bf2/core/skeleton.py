@@ -4,7 +4,7 @@ import math
 from mathutils import Matrix, Vector, Quaternion # type: ignore
 from .bf2.bf2_skeleton import BF2Skeleton
 from .utils import (to_matrix, conv_bf2_to_blender,
-                    conv_blender_to_bf2, delete_object,
+                    conv_blender_to_bf2,
                     delete_object_if_exists)
 from .exceptions import ImportException
 
@@ -36,26 +36,26 @@ def ske_weapon_part_ids(rig):
             ids.append(i)
     return ids
 
-def find_active_skeleton():
+def find_active_skeleton(context):
+    active_obj = context.view_layer.objects.active
+    if active_obj and is_bf2_skeleton(active_obj):
+        return active_obj
+
     rigs = find_all_skeletons()
-    if rigs:
+    if len(rigs) == 1:
         return rigs[0]
 
 def find_all_skeletons():
     rig_objs = list()
     for obj in bpy.data.objects:
-        if obj.data and 'bf2_bones' in obj.keys():
+        if is_bf2_skeleton(obj):
             rig_objs.append(obj)
     return rig_objs
 
-def is_bf2_seketon(obj):
-    return 'bf2_bones' in obj.keys()
+def is_bf2_skeleton(obj):
+    return obj.data and 'bf2_bones' in obj.keys()
 
-def find_animated_weapon_object():
-    rig = find_active_skeleton()
-    if not rig:
-        return None
-
+def find_animated_weapon_object(rig):
     for obj in bpy.data.objects:
         if obj is rig:
             continue
@@ -103,9 +103,8 @@ def _create_camera(context, rig):
 def import_skeleton(context, skeleton_file, reload=False):
     skeleton = BF2Skeleton(skeleton_file)
 
-    if reload and find_active_skeleton():
-        obj, _ = find_active_skeleton()
-        delete_object(obj)
+    if reload:
+        delete_object_if_exists(skeleton.name)
 
     armature = bpy.data.armatures.new(skeleton.name)
     rig = bpy.data.objects.new(skeleton.name, armature)

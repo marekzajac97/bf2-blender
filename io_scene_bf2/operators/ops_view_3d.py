@@ -5,7 +5,7 @@ import traceback
 from bpy.props import IntProperty, BoolProperty
 from ..core.utils import Reporter
 from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
-from ..core.skeleton import is_bf2_seketon
+from ..core.skeleton import is_bf2_skeleton
 from ..core.mesh import AnimUv, _flip_uv
 from ..core.object_template import parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 
@@ -28,12 +28,14 @@ class IMPORT_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            toggle_mesh_mask_mesh_for_active_bone(context)
+            toggle_mesh_mask_mesh_for_active_bone(context, self.rig)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        rig_name = _bf2_is_setup(context)
+        self.rig = bpy.data.objects[rig_name]
         return self.execute(context)
 
     @classmethod
@@ -59,7 +61,7 @@ class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         rig = context.view_layer.objects.active
-        return rig and is_bf2_seketon(rig)
+        return rig and is_bf2_skeleton(rig)
 
     def execute(self, context):
         try:
