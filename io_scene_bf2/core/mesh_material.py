@@ -279,7 +279,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
 
         # TODO SETUP it properly based on techinique
 
-        has_envmap = 'envmap' in material.bf2_technique.lower()
+        has_envmap = 'envmap' in material.bf2_technique.lower() and material.bf2_shader == 'BUNDLEDMESH'
 
         diffuse = texture_nodes['Diffuse']
         normal = texture_nodes.get('Normal')
