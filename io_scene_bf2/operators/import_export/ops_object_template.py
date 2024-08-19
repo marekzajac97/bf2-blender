@@ -1,7 +1,7 @@
 import bpy # type: ignore
 import traceback
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty # type: ignore
-from bpy_extras.io_utils import ExportHelper, ImportHelper # type: ignore
+from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
 
 from ...core.object_template import import_object, export_object, parse_geom_type, NATIVE_BSP_EXPORT
 from ...core.mesh import collect_uv_layers
@@ -37,7 +37,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_object.import"
     bl_description = 'Battlefield 2 ObjectTemplate'
     bl_label = "Import BF2 ObjectTemplate"
-    filter_glob = StringProperty(default="*.con", options={'HIDDEN'})
+    filter_glob: StringProperty(default="*.con", options={'HIDDEN'}) # type: ignore
 
     import_collmesh: BoolProperty(
         name="Import CollisionMesh",
@@ -172,7 +172,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
     bl_idname = "bf2_object.export"
     bl_label = "Export BF2 ObjectTemplate"
     filename_ext = ".con"
-    filter_glob = StringProperty(default="*.con", options={'HIDDEN'})
+    filter_glob: StringProperty(default="*.con", options={'HIDDEN'}) # type: ignore
     FILE_DESC = "ObjectTemplate (.con)"
 
     def get_uv_layers(self, context):
@@ -315,6 +315,18 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         return super().invoke(context, _event)
 
 
+class IMPORT_EXPORT_FH_con(bpy.types.FileHandler):
+    bl_idname = "IMPORT_EXPORT_FH_con"
+    bl_label = "BF2 ObjectTemplate"
+    bl_import_operator = IMPORT_OT_bf2_object.bl_idname
+    bl_export_operator = EXPORT_OT_bf2_object.bl_idname
+    bl_file_extensions = ".con"
+
+    @classmethod
+    def poll_drop(cls, context):
+        return poll_file_object_drop(context)
+
+
 FILE_DESC = "ObjectTemplate (.con)"
 
 def draw_import(layout):
@@ -325,6 +337,7 @@ def draw_export(layout):
 
 def register():
     bpy.utils.register_class(SkeletonsToLinkCollection)
+    bpy.utils.register_class(IMPORT_EXPORT_FH_con)
     bpy.utils.register_class(EXPORT_OT_bf2_object)
     bpy.utils.register_class(IMPORT_OT_bf2_object)
     bpy.utils.register_class(IMPORT_OT_bf2_object_skeleton_add)
@@ -333,6 +346,7 @@ def register():
 def unregister():
     bpy.utils.unregister_class(IMPORT_OT_bf2_object_skeleton_remove)
     bpy.utils.unregister_class(IMPORT_OT_bf2_object_skeleton_add)
+    bpy.utils.unregister_class(IMPORT_EXPORT_FH_con)
     bpy.utils.unregister_class(IMPORT_OT_bf2_object)
     bpy.utils.unregister_class(EXPORT_OT_bf2_object)
     bpy.utils.unregister_class(SkeletonsToLinkCollection)

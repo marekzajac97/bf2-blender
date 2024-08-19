@@ -11,7 +11,6 @@ from ..core.object_template import parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 
 def _bf2_setup_started(context, rig):
     context.scene['bf2_is_setup'] = rig.name
-    bpy.types.VIEW3D_MT_editor_menus.append(menu_func_view3d)
 
 def _bf2_is_setup(context):
     return context.scene.get('bf2_is_setup')
@@ -19,12 +18,12 @@ def _bf2_is_setup(context):
 def _bf2_setup_finished(context):
     if 'bf2_is_setup' in context.scene:
         del context.scene['bf2_is_setup']
-    bpy.types.VIEW3D_MT_editor_menus.remove(menu_func_view3d)
 
 
-class IMPORT_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
+class VIEW3D_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
     bl_idname = "bf2_animation.anim_ctrl_setup_mask"
-    bl_label = "Toggle masking weapon mesh that corresponds to the active bone"
+    bl_label = "Mask mesh for bone"
+    bl_description = "Toggle mask for weapon part that corresponds to the active bone"
 
     def execute(self, context):
         try:
@@ -40,10 +39,10 @@ class IMPORT_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return _bf2_is_setup(context)
+        return _bf2_is_setup(context) and context.active_bone
 
 
-class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
+class VIEW3D_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
     bl_idname = "bf2_animation.anim_ctrl_setup_begin"
     bl_label = "Setup controllers"
     bl_description = "Setup animation controller bones and basic IK constraints"
@@ -53,10 +52,11 @@ class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
 
         layout.label(text="Please move each 'meshX.CTRL' bone to the desired loaction,")
         layout.label(text="it will be used as pivot for the corresponding weapon part.")
-        layout.label(text="You can toggle showing only a specific weapon part that corresponds")
-        layout.label(text="to the active bone with 'Mask mesh for active bone' in the top menu.")
+        layout.label(text="When You are done, click 'Finish setup' in the Sidebar (toggled with `N`)")
         layout.label(text="")
-        layout.label(text="When You are done, click on 'Finish setup'")
+        layout.label(text="You can toggle showing only a specific weapon part that corresponds")
+        layout.label(text="to the active bone with 'Mask mesh for bone'.")
+
 
     @classmethod
     def poll(cls, context):
@@ -79,9 +79,10 @@ class IMPORT_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
         bpy.ops.bf2_animation.anim_ctrl_setup_begin('INVOKE_DEFAULT')
 
 
-class IMPORT_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
+class VIEW3D_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
     bl_idname = "bf2_animation.anim_ctrl_setup_end"
-    bl_label = "Finish controller setup"
+    bl_label = "Finish setup"
+    bl_description = "Finish animation controller setup"
 
     def execute(self, context):
         try:
@@ -101,9 +102,21 @@ class IMPORT_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
         return _bf2_is_setup(context)
 
 
-def menu_func_view3d(self, context):
-    self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_end.bl_idname, text="Finish setup")
-    self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_mask.bl_idname, text="Mask mesh for active bone")
+class VIEW3D_PT_bf2_Panel(bpy.types.Panel):
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "BF2"
+
+    bl_label = "Battlefield 2"
+    bl_idname = "VIEW3D_ANIM_PT_Panel"
+
+    @classmethod
+    def poll(cls, context):
+        return _bf2_is_setup(context)
+
+    def draw(self, context):
+        self.layout.operator(VIEW3D_OT_bf2_anim_ctrl_setup_end.bl_idname)
+        self.layout.operator(VIEW3D_OT_bf2_anim_ctrl_setup_mask.bl_idname)
 
 # --------------------------------------------------------------------
 
@@ -271,7 +284,7 @@ class POSE_MT_bf2_submenu(bpy.types.Menu):
     def draw(self, context):
         self.layout.operator(POSE_OT_bf2_change_parent.bl_idname)
         self.layout.operator(POSE_OT_bf2_clear_parent.bl_idname)
-        self.layout.operator(IMPORT_OT_bf2_anim_ctrl_setup_begin.bl_idname)
+        self.layout.operator(VIEW3D_OT_bf2_anim_ctrl_setup_begin.bl_idname)
 
 def menu_func_pose(self, context):
     self.layout.menu(POSE_MT_bf2_submenu.bl_idname, text="BF2")
@@ -353,9 +366,10 @@ def register():
     bpy.utils.register_class(EDIT_MESH_SELECT_MT_bf2_submenu)
     bpy.types.VIEW3D_MT_select_edit_mesh.append(menu_func_edit_mesh_select)
 
-    bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_begin)
-    bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_end)
-    bpy.utils.register_class(IMPORT_OT_bf2_anim_ctrl_setup_mask)
+    bpy.utils.register_class(VIEW3D_PT_bf2_Panel)
+    bpy.utils.register_class(VIEW3D_OT_bf2_anim_ctrl_setup_begin)
+    bpy.utils.register_class(VIEW3D_OT_bf2_anim_ctrl_setup_end)
+    bpy.utils.register_class(VIEW3D_OT_bf2_anim_ctrl_setup_mask)
 
     bpy.utils.register_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
     bpy.utils.register_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
@@ -366,9 +380,10 @@ def unregister():
     bpy.utils.unregister_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
     bpy.utils.unregister_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
 
-    bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_mask)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_end)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_anim_ctrl_setup_begin)
+    bpy.utils.unregister_class(VIEW3D_OT_bf2_anim_ctrl_setup_mask)
+    bpy.utils.unregister_class(VIEW3D_OT_bf2_anim_ctrl_setup_end)
+    bpy.utils.unregister_class(VIEW3D_OT_bf2_anim_ctrl_setup_begin)
+    bpy.utils.unregister_class(VIEW3D_PT_bf2_Panel)
 
     bpy.types.VIEW3D_MT_select_edit_mesh.remove(menu_func_edit_mesh_select)
     bpy.utils.unregister_class(EDIT_MESH_SELECT_MT_bf2_submenu)

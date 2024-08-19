@@ -2,7 +2,7 @@ import bpy # type: ignore
 import os
 import traceback
 from bpy.props import StringProperty, BoolProperty, CollectionProperty # type: ignore
-from bpy_extras.io_utils import ExportHelper, ImportHelper # type: ignore
+from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
 
 from ...core.animation import import_animation, export_animation, get_bones_for_export
 from ...core.skeleton import find_active_skeleton
@@ -13,7 +13,9 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_animation.import"
     bl_description = 'Battlefield 2 animation file'
     bl_label = "Import animation"
-    filter_glob = StringProperty(default="*.baf", options={'HIDDEN'})
+
+    filename_ext = ".baf"
+    filter_glob: StringProperty(default="*.baf", options={'HIDDEN'}) # type: ignore
 
     setup_ctrls: BoolProperty(
         name="Setup Controllers",
@@ -101,6 +103,19 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
         self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 
+
+class IMPORT_EXPORT_FH_baf(bpy.types.FileHandler):
+    bl_idname = "IMPORT_EXPORT_FH_baf"
+    bl_label = "BF2 Animation"
+    bl_import_operator = IMPORT_OT_bf2_animation.bl_idname
+    bl_export_operator = EXPORT_OT_bf2_animation.bl_idname
+    bl_file_extensions = ".baf"
+
+    @classmethod
+    def poll_drop(cls, context):
+        return poll_file_object_drop(context)
+
+
 FILE_DESC = "Animation (.baf)"
 
 def draw_import(layout):
@@ -114,8 +129,10 @@ def register():
     bpy.utils.register_class(BoneExportCollection)
     bpy.utils.register_class(IMPORT_OT_bf2_animation)
     bpy.utils.register_class(EXPORT_OT_bf2_animation)
+    bpy.utils.register_class(IMPORT_EXPORT_FH_baf)
 
 def unregister():
+    bpy.utils.unregister_class(IMPORT_EXPORT_FH_baf)
     bpy.utils.unregister_class(IMPORT_OT_bf2_animation)
     bpy.utils.unregister_class(BoneExportCollection)
     bpy.utils.unregister_class(EXPORT_OT_bf2_animation)
