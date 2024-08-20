@@ -8,10 +8,11 @@ from .skeleton import (ske_get_bone_rot,
                        find_animated_weapon_object, ske_weapon_part_ids)
 
 def get_bones_for_export(rig):
-    if not rig:
-        return dict()
-
     ske_bones = rig['bf2_bones']
+
+    prev = rig.get('bones_to_export')
+    if prev is not None:
+        return prev # always prefer saved settings from from the previous export
 
     inc_mesh_bones = set()
     obj = find_animated_weapon_object(rig)
@@ -30,6 +31,9 @@ def get_bones_for_export(rig):
         else:
             inc_bones[ske_bone] = True
     return inc_bones
+
+def save_bones_for_export(rig, bones_to_export):
+    rig['bones_to_export'] = bones_to_export
 
 def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, fend=None):
     scene = context.scene

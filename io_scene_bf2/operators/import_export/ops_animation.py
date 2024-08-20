@@ -4,7 +4,7 @@ import traceback
 from bpy.props import StringProperty, BoolProperty, CollectionProperty # type: ignore
 from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
 
-from ...core.animation import import_animation, export_animation, get_bones_for_export
+from ...core.animation import import_animation, export_animation, get_bones_for_export, save_bones_for_export
 from ...core.skeleton import find_active_skeleton
 
 # -------------------------- Import --------------------------
@@ -91,10 +91,8 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
         return super().invoke(context, _event)
 
     def execute(self, context):
-        bones_to_export = list()
-        for item in self.bones_for_export:
-            if item.included:
-                bones_to_export.append(item.name)
+        bones_to_export = [i.name for i in self.bones_for_export if i.included]
+        save_bones_for_export(self.rig, {i.name: i.included for i in self.bones_for_export})
 
         try:
            export_animation(context, self.rig, self.filepath, bones_to_export=bones_to_export)
