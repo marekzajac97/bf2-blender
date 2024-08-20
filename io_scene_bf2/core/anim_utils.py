@@ -157,6 +157,15 @@ def _get_active_mesh_bones(rig):
             mesh_bones.add(vg.name)
     return mesh_bones
 
+def _get_mesh_bone_ctrls(rig):
+    ske_bones = rig['bf2_bones']
+    mesh_bone_ids = ske_weapon_part_ids(rig)
+    mesh_bone_ctrls = set()
+    for i, ske_bone in enumerate(ske_bones):
+        if i in mesh_bone_ids:
+            mesh_bone_ctrls.add(ske_bone + '.CTRL')
+    return mesh_bone_ctrls
+
 def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
     saved_frame = context.scene.frame_current
     keyframes_to_delete = {}
@@ -222,14 +231,19 @@ def setup_controllers(context, rig, step=0):
     # cleanup previuous
     if step != 2:
         _rollback_controllers(context, rig)
-        _set_hide_all_mesh_bones_in_em(context, rig, hide=True) # keep only CTRL bones visible
     else:
         _remove_mesh_mask(rig)
+        _set_hide_bones_in_em(context, rig, hide=False)
 
     if rig.name.lower() == '3p_setup':
         _setup_3p_controllers(context, rig, step)
     elif rig.name.lower() == '1p_setup':
         _setup_1p_controllers(context, rig, step)
+
+    if step == 1:
+        rig.show_in_front = True
+        # keep only mesh CTRL bones visible
+        _set_hide_bones_in_em(context, rig, hide=True, blacklist=_get_mesh_bone_ctrls(rig))
 
 def _setup_3p_controllers(context, rig, step):
     armature = rig.data
@@ -622,20 +636,12 @@ def _setup_1p_controllers(context, rig, step):
 
     bpy.ops.object.mode_set(mode='OBJECT')
 
-def _set_hide_all_mesh_bones_in_em(context, rig, hide=True):
-    ske_bones = rig['bf2_bones']
-
-    mesh_bone_ids = ske_weapon_part_ids(rig)
-    mesh_bones = set()
-    for i, ske_bone in enumerate(ske_bones):
-        if i in mesh_bone_ids:
-            mesh_bones.add(ske_bone)
-
+def _set_hide_bones_in_em(context, rig, hide=True, blacklist=[]):
     armature = rig.data
     context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode='EDIT')
     for bone in armature.edit_bones:
-        if bone.name in mesh_bones:
+        if bone.name not in blacklist:
             bone.hide = hide
 
 MASK_MOD_NAME = 'bf2_bone_mask'
@@ -669,14 +675,23 @@ def toggle_mesh_mask_mesh_for_active_bone(context, rig):
     if mask_mod is None:
         mask_mod = obj.modifiers.new(MASK_MOD_NAME, 'MASK')
 
-    bone = _is_ctrl_of(ctrl_bone)
-    if bone is None:
+    bone_name = _is_ctrl_of(ctrl_bone)
+    if bone_name is None:
         return
 
-    if bone and active_vg != bone:
-        mask_mod.vertex_group = bone
+    bone = rig.data.edit_bones[bone_name]
+
+    # 3P controlls a dummy
+    if _is_ctrl_of(bone):
+        bone_name = _is_ctrl_of(bone)
+
+    if bone_name and active_vg != bone_name:
+        mask_mod.vertex_group = bone_name
+        _set_hide_bones_in_em(context, rig, hide=True, blacklist=[ctrl_bone.name])
     else:
         mask_mod.vertex_group = ""
+        _set_hide_bones_in_em(context, rig, hide=False)
+        _set_hide_bones_in_em(context, rig, hide=True, blacklist=_get_mesh_bone_ctrls(rig))
 
 def _get_bone_fcurves(pose_bone, data_path):
     armature_obj = pose_bone.id_data
