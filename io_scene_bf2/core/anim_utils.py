@@ -334,14 +334,6 @@ def _setup_3p_controllers(context, rig, step):
 
     _apply_shape(rig.pose.bones['root'], shapes['SPHERE'], scale=2)
 
-    face_bones = ['left_lower_lip', 'right_lower_lip',
-                  'left_eye', 'right_eye', 'right_upper_lip', 'left_upper_lip',
-                  'left_eyebrow', 'right_eyebrow', 'left_mouht', 'right_mouth',
-                  'right_eyelid', 'left_eyelid', 'left_cheek', 'right_cheek']
-
-    for face_bone in face_bones:
-        _apply_shape(rig.pose.bones[face_bone], shapes['CUBE'], scale=0.1)
-
     for mesh_bone in mesh_bones:
         mesh_bone_ctrl = rig.pose.bones[mesh_bone + '.CTRL']
         _apply_shape(mesh_bone_ctrl, shapes['CUBE'], scale=0.2)
@@ -468,7 +460,7 @@ def _setup_3p_controllers(context, rig, step):
     # declutter viewport by changing bone display mode
     # and hiding all bones except controllers and finger bones
     finger_bones = [p + n + s for p in {'right_', 'left_'} for n in {'index', 'ring', 'thumb'} for s in {'1', '2', '3'}]
-    whitelist = face_bones + finger_bones + ['head', 'neck', 'chin', 'joint20', 'torso', 'spine3', 'spine2', 'root']
+    whitelist = finger_bones + ['head', 'neck', 'chin', 'joint20', 'torso', 'spine3', 'spine2', 'root']
     blacklist = dummy_mesh_ctrls
     rig.show_in_front = True
     armature.display_type = 'WIRE'
