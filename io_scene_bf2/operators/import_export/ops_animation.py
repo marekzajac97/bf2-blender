@@ -1,7 +1,7 @@
 import bpy # type: ignore
 import os
 import traceback
-from bpy.props import StringProperty, BoolProperty, CollectionProperty # type: ignore
+from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty # type: ignore
 from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
 
 from ...core.animation import import_animation, export_animation, get_bones_for_export, save_bones_for_export
@@ -23,6 +23,12 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
         default=False
     ) # type: ignore
 
+    insert_at_frame: IntProperty(
+        name="Insert at frame",
+        description="Frame index to import the keyframes",
+        default=0
+    ) # type: ignore
+
     @classmethod
     def poll(cls, context):
         return find_active_skeleton(context) is not None
@@ -33,7 +39,7 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         try:
-           import_animation(context, self.rig, self.filepath)
+           import_animation(context, self.rig, self.filepath, insert_at_frame=self.insert_at_frame)
            if self.setup_ctrls:
                context.view_layer.objects.active = self.rig
                bpy.ops.bf2_animation.anim_ctrl_setup_begin('INVOKE_DEFAULT')

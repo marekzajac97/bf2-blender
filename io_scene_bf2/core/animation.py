@@ -40,7 +40,7 @@ def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, 
 
     fstart = scene.frame_start if fstart is None else fstart
     fend = scene.frame_end if fend is None else fend
-    
+
     saved_frame = scene.frame_current
     
     ske_bones = rig['bf2_bones']
@@ -86,7 +86,7 @@ def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, 
     baf.export(baf_file)
 
 
-def import_animation(context, rig, baf_file):
+def import_animation(context, rig, baf_file, insert_at_frame=0):
     scene = context.scene
     baf = BF2Animation(baf_file)
 
@@ -96,8 +96,8 @@ def import_animation(context, rig, baf_file):
     bpy.ops.object.mode_set(mode='POSE')
     armature.pose_position = "POSE"
 
-    scene.frame_start = 0
-    scene.frame_end = baf.frame_num - 1
+    scene.frame_start = insert_at_frame
+    scene.frame_end = insert_at_frame + baf.frame_num - 1
     scene.render.fps = 24 # BF2 hardcoded default
 
     ske_bones = rig['bf2_bones']
@@ -134,7 +134,7 @@ def import_animation(context, rig, baf_file):
             # back to rest bone space
             pose_bone.matrix_basis = pose_bone.bone.matrix_local.inverted() @ matrix
 
-            pose_bone.keyframe_insert(data_path="location", frame=frame_idx)
-            pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_idx)
+            pose_bone.keyframe_insert(data_path="location", frame=insert_at_frame + frame_idx)
+            pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=insert_at_frame + frame_idx)
 
     bpy.ops.object.mode_set(mode='OBJECT')
