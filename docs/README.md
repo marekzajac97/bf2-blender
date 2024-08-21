@@ -1,5 +1,5 @@
 # Initial setup
-After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) it's mandatory to load textures and export texture paths! Then you can use `BF2` submenu in `File -> Import/Export`.
+After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (optional but needed to load for textures) Then you can use `BF2` submenu in `File -> Import/Export` or drag-and-drop any supported BF2 file.
 
 # Animating:
 - Import order of things does matter! The skeleton (`.ske`) needs to be loaded first, followed by the soldier/kitmesh (`.skinnedMesh`), the animated weapon (`.bundledMesh`) and the animation (`.baf`) loaded at the very end (**IMPORTANT**: DO NOT use `Import -> ObjecTemplate (.con)` for importing soldiers, kitmeshes or weapons for animating).

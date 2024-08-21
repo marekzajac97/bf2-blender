@@ -52,7 +52,7 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
 
         layout.label(text="Please move each 'meshX.CTRL' bone to the desired loaction,")
         layout.label(text="it will be used as pivot for the corresponding weapon part.")
-        layout.label(text="When You are done, click 'Finish setup' in the Sidebar (toggled with `N`)")
+        layout.label(text="When You are done, click 'Finish setup' in the Sidebar, BF2 tab (toggled with `N`)")
         layout.label(text="")
         layout.label(text="You can toggle showing only a specific weapon part that corresponds")
         layout.label(text="to the active bone with 'Mask mesh for bone'.")
