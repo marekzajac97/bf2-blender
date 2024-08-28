@@ -3,6 +3,7 @@ import traceback
 from bpy.props import StringProperty # type: ignore
 from bpy_extras.io_utils import ImportHelper, ExportHelper, poll_file_object_drop # type: ignore
 
+from ...core.exceptions import ImportException, ExportException # type: ignore
 from ...core.skeleton import import_skeleton, export_skeleton
 
 class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImportHelper):
@@ -15,8 +16,12 @@ class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         try:
            import_skeleton(context, self.filepath)
+        except ImportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 class EXPORT_OT_bf2_skeleton(bpy.types.Operator, ExportHelper):
@@ -28,6 +33,7 @@ class EXPORT_OT_bf2_skeleton(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("No armature object active")
         active_obj = context.view_layer.objects.active
         return active_obj is not None and isinstance(active_obj.data, bpy.types.Armature)
 
@@ -35,8 +41,12 @@ class EXPORT_OT_bf2_skeleton(bpy.types.Operator, ExportHelper):
         active_obj = context.view_layer.objects.active
         try:
            export_skeleton(active_obj, self.filepath)
+        except ExportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELLED'}
         self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 

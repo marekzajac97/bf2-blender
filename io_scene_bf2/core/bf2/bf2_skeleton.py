@@ -76,7 +76,7 @@ class BF2Skeleton:
 
             if not self.roots:
                 raise BF2SkeletonException("Invalid .ske file, missing root node")
-      
+
     def export(self, export_path):
         with open(export_path, "wb") as f:
             ske_data = FileUtils(f)

@@ -110,7 +110,8 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
         try:
             import_object(context, self.filepath,
                           import_collmesh=self.import_collmesh,
-                          import_rig=(self.import_rig_mode, geom_to_ske),
+                          import_rig_mode=self.import_rig_mode,
+                          geom_to_ske_name=geom_to_ske,
                           texture_path=mod_path,
                           merge_materials=self.merge_materials,
                           weld_verts=self.weld_verts,
@@ -202,8 +203,8 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         return items
 
     tangent_uv_map : EnumProperty(
-        name="Tangent UV",
-        description="UV Layer that you've used to bake the normal map, needed for tangent space generation",
+        name="Tangent space UV",
+        description="UV Layer to be used for tangent space calculation, should be the same that you've used to bake the normal map",
         items=get_uv_layers
     ) # type: ignore
 
@@ -267,8 +268,9 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         layout.prop(self, "export_geometry")
         layout.prop(self, "export_collmesh")
         if not NATIVE_BSP_EXPORT and self.export_collmesh:
-            layout.label(text='WARNING: Native BSP export module could not be loaded', icon='ERROR')
-            layout.label(text='CollisionMesh export may take forever for complex meshes')
+            layout.label(text='WARNING: Native BSP export module could not be loaded!', icon='ERROR')
+            layout.label(text='The add-on might be incompatible with this Blender version or platform')
+            layout.label(text='CollisionMesh export may take a while to complete for complex meshes')
         layout.prop(self, "triangulate")
         layout.prop(self, "apply_modifiers")
         layout.prop(self, "normal_weld_threshold")
@@ -276,6 +278,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("No object active")
         try:
             active_obj = context.view_layer.objects.active
             return active_obj is not None and parse_geom_type(active_obj)

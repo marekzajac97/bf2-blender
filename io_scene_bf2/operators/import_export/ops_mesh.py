@@ -3,6 +3,7 @@ import traceback
 from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty # type: ignore
 from bpy_extras.io_utils import ImportHelper, ExportHelper, poll_file_object_drop # type: ignore
 
+from ...core.exceptions import ImportException, ExportException # type: ignore
 from ...core.mesh import (import_mesh,
                           import_bundledmesh,
                           import_skinnedmesh,
@@ -94,8 +95,12 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
                                        texture_path=mod_path,
                                        merge_materials=self.merge_materials,
                                        **kwargs)
+        except ImportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 
@@ -148,6 +153,7 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("No object active")
         return context.view_layer.objects.active is not None
 
     def execute(self, context):
@@ -157,8 +163,12 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
            self.__class__.EXPORT_FUNC(active_obj, self.filepath,
                                       texture_path=mod_path,
                                       tangent_uv_map=self.tangent_uv_map)
+        except ExportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELLED'}
         self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 

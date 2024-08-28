@@ -1,3 +1,4 @@
+from .bf2_visiblemesh import BF2MeshException
 from .bf2_bundledmesh import BF2BundledMesh
 from .bf2_skinnedmesh import BF2SkinnedMesh
 from .bf2_staticmesh import BF2StaticMesh

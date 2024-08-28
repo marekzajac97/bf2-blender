@@ -10,8 +10,7 @@ class OBJECT_PT_bf2_object(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        active_obj = context.view_layer.objects.active
-        return active_obj is not None
+        return context.view_layer.objects.active
 
     def draw(self, context):
         layout = self.layout

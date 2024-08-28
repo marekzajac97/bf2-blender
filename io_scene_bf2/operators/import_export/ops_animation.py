@@ -2,8 +2,9 @@ import bpy # type: ignore
 import os
 import traceback
 from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty # type: ignore
-from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
+from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop
 
+from ...core.exceptions import ImportException, ExportException # type: ignore
 from ...core.animation import import_animation, export_animation, get_bones_for_export, save_bones_for_export
 from ...core.skeleton import find_active_skeleton
 
@@ -31,6 +32,7 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("No active skeleton found")
         return find_active_skeleton(context) is not None
 
     def invoke(self, context, _event):
@@ -43,8 +45,12 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
            if self.setup_ctrls:
                context.view_layer.objects.active = self.rig
                bpy.ops.bf2_animation.anim_ctrl_setup_begin('INVOKE_DEFAULT')
+        except ImportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 # -------------------------- Export --------------------------
@@ -71,6 +77,7 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("No active skeleton found")
         return find_active_skeleton(context) is not None
 
     def draw(self, context):
@@ -102,8 +109,12 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
 
         try:
            export_animation(context, self.rig, self.filepath, bones_to_export=bones_to_export)
+        except ExportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELLED'}
         self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 

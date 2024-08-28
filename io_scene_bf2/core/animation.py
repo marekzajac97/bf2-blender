@@ -2,10 +2,11 @@ import bpy # type: ignore
 import math
 
 from mathutils import Matrix # type: ignore
-from .bf2.bf2_animation import BF2Animation, BF2KeyFrame
+from .bf2.bf2_animation import BF2Animation, BF2KeyFrame, BF2AnimationException
 from .utils import to_matrix, conv_bf2_to_blender, conv_blender_to_bf2
 from .skeleton import (ske_get_bone_rot,
                        find_animated_weapon_object, ske_weapon_part_ids)
+from .exceptions import ImportException, ExportException
 
 def get_bones_for_export(rig):
     ske_bones = rig['bf2_bones']
@@ -82,13 +83,19 @@ def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, 
 
     # revert to frame before export
     scene.frame_set(saved_frame)
-    
-    baf.export(baf_file)
+
+    try:
+        baf.export(baf_file)
+    except BF2AnimationException as e:
+        raise ExportException(str(e)) from e
 
 
 def import_animation(context, rig, baf_file, insert_at_frame=0):
     scene = context.scene
-    baf = BF2Animation(baf_file)
+    try:
+        baf = BF2Animation(baf_file)
+    except BF2AnimationException as e:
+        raise ImportException(str(e)) from e   
 
     armature = rig.data
     context.view_layer.objects.active = rig

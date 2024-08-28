@@ -3,6 +3,7 @@ import traceback
 from bpy.props import StringProperty # type: ignore
 from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
 
+from ...core.exceptions import ImportException, ExportException # type: ignore
 from ...core.collision_mesh import import_collisionmesh, export_collisionmesh
 
 class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
@@ -14,8 +15,12 @@ class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         try:
             import_collisionmesh(context, self.filepath)
+        except ImportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
@@ -27,14 +32,19 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("No object active")
         return context.view_layer.objects.active is not None
 
     def execute(self, context):
         active_obj = context.view_layer.objects.active
         try:
            export_collisionmesh(active_obj, self.filepath)
+        except ExportException as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
+            return {'CANCELLED'}
         self.report({"INFO"}, 'Export complete')
         return {'FINISHED'}
 

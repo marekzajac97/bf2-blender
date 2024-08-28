@@ -220,7 +220,10 @@ def export_collisionmesh(root_obj, mesh_file, geom_parts=None):
                 col = _export_collistionmesh_col(col_idx, col_obj, material_to_index)
                 geom.cols.append(col)
 
-    collmesh.export(mesh_file)
+    try:
+        collmesh.export(mesh_file)
+    except BF2CollMeshException as e:
+        raise ExportException(str(e)) from e
 
     return collmesh, material_to_index
 

@@ -31,8 +31,9 @@ class GeomPartInfo:
         self.matrix_local = obj.matrix_local.copy()
         self.children = []
 
-def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUTO', None),
-                  reload=False, weld_verts=False, reporter=DEFAULT_REPORTER, **kwargs):
+def import_object(context, con_filepath, import_collmesh=False,
+                  import_rig_mode='AUTO', geom_to_ske_name=None, reload=False,
+                  weld_verts=False, reporter=DEFAULT_REPORTER, **kwargs):
     BF2Engine().shutdown() # clear previous state
     obj_template_manager = BF2Engine().get_manager(ObjectTemplate)
     geom_template_manager = BF2Engine().get_manager(GeometryTemplate)
@@ -75,8 +76,7 @@ def import_object(context, con_filepath, import_collmesh=False, import_rig=('AUT
     geometry_filepath = os.path.join(con_dir, 'Meshes', f'{geometry_template.name}.{geometry_type.lower()}')
 
     # Skeleton import
-    import_rig_mode, geom_to_ske_name = import_rig
-    geom_to_ske = get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name, reporter)
+    geom_to_ske = _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name, reporter)
 
     importer = MeshImporter(context, geometry_filepath,
                             reload=reload, geom_to_ske=geom_to_ske,
@@ -487,10 +487,7 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
                         parent_transform.translation = parent.location
                         transform @= parent_transform
 
-                    rot = transform.to_euler('XYZ')
-                    pos = transform.translation
-
-                    _transform_verts(geometry_part_obj, vertex_group_name, pos, rot)
+                    _transform_verts(geometry_part_obj, vertex_group_name, transform)
 
                     # next override geometry_part_obj with a dummy
                     dummy_mesh = bpy.data.meshes.new(part_name)
@@ -498,7 +495,7 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
                     context.scene.collection.objects.link(geometry_part_obj)
 
                     # add to set of bones
-                    bones.append((geometry_part_obj, pos, rot))
+                    bones.append((geometry_part_obj, transform))
 
                     geometry_part_vg.name = part_name 
             else:
@@ -550,12 +547,12 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
     #     modifier = skinned_obj.modifiers.new(type='ARMATURE', name="Armature")
     #     modifier.object = armature_obj
 
-    #     for bone_dummy_obj, pos, rot in bones:
+    #     for bone_dummy_obj, transform in bones:
     #         bone = armature.edit_bones.new(bone_dummy_obj.name)
 
     #         # transform is in armature space, so first need to move bone to origin
-    #         bone.head = pos
-    #         bone.tail = pos
+    #         bone.head = transform.translation
+    #         bone.tail = transform.translation
     #         bone.tail[2] += 0.4
 
     #     bpy.ops.object.mode_set(mode='POSE')
@@ -568,18 +565,28 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
 
     return root_geom_part_obj
 
-def _transform_verts(geometry_part_obj, vertex_group, part_position, part_rotation):
-    bpy.context.view_layer.objects.active = geometry_part_obj
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.object.vertex_group_set_active(group=vertex_group)
-    bpy.ops.mesh.select_all(action='DESELECT')
-    bpy.ops.object.vertex_group_select()
-    bpy.ops.transform.rotate(value=part_rotation[0], orient_axis='X')
-    bpy.ops.transform.rotate(value=part_rotation[1], orient_axis='Y')
-    bpy.ops.transform.rotate(value=part_rotation[2], orient_axis='Z')
-    bpy.ops.transform.translate(value=part_position)
+def _transform_verts(geometry_part_obj, vertex_group, transform):
     bpy.ops.object.mode_set(mode='OBJECT')
+    vg_idx = -1
+    for v_group in geometry_part_obj.vertex_groups:
+        if v_group.name == vertex_group:
+            vg_idx = v_group.index
+            break
+
+    mesh = geometry_part_obj.data
+    # save normals to re-apply them later on
+    # changing vert coords fucks them all up...
+    loop_normals = list()
+    for loop in mesh.loops:
+        loop_normals.append(tuple(loop.normal))
+
+    for vert in mesh.vertices:
+        for vg in vert.groups:
+            if vg.group == vg_idx:
+                vert.co = transform @ vert.co
+                break
+
+    mesh.normals_split_custom_set(loop_normals)
 
 def _has_obj_in_hierarchy_up(obj, search_obj):
     if obj is None:
@@ -720,12 +727,9 @@ def _create_mesh_vertex_group(obj, obj_to_vertex_group):
             parent_transform.resize_4x4()
             parent_transform.translation = parent.location
             transform @= parent_transform
-
         transform.invert()
-        rot = transform.to_euler('XYZ')
-        pos = transform.translation
 
-        _transform_verts(obj, group.name, pos, rot)
+        _transform_verts(obj, group.name, transform)
 
         child_groups.add(group.index)
         child_name = _strip_prefix(group.name)
@@ -910,7 +914,7 @@ def _matrix_to_yaw_pitch_roll(m):
     roll = math.atan2(m[2][0], m[2][2])
     return tuple(map(math.degrees, (yaw, pitch, roll)))
 
-def get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):
+def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):
     if import_rig_mode == 'OFF':
         return None
     else:

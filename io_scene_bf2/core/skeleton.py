@@ -2,11 +2,11 @@ import bpy # type: ignore
 import math
 
 from mathutils import Matrix, Vector, Quaternion # type: ignore
-from .bf2.bf2_skeleton import BF2Skeleton
+from .bf2.bf2_skeleton import BF2Skeleton, BF2SkeletonException
 from .utils import (to_matrix, conv_bf2_to_blender,
                     conv_blender_to_bf2,
                     delete_object_if_exists)
-from .exceptions import ImportException
+from .exceptions import ImportException, ExportException
 
 # BF2 hardcoded limits, binary can be easily hacked to support more if needed
 MAX_ITEMS_1P = 16
@@ -101,7 +101,10 @@ def _create_camera(context, rig):
     return camera_object
 
 def import_skeleton(context, skeleton_file, reload=False):
-    skeleton = BF2Skeleton(skeleton_file)
+    try:
+        skeleton = BF2Skeleton(skeleton_file)
+    except BF2SkeletonException as e:
+        raise ImportException(str(e)) from e
 
     if reload:
         delete_object_if_exists(skeleton.name)
@@ -205,5 +208,8 @@ def export_skeleton(rig, ske_file):
             node.parent = nodes[bone.parent.name]
         else:
             skeleton.roots.append(node)
-    
-    skeleton.export(ske_file)
+
+    try:
+        skeleton.export(ske_file)
+    except BF2SkeletonException as e:
+        raise ExportException(str(e)) from e

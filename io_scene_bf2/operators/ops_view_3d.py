@@ -60,6 +60,7 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("No skeleton selected")
         rig = context.view_layer.objects.active
         return rig and is_bf2_skeleton(rig)
 
@@ -194,8 +195,8 @@ class EDIT_MESH_OT_bf2_set_anim_uv_rotation_center(bpy.types.Operator):
 
 class EDIT_MESH_OT_bf2_set_anim_uv_matrix(bpy.types.Operator):
     bl_idname = "bf2_mesh.set_uv_matrix"
-    bl_label = "Set Animated UV Matrix"
-    bl_description = "Sets the matrix index for the the animated UVs"
+    bl_label = "Assign Animated UV Matrix"
+    bl_description = "Assign the matrix index for the the animated UVs"
 
     uv_matrix_index: IntProperty(
         default=0,
@@ -222,12 +223,12 @@ class EDIT_MESH_MT_bf2_submenu(bpy.types.Menu):
         op_rot_center = EDIT_MESH_OT_bf2_set_anim_uv_rotation_center.bl_idname
         self.layout.operator(op_rot_center, text="Set Animated UV Rotation Center")
         self.layout.operator(op_matrix, text="Clear Wheel/Track Rotation/Translation").uv_matrix_index = AnimUv.NONE
-        self.layout.operator(op_matrix, text="Set Left Wheel Rotation").uv_matrix_index = AnimUv.L_WHEEL_ROTATION
-        self.layout.operator(op_matrix, text="Set Left Wheel Translation").uv_matrix_index = AnimUv.L_WHEEL_TRANSLATION
-        self.layout.operator(op_matrix, text="Set Right Wheel Rotation").uv_matrix_index = AnimUv.R_WHEEL_ROTATION
-        self.layout.operator(op_matrix, text="Set Right Wheel Translation").uv_matrix_index = AnimUv.R_WHEEL_TRANSLATION
-        self.layout.operator(op_matrix, text="Set Left Track Translation").uv_matrix_index = AnimUv.L_TRACK_TRANSLATION
-        self.layout.operator(op_matrix, text="Set Right Track Translation").uv_matrix_index = AnimUv.R_TRACK_TRANSLATION
+        self.layout.operator(op_matrix, text="Assign To Left Wheel Rotation").uv_matrix_index = AnimUv.L_WHEEL_ROTATION
+        self.layout.operator(op_matrix, text="Assign To Left Wheel Translation").uv_matrix_index = AnimUv.L_WHEEL_TRANSLATION
+        self.layout.operator(op_matrix, text="Assign To Right Wheel Rotation").uv_matrix_index = AnimUv.R_WHEEL_ROTATION
+        self.layout.operator(op_matrix, text="Assign To Right Wheel Translation").uv_matrix_index = AnimUv.R_WHEEL_TRANSLATION
+        self.layout.operator(op_matrix, text="Assign To Left Track Translation").uv_matrix_index = AnimUv.L_TRACK_TRANSLATION
+        self.layout.operator(op_matrix, text="Assign To Right Track Translation").uv_matrix_index = AnimUv.R_TRACK_TRANSLATION
 
 # --------------------------------------------------------------------
 
@@ -263,10 +264,8 @@ class POSE_OT_bf2_clear_parent(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        if not context.selected_pose_bones_from_active_object:
-            cls.poll_message_set("No bones selected")
-            return False
-        return True
+        cls.poll_message_set("No bones selected")
+        return context.selected_pose_bones_from_active_object
 
     def execute(self, context):
         rig = context.view_layer.objects.active
@@ -332,6 +331,7 @@ class OBJECT_SHOWHIDE_OT_bf2_show_hide(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("No object active")
         try:
             return cls.find_root(context.view_layer.objects.active)
         except Exception as e:

@@ -6,9 +6,9 @@ import enum
 from itertools import chain
 from mathutils import Vector # type: ignore
 
-from .bf2.bf2_mesh import BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
+from .bf2.bf2_mesh import BF2MeshException, BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
 from .bf2.bf2_common import Mat4
-from .bf2.bf2_mesh.bf2_visiblemesh import Material, MaterialWithTransparency, Vertex, VertexAttribute
+from .bf2.bf2_mesh.bf2_visiblemesh import Material, MaterialWithTransparency, Vertex
 from .bf2.fileutils import FileUtils
 
 from .exceptions import ImportException, ExportException
@@ -105,21 +105,27 @@ class MeshImporter:
                  reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
-        if mesh_type:
-            self.bf2_mesh = _MESH_TYPES[mesh_type.upper()](mesh_file)
+
+        if mesh_type: 
+            self._loader = lambda: _MESH_TYPES[mesh_type.upper()](mesh_file)
         else:
-            self.bf2_mesh = BF2Mesh.load(mesh_file)
+            self._loader = lambda: BF2Mesh.load(mesh_file)
+
+        self.bf2_mesh = None
         self.reload = reload
         self.texture_path = texture_path
         self.geom_to_ske = geom_to_ske
         self.reporter = reporter
         self.mesh_materials = []
-        self.mesh_name = self.bf2_mesh.name
         self.merge_materials = merge_materials
 
     def import_mesh(self, name='', geom=None, lod=None):
-        if name:
-            self.mesh_name = name
+        try:
+            self.bf2_mesh = self._loader()
+        except BF2MeshException as e:
+            raise ImportException(str(e)) from e
+
+        self.mesh_name = name or self.bf2_mesh.name
         self._cleanup_old_materials()
         if geom is None and lod is None:
             if self.reload: delete_object_if_exists(self.mesh_name)
@@ -511,9 +517,11 @@ class MeshExporter:
             for lod_obj in geom_obj:
                 bf2_lod = bf2_geom.new_lod()
                 self._export_mesh_lod(bf2_lod, lod_obj)
-
-        self.bf2_mesh.export(self.mesh_file)
-        return self.bf2_mesh  
+        try:
+            self.bf2_mesh.export(self.mesh_file)
+        except BF2MeshException as e:
+            raise ExportException(str(e)) from e
+        return self.bf2_mesh
 
     def _setup_vertex_attributes(self):
         self.bf2_mesh.add_vert_attr('FLOAT3', 'POSITION')
@@ -605,9 +613,6 @@ class MeshExporter:
             animuv_matrix_index = None
             animuv_rot_center = None
 
-        # XXX: I have no idea what map is this supposed to be calculated on
-        # I assume it must match with tangents which were used to generate the normal map
-        # but we don't know this! so its probably needed to be added as an export setting?
         if not self.tangent_uv_map:
             raise ExportException("No UV selected for tangent space generation!")
         mesh.calc_tangents(uvmap=self.tangent_uv_map)
@@ -648,8 +653,9 @@ class MeshExporter:
             # that's why we gonna write all groups defined
             bf2_lod.parts_num = len(vertex_group_to_part_id)
             if bf2_lod.parts_num > MAX_GEOM_LIMIT:
-                raise ExportException(f"{lod_obj.name}: BF2 only supports a maximum of "
+                self.reporter.warning(f"{lod_obj.name}: BF2 only supports a maximum of "
                                       f"{MAX_GEOM_LIMIT} geometry parts but got {bf2_lod.parts_num}")
+
         elif mesh_type == BF2SkinnedMesh:
             bone_to_matrix = dict()
             bone_to_id = dict()
@@ -790,7 +796,7 @@ class MeshExporter:
                     vert.position = _swap_zy(blend_vertex.co)
                     vert.normal = _swap_zy(loop.normal)
                     vert.tangent = _swap_zy(loop.tangent)
-                    
+
                     # blendindices
                     blendindices = [0, 0, 0, 0]
                     # - (BundledMesh) first one is geom part index, second one unused
@@ -822,8 +828,6 @@ class MeshExporter:
                                 except ValueError:
                                     blendindices[_bone_idx] = len(bone_list)
                                     bone_list.append(_bone_name)
-                                    if len(bone_list) > MAX_BONE_LIMIT:
-                                        raise ExportException(f"{lod_obj.name} (mat: {blend_material.name}): BF2 only supports a maximum of {MAX_BONE_LIMIT} bones per material")
                                     bf2_bone = bf2_rig.new_bone()
                                     if _bone_name not in bone_to_id:
                                         raise ExportException(f"{lod_obj.name} (mat: {blend_material.name}): bone '{_bone_name}' is not present in BF2 skeleton")
@@ -906,9 +910,12 @@ class MeshExporter:
                 stats += f'\n\tfaces: {len(bf2_mat.faces)}'
                 print(stats)
 
-            if mesh_type == BF2SkinnedMesh and not bone_list:
-                self.reporter.warning(f"{lod_obj.name}: (mat: {blend_material.name}): has no weights assigned")
-
+            if mesh_type == BF2SkinnedMesh:
+                if not bone_list:
+                    self.reporter.warning(f"{lod_obj.name}: Material '{blend_material.name}' has no weights assigned")
+                if len(bone_list) > MAX_BONE_LIMIT:
+                    self.reporter.warning(f"{lod_obj.name}: BF2 only supports a maximum of {MAX_BONE_LIMIT} bones per material,"
+                                          f" but material '{blend_material.name}' has got {len(bone_list)} bones (vertex groups) assigned!")
         mesh.free_tangents()
 
     def _can_merge_vert(self, this, other, uv_count):

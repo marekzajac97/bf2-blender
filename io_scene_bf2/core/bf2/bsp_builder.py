@@ -1,6 +1,8 @@
 from typing import List, Tuple, Optional
 from .bf2_common import Vec3
 
+PRE_CACHE_SPLIT_PLANES = True
+
 class PolyType:
     FRONT = 0,
     BACK = 1,
@@ -8,6 +10,9 @@ class PolyType:
     STRADDLE = 3
 
 class Poly:
+    __slots__ = ('face_idx', 'indexes', 'points',
+                 'center', 'normal', 'd')
+
     def __init__(self, face, verts, face_idx):
         self.face_idx = face_idx
         self.indexes = face
@@ -36,7 +41,7 @@ class Poly:
             for vertex in range(len(self.points)):
                 prev_vert = vertex - 1 if vertex != 0 else len(self.points) - 1
 
-                edge_delta = self.points[vertex].copy().sub( self.points[prev_vert])
+                edge_delta = self.points[vertex].copy().sub(self.points[prev_vert])
                 denom = edge_delta.dot_product(plane.normal)
                 if denom:
                     numer = self.points[prev_vert].dot_product(plane.normal) + plane.d
@@ -47,6 +52,7 @@ class Poly:
 
                 last_side_parallel = denom == 0.0
         return False
+
 
     def classify(self, plane):
         if self._intersects(plane):
@@ -62,6 +68,9 @@ class Poly:
                 return PolyType.BACK
 
 class Plane:
+    __slots__ = ('val', 'axis', 'normal',
+                 'point', 'd', 'face_cache')
+
     def __init__(self, val, axis):
         self.val = val
         self.axis = axis
@@ -71,9 +80,24 @@ class Plane:
         self.point = Vec3()
         self.point[axis] = val
         self.d = -self.normal.dot_product(self.point)
+        self.face_cache = None
+
+    def cache_faces(self, polys):
+        self.face_cache = list()
+        for poly in polys:
+            c = poly.classify(self)
+            self.face_cache.append(c)
+
+    def classify(self, poly):
+        if self.face_cache is not None:
+            return self.face_cache[poly.face_idx]
+        return poly.classify(self)
 
 
 class Node:
+    __slots__ = ('front_faces', 'back_faces', 'front_node',
+                 'back_node', 'split_plane')
+
     def __init__(self, split_plane):
         self.front_faces : List[Poly] = None
         self.back_faces : List[Poly] = None
@@ -82,6 +106,9 @@ class Node:
         self.split_plane : Plane = split_plane
 
 class BspBuilder:
+    __slots__ = ('verts', 'faces', 'complanar_weigth',
+                 'intersect_weight', 'split_weight',
+                 'min_split_metric', 'split_planes', 'root')
 
     def __init__(self, verts : Tuple[float], faces : Tuple[int],
                  complanar_weigth = 0.5, intersect_weight = 1.0,
@@ -97,30 +124,39 @@ class BspBuilder:
         polys = list()
         for face_idx, face in enumerate(faces):
             polys.append(Poly(face, self.verts, face_idx))
+
+        self.split_planes = dict()
+        for vert, i in self._get_all_split_plane_ids(polys):
+            split_plane = Plane(self.verts[vert][i], i)
+            if PRE_CACHE_SPLIT_PLANES:
+                split_plane.cache_faces(polys)
+            self.split_planes[(vert, i)] = split_plane
+
         self.root = self._build_bsp_tree(polys)
 
-    def _get_all_planes(self, polys : List[Poly]):
+    def _get_all_split_plane_ids(self, polys : List[Poly]):
         planes_to_check = set() # set of (vert, axis)
         for poly in polys:
             for i, vert in enumerate(poly.indexes):
                 planes_to_check.add((vert, i))
 
         for plane in planes_to_check:
-            vert, i = plane
-            yield Plane(self.verts[vert][i], i)
+            yield plane
 
-    def _find_best_split_plane(self, polys : List[Poly]):
+    def _find_best_split_plane(self, polys : List[Poly]) -> Plane:
         best_metric = float("inf")
         best_split_plane = None
 
-        for split_plane in self._get_all_planes(polys):
+        for split_plane_id in self._get_all_split_plane_ids(polys):
+            split_plane = self.split_planes[split_plane_id]
+
             coplanar_count = 0
             intersect_count = 0
             front_count = 0
             back_count = 0
 
             for poly in polys:
-                c = poly.classify(split_plane)
+                c = split_plane.classify(poly)
                 if c == PolyType.STRADDLE:
                     intersect_count += 1
                 elif c == PolyType.COPLANAR:
@@ -162,7 +198,7 @@ class BspBuilder:
         back : List[Poly] = list()
 
         for poly in polys:
-            c = poly.classify(split_plane)
+            c = split_plane.classify(poly)
             if c == PolyType.STRADDLE or c == PolyType.COPLANAR:
                 front.append(poly)
                 back.append(poly)

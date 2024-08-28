@@ -14,6 +14,8 @@ def calc_bounds(verts):
     return (_min, _max)
 
 class Quat:
+    __slots__ = ('x', 'y', 'z', 'w')
+
     def __init__(self, x=0.0, y=0.0, z=0.0, w=1.0):
         self.x = x
         self.y = y
@@ -101,6 +103,8 @@ class Quat:
         return False
 
 class Vec3:
+    __slots__ = ('x', 'y', 'z')
+
     def __init__(self, x=0.0, y=0.0, z=0.0):
         self.x = x
         self.y = y
@@ -228,6 +232,8 @@ class Vec3:
         return False
 
 class Mat4:
+    __slots__ = ('m')
+
     def __init__(self, m=None):
         if m is not None:
             self.m = list()
