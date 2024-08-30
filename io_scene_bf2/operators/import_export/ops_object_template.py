@@ -242,7 +242,8 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         self['samples_size'] = val
 
     def get_sample_size(self):
-        return self.get('samples_size', (256, 256))
+        def_val = tuple(self.bl_rna.properties['samples_size'].default_array)
+        return self.get('samples_size', def_val) 
 
     tangent_uv_map : EnumProperty(
         name="Tangent space UV",
@@ -413,6 +414,8 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         geom_type, obj_name = parse_geom_type(active_obj)
         self.filepath = obj_name + self.filename_ext
         self.geom_type = geom_type
+        op = context.window_manager.operator_properties_last(EXPORT_OT_bf2_object.bl_idname)
+        self.samples_size = op.samples_size
         return super().invoke(context, _event)
 
 
