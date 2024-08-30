@@ -205,6 +205,11 @@ class Vec3:
         result.z = self.x * a.y - self.y * a.x
         return result
 
+    def angle_to(self, a):
+        # to fix float rounding error, somtimes dot product might be 1.0000000000000002
+        dot = min(1, self.copy().normalize().dot_product(a.copy().normalize()))
+        return math.acos(dot)
+
     def copy(self):
         return Vec3(self.x, self.y, self.z)
 

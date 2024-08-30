@@ -26,15 +26,6 @@ ALPHA_MODES = [
 INSENSITIVE_ALPHA_TEST = re.compile(re.escape('alpha_test'), re.IGNORECASE)
 INSENSITIVE_ALPHA = re.compile(re.escape('alpha'), re.IGNORECASE)
 
-def _get_active_material(context):
-    active_obj = context.view_layer.objects.active
-    if active_obj is not None and isinstance(active_obj.data, Mesh):
-        materials = active_obj.data.materials
-        material_idx = context.object.active_material_index
-        if material_idx < len(materials):
-            return materials[material_idx]
-    return None
-
 class MESH_OT_bf2_apply_material(bpy.types.Operator):
     bl_idname = "bf2_material.add"
     bl_label = "Apply Material"
@@ -42,7 +33,7 @@ class MESH_OT_bf2_apply_material(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        material = _get_active_material(context)
+        material = context.material
         if material and material.is_bf2_material:
             if material.bf2_shader == 'STATICMESH':
                 return material.bf2_technique
@@ -52,7 +43,7 @@ class MESH_OT_bf2_apply_material(bpy.types.Operator):
 
     def execute(self, context):
         mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
-        material = _get_active_material(context)
+        material = context.material
         try:
             setup_material(material, texture_path=mod_path, reporter=Reporter(self.report))
         except Exception as e:
@@ -68,10 +59,10 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return _get_active_material(context)
+        return context.material
 
     def draw(self, context):
-        material = _get_active_material(context)
+        material = context.material
 
         if material:
             col = self.layout.column()

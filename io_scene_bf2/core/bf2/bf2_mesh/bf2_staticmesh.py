@@ -3,7 +3,6 @@ from .bf2_visiblemesh import BF2VisibleMesh, MaterialWithTransparency, Lod, Geom
 from ..fileutils import FileUtils
 from ..bf2_common import Mat4, Vec3, load_n_elems
 
-
 class StaticMeshMaterial(MaterialWithTransparency):
 
     @classmethod

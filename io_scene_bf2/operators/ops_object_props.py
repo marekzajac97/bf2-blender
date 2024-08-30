@@ -10,20 +10,19 @@ class OBJECT_PT_bf2_object(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.view_layer.objects.active
+        return context.object
+
 
     def draw(self, context):
         layout = self.layout
-        active_obj = context.view_layer.objects.active
-        layout.prop(active_obj, "bf2_object_type")
+        layout.prop(context.object, "bf2_object_type")
 
 def register():
-    bf2_object_type_prop = StringProperty(
+    bpy.types.Object.bf2_object_type = StringProperty(
             name="BF2 Object Type",
             description="Type of BF2 Object (e.g. GenericFirearm) this Blender Object represents",
             default = 'SimpleObject'
         )
-    bpy.types.Object.bf2_object_type = bf2_object_type_prop
     bpy.utils.register_class(OBJECT_PT_bf2_object)
 
 def unregister():

@@ -1,6 +1,7 @@
 import bpy # type: ignore
 import os
 import math
+
 from getpass import getuser
 from mathutils import Matrix, Vector, Euler # type: ignore
 from bpy.types import Mesh, Armature # type: ignore
@@ -8,6 +9,7 @@ from bpy.types import Mesh, Armature # type: ignore
 from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
                              GeometryTemplate, CollisionMeshTemplate)
 from .bf2.bf2_collmesh import NATIVE_BSP_EXPORT
+from .bf2.bf2_mesh import BF2Samples
 from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import import_collisionmesh, export_collisionmesh
 from .skeleton import find_all_skeletons, find_rig_attached_to_object
@@ -136,7 +138,8 @@ def parse_geom_type_safe(mesh_obj):
         return None
 
 def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
-                  apply_modifiers=False, triangluate=False, **kwargs):
+                  apply_modifiers=False, samples_size=None, sample_padding=6,
+                  use_edge_margin=True, reporter=DEFAULT_REPORTER, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
 
     # find anchor
@@ -203,13 +206,35 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                     if rig:
                         modifier = lod_obj.modifiers.new(type='ARMATURE', name="Armature")
                         modifier.object = rig
-                if triangluate:
-                    _triangulate(lod_obj)
+                _triangulate(lod_obj)
 
         if geom_export:
             print(f"Exporting geometry to '{geometry_filepath}'")
-            MeshExporter(mesh_obj, geometry_filepath, mesh_geoms=temp_mesh_geoms,
-                         mesh_type=geometry_type, **kwargs).export_mesh()
+            bf2_mesh = MeshExporter(mesh_obj, geometry_filepath, mesh_geoms=temp_mesh_geoms,
+                                    mesh_type=geometry_type, reporter=reporter, **kwargs).export_mesh()
+
+            if samples_size is not None and geometry_type == 'StaticMesh':
+                if len(bf2_mesh.geoms) != 1:
+                    reporter.error("Cannot generate samples for meshes with more than one Geom")
+                elif not bf2_mesh.has_uv(4):
+                    reporter.error(f"Cannot generate samples, missing ligtmap UV Layer (UV4)")
+                else:
+                    for lod_idx, bf2_lod in enumerate(bf2_mesh.geoms[0].lods):
+                        MIN_SAMPLE_SIZE = 8
+                        if lod_idx == 0:
+                            sample_size = samples_size
+                            samples_filename = bf2_mesh.name + '.samples'
+                        else:
+                            sample_size = [max(int(i / (2**lod_idx)), MIN_SAMPLE_SIZE) for i in samples_size]
+                            samples_filename = bf2_mesh.name + f'.samp_{lod_idx:02d}'
+
+                        samples = BF2Samples(bf2_lod, size=sample_size, sample_padding=sample_padding,
+                                             use_edge_margin=use_edge_margin, uv_chan=4)
+
+                        samples_filepath = os.path.join(os.path.dirname(geometry_filepath), samples_filename)
+                        print(f"Exporting samples to '{samples_filepath}'")
+                        samples.export(samples_filepath)
+
     except Exception:
         raise
     finally:
@@ -226,8 +251,7 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                 for _, col_obj in cols.items():
                     if apply_modifiers:
                         _apply_modifiers(col_obj)
-                    if triangluate:
-                        _triangulate(col_obj)
+                    _triangulate(col_obj)
         try:
             print(f"Exporting collision to '{collmesh_filepath}'")
             _, material_to_index = export_collisionmesh(mesh_obj, collmesh_filepath, geom_parts=temp_collmesh_parts)
@@ -244,6 +268,8 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
 
     print(f"Writing con file to '{con_file}'")
     _dump_con_file(root_obj_template, con_file)
+
+    bpy.context.view_layer.objects.active = mesh_obj
 
 
 def _find_geom_parts(mesh_geoms):

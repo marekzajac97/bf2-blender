@@ -1,6 +1,6 @@
 import bpy # type: ignore
 import traceback
-from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, FloatProperty, CollectionProperty # type: ignore
+from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, IntVectorProperty, FloatProperty, CollectionProperty # type: ignore
 from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
 
 from ...core.object_template import import_object, export_object, parse_geom_type, NATIVE_BSP_EXPORT
@@ -169,6 +169,28 @@ class IMPORT_OT_bf2_object_skeleton_remove(bpy.types.Operator):
         self.skeletons_to_link = IMPORT_OT_bf2_object.instance.skeletons_to_link
         return self.execute(context)
 
+
+def next_power_of_2(n):
+    if n == 0:
+        return 1
+    if n & (n - 1) == 0:
+        return n
+    while n & (n - 1) > 0:
+        n &= (n - 1)
+    return n << 1
+
+def prev_power_of_2(n):
+    if n == 0:
+        return 1
+    if n & (n - 1) == 0:
+        return n
+    while n & (n - 1) > 0:
+        n &= (n - 1)
+    return n
+
+SAMPLES_MAX_SIZE = 4096
+SAMPLES_MIN_SIZE = 8
+
 class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
     bl_idname = "bf2_object.export"
     bl_label = "Export BF2 ObjectTemplate"
@@ -202,6 +224,26 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
         return items
 
+    def set_sample_size(self, value):
+        prev_val = tuple(self.samples_size)
+        val = list(value)
+        for i in range(2):
+            link = False
+            if val[i] != prev_val[i]:
+                link = self.link_samples_size
+            if val[i] > prev_val[i]:
+                val[i] = next_power_of_2(val[i])
+            else:
+                val[i] = prev_power_of_2(val[i])
+            val[i] = max(SAMPLES_MIN_SIZE, val[i])
+            val[i] = min(SAMPLES_MAX_SIZE, val[i])
+            if link:
+                val[0] = val[1] = val[i]
+        self['samples_size'] = val
+
+    def get_sample_size(self):
+        return self.get('samples_size', (256, 256))
+
     tangent_uv_map : EnumProperty(
         name="Tangent space UV",
         description="UV Layer to be used for tangent space calculation, should be the same that you've used to bake the normal map",
@@ -214,6 +256,41 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         default=True
     ) # type: ignore
 
+    export_samples: BoolProperty(
+        name="Export Samples",
+        description="Export lightmap samples (for StaticMeshes only)",
+        default=True
+    ) # type: ignore
+
+    link_samples_size: BoolProperty(
+        name="Link Sample Size",
+        description="Change both X and Y size uniformly",
+        default=True
+    ) # type: ignore
+
+    samples_size: IntVectorProperty(
+        name="Samples size",
+        description="X and Y samples dimentions for Lod0, for consecutive Lods the size is halved",
+        default=(256, 256),
+        size=2,
+        set=set_sample_size,
+        get=get_sample_size
+    ) # type: ignore
+
+    use_edge_margin: BoolProperty(
+        name="Use edge margin",
+        description="whether to clamp samples to trinagle edge or not",
+        default=True
+    ) # type: ignore
+
+    sample_padding: IntProperty(
+        name="Sample padding",
+        description="Sample padding",
+        default=6,
+        min=0,
+        max=64
+    ) # type: ignore
+
     export_geometry: BoolProperty(
         name="Export Geometry",
         description="Export visible mesh geometry to a file",
@@ -224,12 +301,6 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         name="Export CollisionMesh",
         description="Export collision mesh geometry to a file",
         default=NATIVE_BSP_EXPORT
-    ) # type: ignore
-
-    triangulate: BoolProperty(
-        name="Triangulate",
-        description="Convert Polygons to Triangles",
-        default=True
     ) # type: ignore
 
     apply_modifiers: BoolProperty(
@@ -260,10 +331,31 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         layout = self.layout
 
         layout.prop(self, "tangent_uv_map")
+        is_sm = self.geom_type == 'StaticMesh'
 
         row = layout.row()
         row.prop(self, "gen_lightmap_uv")
-        row.enabled = self.geom_type == 'StaticMesh'
+        row.enabled = is_sm
+
+        header, body = layout.panel("BF2_PT_export_samples", default_closed=True)
+        header.label(text="Samples")
+        if body:
+            ex_smp = self.export_samples and self.export_geometry
+            col = layout.column()
+            col.prop(self, "export_samples")
+            col.enabled = is_sm and self.export_geometry
+            row = layout.row()
+            row.prop(self, "samples_size", text="Size")
+            row.enabled = is_sm and ex_smp
+            col = row.column()
+            col.prop(self, "link_samples_size", text="")
+            col.enabled = is_sm and ex_smp
+            col = layout.column()
+            col.prop(self, "use_edge_margin")
+            col.enabled = is_sm and ex_smp
+            col = layout.column()
+            col.prop(self, "sample_padding")
+            col.enabled = is_sm and ex_smp
 
         layout.prop(self, "export_geometry")
         layout.prop(self, "export_collmesh")
@@ -271,7 +363,6 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
             layout.label(text='WARNING: Native BSP export module could not be loaded!', icon='ERROR')
             layout.label(text='The add-on might be incompatible with this Blender version or platform')
             layout.label(text='CollisionMesh export may take a while to complete for complex meshes')
-        layout.prop(self, "triangulate")
         layout.prop(self, "apply_modifiers")
         layout.prop(self, "normal_weld_threshold")
         layout.prop(self, "tangent_weld_threshold")
@@ -289,17 +380,24 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
     def execute(self, context):
         active_obj = context.view_layer.objects.active
         mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+
+        samples_size = self.samples_size
+        if not self.export_samples:
+            samples_size = None
+
         try:
            export_object(active_obj, self.filepath,
                          geom_export=self.export_geometry,
                          colmesh_export=self.export_collmesh,
-                         triangluate=self.triangulate,
                          apply_modifiers=self.apply_modifiers,
                          gen_lightmap_uv=self.gen_lightmap_uv,
                          texture_path=mod_path,
                          tangent_uv_map=self.tangent_uv_map,
                          normal_weld_thres=self.normal_weld_threshold,
                          tangent_weld_thres=self.tangent_weld_threshold,
+                         samples_size=samples_size,
+                         use_edge_margin=self.use_edge_margin,
+                         sample_padding=self.sample_padding,
                          reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))
