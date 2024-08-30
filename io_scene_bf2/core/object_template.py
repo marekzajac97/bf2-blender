@@ -223,10 +223,10 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                         MIN_SAMPLE_SIZE = 8
                         if lod_idx == 0:
                             sample_size = samples_size
-                            samples_filename = bf2_mesh.name + '.samples'
+                            samples_filename = obj_name + '.samples'
                         else:
                             sample_size = [max(int(i / (2**lod_idx)), MIN_SAMPLE_SIZE) for i in samples_size]
-                            samples_filename = bf2_mesh.name + f'.samp_{lod_idx:02d}'
+                            samples_filename = obj_name + f'.samp_{lod_idx:02d}'
 
                         samples = BF2Samples(bf2_lod, size=sample_size, sample_padding=sample_padding,
                                              use_edge_margin=use_edge_margin, uv_chan=4)
