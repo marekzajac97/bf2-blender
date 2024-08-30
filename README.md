@@ -20,7 +20,6 @@ Download the latest package from [Releases](https://github.com/marekzajac97/bf2-
 - Head over to the [Documentation](docs/README.md) for details on how to use this add-on
 
 ## Limitations and known issues:
-- Generating `.samples` for StaticMeshes is not yet supported, use [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/)!
 - SkinnedMeshes using Object Space normal maps will have shading issues when deformed/animated inside of Blender.
 - Blender does not allow to import custom tangent data, therefore when re-exporting meshes, vertex tangents always get re-calculated. This may increase the number of unique vertices being exported. Generated tangents may also be totally wrong if the normal map used was not generated using Mikk TSpace method (which Blender uses).
 - Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions.
