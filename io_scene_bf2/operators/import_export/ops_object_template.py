@@ -3,13 +3,14 @@ import traceback
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, IntVectorProperty, FloatProperty, CollectionProperty # type: ignore
 from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
 
-from ...core.object_template import import_object, export_object, parse_geom_type, NATIVE_BSP_EXPORT
+from ...core.object_template import (import_object_template, export_object_template,
+                                     parse_geom_type, NATIVE_BSP_EXPORT)
 from ...core.mesh import collect_uv_layers
 from ...core.skeleton import find_all_skeletons
 from ...core.exceptions import ImportException, ExportException
 from ...core.utils import Reporter
 
-from ... import PLUGIN_NAME
+from ... import get_mod_dir
 
 class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
 
@@ -42,7 +43,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
     import_collmesh: BoolProperty(
         name="Import CollisionMesh",
         description="Load CollisionMesh and merge with the object hierarchy",
-        default=False
+        default=True
     ) # type: ignore
 
     import_rig_mode : EnumProperty(
@@ -99,7 +100,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
         col.prop(self, "weld_verts")
 
     def execute(self, context):
-        mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+        mod_path = get_mod_dir(context)
 
         geom_to_ske = None
         if self.import_rig_mode == 'MANUAL':
@@ -108,14 +109,14 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
                 geom_to_ske[prop.geom_idx] = prop.skeleton
 
         try:
-            import_object(context, self.filepath,
-                          import_collmesh=self.import_collmesh,
-                          import_rig_mode=self.import_rig_mode,
-                          geom_to_ske_name=geom_to_ske,
-                          texture_path=mod_path,
-                          merge_materials=self.merge_materials,
-                          weld_verts=self.weld_verts,
-                          reporter=Reporter(self.report))
+            import_object_template(context, self.filepath,
+                import_collmesh=self.import_collmesh,
+                import_rig_mode=self.import_rig_mode,
+                geom_to_ske_name=geom_to_ske,
+                texture_path=mod_path,
+                merge_materials=self.merge_materials,
+                weld_verts=self.weld_verts,
+                reporter=Reporter(self.report))
         except ImportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}
@@ -380,26 +381,26 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         active_obj = context.view_layer.objects.active
-        mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+        mod_path = get_mod_dir(context)
 
         samples_size = self.samples_size
         if not self.export_samples:
             samples_size = None
 
         try:
-           export_object(active_obj, self.filepath,
-                         geom_export=self.export_geometry,
-                         colmesh_export=self.export_collmesh,
-                         apply_modifiers=self.apply_modifiers,
-                         gen_lightmap_uv=self.gen_lightmap_uv,
-                         texture_path=mod_path,
-                         tangent_uv_map=self.tangent_uv_map,
-                         normal_weld_thres=self.normal_weld_threshold,
-                         tangent_weld_thres=self.tangent_weld_threshold,
-                         samples_size=samples_size,
-                         use_edge_margin=self.use_edge_margin,
-                         sample_padding=self.sample_padding,
-                         reporter=Reporter(self.report))
+           export_object_template(active_obj, self.filepath,
+                geom_export=self.export_geometry,
+                colmesh_export=self.export_collmesh,
+                apply_modifiers=self.apply_modifiers,
+                gen_lightmap_uv=self.gen_lightmap_uv,
+                texture_path=mod_path,
+                tangent_uv_map=self.tangent_uv_map,
+                normal_weld_thres=self.normal_weld_threshold,
+                tangent_weld_thres=self.tangent_weld_threshold,
+                samples_size=samples_size,
+                use_edge_margin=self.use_edge_margin,
+                sample_padding=self.sample_padding,
+                reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}

@@ -2,9 +2,12 @@
 # Table of Contents
 
 - [BF2 glossary](#bf2-glossary)
+  * [Texturing in BF2](#texturing-in-bf2)
+    + [StaticMesh](#staticmesh)
+    + [BundledMesh/SkinnedMesh](#bundledmesh-skinnedmesh)
 - [Initial setup](#initial-setup)
 - [Animating](#animating)
-- [ObjectTemplate vs Mesh import/export](#objecttemplate-vs-mesh-import-export)
+- [ObjectTemplate vs Mesh import/export](#objecttemplate-vs-mesh-importexport)
 - [ObjectTemplate exporting](#objecttemplate-exporting)
   * [The object hierarchy](#the-object-hierarchy)
     + [Example object hierarchies](#example-object-hierarchies)
@@ -14,14 +17,15 @@
   * [Animated UVs (BundledMesh)](#animated-uvs-bundledmesh)
   * [Skinning (SkinnedMesh)](#skinning-skinnedmesh)
 - [Tutorials](#tutorials)
+- [Scripting](#scripting)
 
 # BF2 glossary
-An explanation of BF2 terms used throughout this documentation.
+An explanation of BF2 terms and systems used throughout this documentation.
 
 - **Skeleton** - a set of bones with a defined hierarchy and transformations (position + rotation), exclusively used for skinning and animating SkinnedMeshes. Soldier skeletons (`1p_setup` and `3p_setup`) contain special `mesh` bones which are used for animating weapon parts (`mesh1` to `mesh16` for 1P and `mesh1` to `mesh8` for 3P). `3p_setup` also contains bones used for animating kit parts (`mesh9` to `mesh16`)
 - **Visible geometry** - either BundledMesh, SkinnedMesh or StaticMesh
 - **Geom** - each visible geometry type may define multiple sub-meshes called geoms, each geom usually represents the same object viewed from a different perspective or in a different state e.g. for Soldiers/Weapons/Vehicles Geom0 and Geom1 refer to 1P and 3P meshes respectively. Statics and Vehicles may also have an extra Geom for the destroyed/wreck variant.
-- **Lod** - level of detail. Multiple Lods can be defined per Geom. Each Lod should be a simplified version of the previous one with Lod0 being the most detailed version.
+- **Lod** - level of detail. Multiple Lods can be defined per Geom. Each Lod should be a simplified version of the previous one with Lod0 being the most detailed version. Most BF2 models are rather low-poly and modern GPUs are _fast_, so optimizing the poly count will usually have little to no impact on the performance. Reducing the number of materials on Lods should be prioritized instead to limit the number of draw calls and CPU load, which is the main bottleneck in the BF2 engine.
 - **StaticMesh** - Used for static, non-movable objects (e.g. bridges, buildings) with baked lighting via light maps.
 - **BundledMesh** - Used for movable objects (e.g. vehicles, weapons)
 - **SkinnedMesh** - Used for deformable objects (e.g. soldiers, flags)
@@ -32,8 +36,23 @@ An explanation of BF2 terms used throughout this documentation.
 - **Alpha Mode** - either `None`, `Alpha Test` (cheap, one-bit alpha), `Alpha Blend` (expensive, may increase overdraw)
 - **Shader** - name of the shader for drawing the material.
 - **Technique** - name that describes the shader permutation (a set of shader features) to use.
-- **Animated UVs** - UV coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement or wheel rotation (although you can also make the wheels separate objects and have the whole geometry part rotate instead). Each vertex must be assigned to a different UV matrix depending on whether it belongs to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 combinations) so it gets transformed correctly.
+- **Animated UVs** - UV (texture) coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement or wheel rotation (although you can also make the wheels separate objects and have the whole geometry part rotate instead). Each vertex must be assigned to a different UV matrix depending on whether it belongs to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 combinations) so it gets transformed correctly.
 
+## Texturing in BF2
+
+### StaticMesh
+StaticMesh materials in BF2 are designed to use texture atlases (multiple generic textures composed into one image file) which are reused between different objects to reduce the memory load. They use a set of the following texture layers:
+- Base: a very basic uniform colour texture.
+- Detail: contains surface details and patterns like wood or bricks (gets multiplied with the Base texture).
+- Dirt: used for adding dirt, stains or ambient occlusion (gets multiplied with the Base and Detail textures)
+- Crack: used for adding cracks or other decals (gets overlayed on top of the Base, Detail and Dirt textures)
+- NDetail: Normal map for the Detail texture.
+- NCrack: Normal map for the Crack texture.
+
+Only some combinations of the above texture layers are valid.
+
+### BundledMesh/SkinnedMesh
+BundledMesh and SkinnedMesh materials use two texture maps: diffuse and normal. BundledMesh may use an extra "wreck" texture map which gets multiplied with the diffuse texture when a vehicle gets destroyed. BundledMesh materials use a grayscale roughness map which is saved in the alpha channel of the diffuse texture (when alpha mode is set to `None`) or the normal map texture (when alpha mode is set to `Alpha Blend` or `Alpha Test`). In the latter case the alpha channel of the diffuse texture is then used to map opacity. SkinnedMesh materials always have the roughness map in the normal map's alpha channel. SkinnedMesh materials may use either tangent space or object space normal maps with the latter one being more common, the engine differentiates them by `_b` or `_os` suffix.
 
 # Initial setup
 After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (optional but needed to load textures) Then you can use the `BF2` submenu in the `File -> Import/Export` or drag-and-drop any supported BF2 file.
@@ -47,7 +66,7 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
 
 # ObjectTemplate vs Mesh import/export
-There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`StaticMesh`, `SkinnedMesh`, `BundledMesh` or `CollisionMesh`). This however will only import the _raw_ mesh data according to its internal file structure lacking information present in the ObjectTemplate (`.con`) definition such as mapping of the geometry part to BF2 ObjectTemplate name and type, geometry part transformations, hierarchy or collmesh material names. This data is not essential for simple meshes or when you intend just to make small tweaks to the mesh, but generally if you don't have a good reason to use those options, **don't** use them. The second (and preferable) way to import a mesh is via the `Import -> BF2 -> ObjecTemplate (.con)` option, which parses the ObjectTemplate definition and imports its visible geometry and (optionally) collision mesh, split all mesh parts into sub-meshes, reposition them, recreate their hierarchy as well as rename collision mesh materials. For re-exporting, always use the corresponding option from the `Export -> BF2` menu.
+There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`StaticMesh`, `SkinnedMesh`, `BundledMesh` or `CollisionMesh`). This however will only import the _raw_ mesh data according to its internal file structure lacking information present in the ObjectTemplate (`.con`) definition such as mapping of the geometry part to BF2 ObjectTemplate name and type, geometry part transformations, hierarchy or collmesh material names. This data is not essential for simple meshes or when you intend just to make small tweaks to the mesh, but generally if you don't have a good reason to use those options, **don't** use them. The second (and preferable) way to import a mesh is via the `Import -> BF2 -> ObjecTemplate (.con)` option, which parses the ObjectTemplate definition and imports its visible geometry and collision mesh, split all mesh parts into sub-meshes, reposition them, recreate their hierarchy as well as rename collision mesh materials. For re-exporting, always use the corresponding option from the `Export -> BF2` menu.
 
 # ObjectTemplate exporting
 - `Export -> BF2 -> ObjecTemplate (.con)` shall be used for exporting objects created from scratch (like 3ds Max exporter, it spits out a `.con` file + visible mesh + collision mesh into `Meshes` sub-directory). The export option will only be available when an object is active in the viewport. Before reading any further, I highly advise you to import any existing BF2 mesh first (`Import -> BF2 -> ObjecTemplate (.con)`) and look at how everything is set up to make the below steps easier to follow.
@@ -166,8 +185,8 @@ BundledMesh_car
 
 ```
 SkinnedMesh_soldier
-└─G0__soldier
-  └─G0L0__soldier [m]
+├─G0__soldier
+│ └─G0L0__soldier [m]
 └─G1__soldier
   ├─G1L0__soldier [m]
   ├─G1L1__soldier [m]
@@ -182,7 +201,7 @@ SkinnedMesh_soldier
     - For StaticMesh: There will be 6 texture slots for Base, Detail, Dirt, Crack, Detail Normal, and Crack Normal. Only Base texture is mandatory, if others are not meant to be used, leave them empty.
     - For BundledMesh: There should be 3 texture slots for Diffuse, Normal, and Wreck. Only Diffuse texture is mandatory, if others are not meant to be used, leave them empty.
     - For SkinnedMesh: There should be 2 texture slots for Diffuse and Normal. Only the Diffuse texture is mandatory, if Normal is not meant to be used, leave it empty.
-- Clicking on `Apply Material` changes some material settings, loads textures and builds a tree of Shader Nodes that try to mimic BF2 rendering.
+- Clicking on `Apply Material` changes some material settings, loads textures and builds a tree of Shader Nodes that try to mimic BF2 rendering. It's optional and does not affect export.
 - Each LOD's mesh must have a minimum of 1 and a maximum of 5 UV layers assigned and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
     - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, which can also be auto-generated when toggled in the export options.
     - For BundledMesh and SkinnedMesh there's only UV0 for all texture maps.
@@ -205,3 +224,50 @@ In order to skin your model, you must import the BF2 skeleton into your scene. W
 - [Animation - rig setup, export, import and editing (by Ekiso)](https://youtu.be/xO1848HzetQ)
 - [StaticMesh - hierarchy, materials and export (by Ason)](https://www.youtube.com/watch?v=H97o0d3zkoY)
 - [BundledMesh - simple weapon export (by Krayt)](https://www.youtube.com/watch?v=crQRXm-4lxQ)
+
+# Scripting
+The add-on import/export functions can be used in python scripts to automate tasks, some examples below.
+
+```python
+import bpy
+from os import path
+from bl_ext.user_default.io_scene_bf2 import *
+
+MOD_PATH = get_mod_dir(bpy.context)
+
+SOLDIER = path.join(MOD_PATH, 'Objects/Soldiers/BA/Meshes/ba_light_soldier.skinnedmesh')
+KITS = path.join(MOD_PATH, 'Objects/Kits/BA/Meshes/ba_kits.skinnedmesh')
+WEAPON = path.join(MOD_PATH, 'Objects/Weapons/Handheld/m91carcano/Meshes/m91carcano.bundledmesh')
+SKELETON_1P = path.join(MOD_PATH, 'Objects/Soldiers/Common/Animations/1p_setup.ske')
+SKELETON_3P = path.join(MOD_PATH, 'Objects/Soldiers/Common/Animations/3p_setup.ske')
+ANIM_3P_SOLDIER = path.join(MOD_PATH, 'Objects/Soldiers/Common/Animations/3P/3p_reload.baf')
+ANIM_3P_WEAPON = path.join(MOD_PATH, 'Objects/Weapons/Handheld/m91carcano/Animations/3P/3p_m91carcano_reload.baf')
+ANIM_1P = path.join(MOD_PATH, 'Objects/Weapons/Handheld/m91carcano/Animations/1P/1p_m91_reload.baf')
+OBJ_TEMP_STATIC = path.join(MOD_PATH, 'Objects/StaticObjects/France/la_horgne/horgne_church/horgne_church.con')
+OBJ_TEMP_VEHICLE = path.join(MOD_PATH, 'Objects/vehicles/land/DE/sdkfz251_d/sdkfz251_d.con')
+
+# ---------- Import & export 3P animation ----------
+ske = import_skeleton(bpy.context, SKELETON_3P)
+IMPORT_OPTS = {'geom': 1, 'lod': 0, 'texture_path': MOD_PATH, 'geom_to_ske': {-1: ske}}
+import_mesh(bpy.context, SOLDIER, **IMPORT_OPTS)
+import_mesh(bpy.context, KITS, **IMPORT_OPTS)
+import_mesh(bpy.context, WEAPON, **IMPORT_OPTS)
+import_animation(bpy.context, ske, ANIM_3P_WEAPON)
+import_animation(bpy.context, ske, ANIM_3P_SOLDIER)
+
+export_animation(bpy.context, ske, 'export/3p_anim.baf')
+# ---------- Import & export 1P animation ----------
+ske = import_skeleton(bpy.context, SKELETON_1P)
+IMPORT_OPTS = {'geom': 0, 'lod': 0, 'texture_path': MOD_PATH, 'geom_to_ske': {-1: ske}}
+import_mesh(bpy.context, SOLDIER, **IMPORT_OPTS)
+import_mesh(bpy.context, WEAPON, **IMPORT_OPTS)
+import_animation(bpy.context, ske, ANIM_1P)
+
+export_animation(bpy.context, ske, 'export/1p_anim.baf')
+# ---------- Import & export static object ----------
+obj_temp = import_object_template(bpy.context, OBJ_TEMP_STATIC, texture_path=MOD_PATH)
+export_object_template(obj_temp, 'export/static.con', texture_path=MOD_PATH, tangent_uv_map='UV1')
+# ---------- Import & export vehicle ----------
+obj_temp = import_object_template(bpy.context, OBJ_TEMP_VEHICLE, texture_path=MOD_PATH)
+export_object_template(obj_temp, 'export/vehicle.con', texture_path=MOD_PATH, tangent_uv_map='UV0')
+```

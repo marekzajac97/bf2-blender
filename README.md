@@ -8,6 +8,8 @@ I'm probably like 15 years late but anyway, here are some tools for importing an
 - SkinnedMesh (`.skinnedMesh`) import/export
 - BundledMesh (`.bundledMesh`) import/export
 - CollisionMesh (`.collisionMesh`) import/export
+- Occlusion Mesh (`.occ`) import/export
+- SkinnedMesh lightmap samples (`.samples`) export
 
 ## Compatibility
 - Blender 4.2 or later

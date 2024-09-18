@@ -53,7 +53,7 @@ def import_collisionmesh(context, mesh_file, name='', make_objects=True, reload=
                 cols[bf2_col.col_type] = _import_collisionmesh_col(col_name, bf2_col, materials)
 
     if make_objects:
-        _make_objects(context, name, geom_parts, reload)
+        return _make_objects(context, name, geom_parts, reload) 
 
     return geom_parts, materials
 

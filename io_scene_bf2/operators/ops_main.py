@@ -6,10 +6,10 @@ from . import ops_view_3d
 from . import ops_material_props
 from . import ops_object_props
 
-from .. import PLUGIN_NAME
+from .. import __package__
 
 class BF2AddonPreferences(bpy.types.AddonPreferences):
-    bl_idname = PLUGIN_NAME
+    bl_idname = __package__
 
     mod_directory: StringProperty (
             name="BF2 mod directory",

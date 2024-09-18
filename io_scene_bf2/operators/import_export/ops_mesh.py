@@ -14,7 +14,7 @@ from ...core.mesh import (import_mesh,
                           collect_uv_layers)
 from ...core.skeleton import find_active_skeleton
 
-from ... import PLUGIN_NAME
+from ... import get_mod_dir
 
 class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_mesh.import"
@@ -81,7 +81,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         return super().invoke(context, _event)
 
     def execute(self, context):
-        mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+        mod_path = get_mod_dir(context)
         try:
             kwargs = {}
             if self.only_selected_lod:
@@ -158,7 +158,7 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         active_obj = context.view_layer.objects.active
-        mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+        mod_path = get_mod_dir(context)
         try:
            self.__class__.EXPORT_FUNC(active_obj, self.filepath,
                                       texture_path=mod_path,

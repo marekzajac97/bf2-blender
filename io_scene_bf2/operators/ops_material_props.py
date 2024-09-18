@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from bpy.types import Mesh, Material # type: ignore
 from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
-from .. import PLUGIN_NAME
+from .. import get_mod_dir
 
 from ..core.utils import Reporter
 from ..core.mesh_material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
@@ -42,7 +42,7 @@ class MESH_OT_bf2_apply_material(bpy.types.Operator):
         return False
 
     def execute(self, context):
-        mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+        mod_path = get_mod_dir(context)
         material = context.material
         try:
             setup_material(material, texture_path=mod_path, reporter=Reporter(self.report))
@@ -129,7 +129,7 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                 col.prop(material, "texture_slot_5", text="Crack Normal")
                 col.enabled = enabled and not is_vegitation and is_staticmesh_map_allowed(material, "NCrack")
 
-            mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+            mod_path = get_mod_dir(context)
             if not mod_path:
                 col = self.layout.column()
                 col.label(text='WARNING: Mod Path is not defined in add-on preferences, textures will not load', icon='ERROR')
@@ -169,7 +169,7 @@ def on_alpha_mode_update(self, context):
     _update_techinique_default_value(self)
 
 def on_texture_map_update(self, context, index):
-    mod_path = context.preferences.addons[PLUGIN_NAME].preferences.mod_directory
+    mod_path = get_mod_dir(context)
     prop = f'texture_slot_{index}'
 
     if self[prop].startswith('//'): # path relative to current blend file

@@ -26,7 +26,7 @@ class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImportHelper):
 
 class EXPORT_OT_bf2_skeleton(bpy.types.Operator, ExportHelper):
     bl_idname = "bf2_skeleton.export"
-    bl_label = "Export Collision Mesh"
+    bl_label = "Export skeleton"
 
     filename_ext = ".ske"
     filter_glob: StringProperty(default="*.ske", options={'HIDDEN'}) # type: ignore

@@ -33,9 +33,9 @@ class GeomPartInfo:
         self.matrix_local = obj.matrix_local.copy()
         self.children = []
 
-def import_object(context, con_filepath, import_collmesh=False,
-                  import_rig_mode='AUTO', geom_to_ske_name=None, reload=False,
-                  weld_verts=False, reporter=DEFAULT_REPORTER, **kwargs):
+def import_object_template(context, con_filepath, import_collmesh=True,
+                           import_rig_mode='AUTO', geom_to_ske_name=None, reload=False,
+                           weld_verts=False, reporter=DEFAULT_REPORTER, **kwargs):
     BF2Engine().shutdown() # clear previous state
     obj_template_manager = BF2Engine().get_manager(ObjectTemplate)
     geom_template_manager = BF2Engine().get_manager(GeometryTemplate)
@@ -137,9 +137,9 @@ def parse_geom_type_safe(mesh_obj):
     except Exception:
         return None
 
-def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
-                  apply_modifiers=False, samples_size=None, sample_padding=6,
-                  use_edge_margin=True, reporter=DEFAULT_REPORTER, **kwargs):
+def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=True,
+                           apply_modifiers=False, samples_size=None, sample_padding=6,
+                           use_edge_margin=True, reporter=DEFAULT_REPORTER, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
 
     # find anchor
@@ -149,8 +149,9 @@ def export_object(mesh_obj, con_file, geom_export=True, colmesh_export=True,
             anchor_obj = child
             break
 
+    # temporarily remove parent to not be taken as geom
     if anchor_obj:
-        anchor_obj.parent = None # temporarily remove as it will be taken as geom
+        anchor_obj.parent = None
 
     try:
         mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
@@ -352,10 +353,13 @@ def _verify_lods_consistency(root_geom_part, lod_obj):
     lod_name = _strip_prefix(lod_obj.name)
 
     if any([c.isspace() for c in lod_obj.name]):
-        raise ExportException(f"'{child_obj.name}' name contain spaces!")
+        raise ExportException(f"'{lod_obj.name}' name contain spaces!")
+
+    if tuple(lod_obj.scale) != (1, 1, 1):
+        raise ExportException(f"'{lod_obj.name}' has non uniform scale: {lod_obj.scale}")
 
     if lod_obj.data is None:
-        raise ExportException(f"Object '{lod_obj.name}' has no mesh data! If you don't want it to contain any, simply make it a mesh object and delete all vertices")
+        raise ExportException(f"'{lod_obj.name}' has no mesh data! If you don't want it to contain any, simply make it a mesh object and delete all vertices")
 
     def _inconsistency(item, val, exp_val):
         raise ExportException(f"{lod_obj.name}: Inconsistent {item} for different Geoms/LODs, got '{val}' but other Geom/LOD has '{exp_val}'")

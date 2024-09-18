@@ -182,6 +182,7 @@ def import_skeleton(context, skeleton_file, reload=False):
     bpy.ops.object.mode_set(mode='OBJECT')
 
     _create_camera(context, rig)
+    return rig
 
 
 def export_skeleton(rig, ske_file):
