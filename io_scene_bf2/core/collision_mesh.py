@@ -59,10 +59,9 @@ def import_collisionmesh(context, mesh_file, name='', make_objects=True, reload=
 
 def _make_objects(context, name, geom_parts, reload):
     """Create Blender object hierarchy for imported meshes"""
-    collmesh_name = f'{name}_collmesh' # to avoid object name conflicts when loaded together with geometry
 
-    if reload: delete_object_if_exists(collmesh_name)
-    root_obj = bpy.data.objects.new(collmesh_name, None)
+    if reload: delete_object_if_exists(name)
+    root_obj = bpy.data.objects.new(name, None)
     context.scene.collection.objects.link(root_obj)
 
     for geompart_idx, geompart in enumerate(geom_parts):

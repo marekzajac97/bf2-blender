@@ -332,7 +332,13 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
     def draw(self, context):
         layout = self.layout
 
-        layout.prop(self, "tangent_uv_map")
+        row = layout.row()
+        row.label(text="Tangent UV map:")
+        row.prop(self, "tangent_uv_map", text='')
+
+        if not self.tangent_uv_map:
+            layout.label(text='ERROR: No valid UV map found!', icon='ERROR')
+
         is_sm = self.geom_type == 'StaticMesh'
 
         row = layout.row()

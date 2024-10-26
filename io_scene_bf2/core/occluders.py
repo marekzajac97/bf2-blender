@@ -20,8 +20,8 @@ def import_occluders(context, mesh_file, name='', reload=False):
 
     vertex_offset = 0
     for occ_group in bf2_occ.groups:
-        # swap order
-        verts = [(v.x, v.z, v.y) for v in occ_group.verts]
+        # swap order and flip X axis (occluders get mirrored compared to meshes for some reason)
+        verts = [(-v.x, v.z, v.y) for v in occ_group.verts]
         for vert in verts:
             bm.verts.new(vert)
 
@@ -50,12 +50,6 @@ def export_occluders(obj, mesh_file):
     occ = BF2OccluderPlanes(name=obj.name)
 
     mesh = obj.data
-    verts = list()
-
-    for v in mesh.vertices:
-        vert = Vec3(v.co[0], v.co[2], v.co[1])
-        verts.append(vert)
-
     vg_idx_to_polygons = dict()
     for poly in mesh.polygons:
         if poly.loop_total != 4:
@@ -95,7 +89,7 @@ def export_occluders(obj, mesh_file):
 
         for v_idx, _ in sorted(vert_mapping.items(), key=lambda item: item[1]):
             v = mesh.vertices[v_idx]
-            vert = Vec3(v.co[0], v.co[2], v.co[1])
+            vert = Vec3(-v.co[0], v.co[2], v.co[1])
             occ_group.verts.append(vert)
 
     occ.export(mesh_file)

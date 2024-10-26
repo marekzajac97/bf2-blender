@@ -5,18 +5,17 @@ I'm probably like 15 years late but anyway, here are some tools for importing an
 - Skeleton (`.ske`) import/export
 - Animation (`.baf`) import/export
 - StaticMesh (`.staticMesh`) import/export
-- SkinnedMesh (`.skinnedMesh`) import/export
+- SkinnedMesh (`.skinnedMesh`) import/export (including lightmap samples)
 - BundledMesh (`.bundledMesh`) import/export
 - CollisionMesh (`.collisionMesh`) import/export
 - Occlusion Mesh (`.occ`) import/export
-- SkinnedMesh lightmap samples (`.samples`) export
 
 ## Compatibility
 - Blender 4.2 or later
 - Windows x64, Linux x64 and macOS x64 (Intel). For ARM or other platforms see building instructions at [BSP Builder](bsp_builder/README.md).
 
 ## Installation
-Download the latest package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-add-ons)
+Download the latest package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
 
 ## Usage
 - Head over to the [Documentation](docs/README.md) for details on how to use this add-on
