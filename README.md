@@ -4,8 +4,8 @@ I'm probably like 15 years late but anyway, here are some tools for importing an
 ## Features:
 - Skeleton (`.ske`) import/export
 - Animation (`.baf`) import/export
-- StaticMesh (`.staticMesh`) import/export
-- SkinnedMesh (`.skinnedMesh`) import/export (including lightmap samples)
+- StaticMesh (`.staticMesh`) import/export (including lightmap samples)
+- SkinnedMesh (`.skinnedMesh`) import/export
 - BundledMesh (`.bundledMesh`) import/export
 - CollisionMesh (`.collisionMesh`) import/export
 - Occlusion Mesh (`.occ`) import/export
