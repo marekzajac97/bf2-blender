@@ -19,10 +19,16 @@ def triangle_area(face):
     d3 = v3.copy().sub(v1).length()
     h = (d1 + d2 + d3) * 0.5
     v = h * (h - d1) * (h - d2) * (h - d3)
+    if v < 0:
+        return 0
     return math.sqrt(v)
 
-def textel_to_point(v1, v2, v3, t1, t2, t3, p):
+def texel_to_point(v1, v2, v3, t1, t2, t3, p):
     d = ((t2[0] - t1[0]) * (t3[1] - t1[1]) - (t2[1] - t1[1]) * (t3[0] - t1[0]))
+
+    if abs(d) < EPSILON:
+        return Vec3()
+
     i = 1 / d
     s = i * ((t3[1] - t1[1]) * (p[0] - t1[0]) - (t3[0] - t1[0]) * (p[1] - t1[1]))
     t = i * (-(t2[1] - t1[1]) * (p[0] - t1[0]) + (t2[0] - t1[0]) * (p[1] - t1[1]))
@@ -321,8 +327,8 @@ class BF2Samples:
                                     fix_normal(n3, facenorm)
                                     
                                     # set samples
-                                    samples[i].pos = textel_to_point(v1, v2, v3, t1, t2, t3, p)
-                                    samples[i].dir = textel_to_point(n1, n2, n3, t1, t2, t3, p).normalize()
+                                    samples[i].pos = texel_to_point(v1, v2, v3, t1, t2, t3, p)
+                                    samples[i].dir = texel_to_point(n1, n2, n3, t1, t2, t3, p).normalize()
                                     samples[i].face = face_index
                                     sampleflag[i] = tritest
                 face_index += 1
