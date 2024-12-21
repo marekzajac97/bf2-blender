@@ -543,6 +543,11 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
         geometry_part_obj.location = part_position
         geometry_part_obj.parent = geom_parent
         geometry_part_obj.bf2_object_type = obj_template.type # custom property
+        try:
+            geometry_part_obj.bf2_object_type_enum = obj_template.type
+            geometry_part_obj.bf2_object_type_manual_mode = False
+        except TypeError:
+            geometry_part_obj.bf2_object_type_manual_mode = True
 
         if obj_template.has_collision_physics and add_col:
             col_part_id = obj_template.col_part

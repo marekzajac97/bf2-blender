@@ -804,13 +804,13 @@ class MeshExporter:
                     # - (StaticMesh)  both first and second one are unused
                     if mesh_type == BF2BundledMesh:
                         if len(blend_vertex.groups) > 1:
-                            raise ExportException(f"{lod_obj.name}: Found vertex assigned to more than one vertex group!")
+                            raise ExportException(f"{lod_obj.name}: Found vertex assigned to more than one vertex group! BF2 BundledMesh only supports one bone per vertex")
                         elif len(blend_vertex.groups) > 0:
                             vert_group = blend_vertex.groups[0].group
                             blendindices[0] = vertex_group_to_part_id[vert_group]
                     elif mesh_type == BF2SkinnedMesh:
                         if len(blend_vertex.groups) > 2:
-                            raise ExportException(f"{lod_obj.name}: Found vertex assigned to more than two vertex groups (bones)!, BF2 only supports two bones per vertex")
+                            raise ExportException(f"{lod_obj.name}: Found vertex assigned to more than two vertex groups (bones)!, BF2 SkinnedMesh only supports two bones per vertex")
                         elif len(blend_vertex.groups) == 0:
                             if bone_list:
                                 # it's not possible for a material to have some verts weighted and some not
