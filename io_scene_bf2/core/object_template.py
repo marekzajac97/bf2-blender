@@ -262,6 +262,9 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
             _delete_cols(temp_collmesh_parts)
 
         for mat, mat_idx in sorted(material_to_index.items(), key=lambda item: item[1]):
+            if ' ' in mat:
+                # XXX: add quoting when dumping con to allow this
+                raise ExportException(f"CollisionMesh material: '{mat}' must not contain whitespaces!")
             root_obj_template.col_material_map[mat_idx] = mat
 
     if anchor_obj:

@@ -21,6 +21,7 @@ platforms = ["windows-x64", "macos-x64", "linux-x64"]
 paths_exclude_pattern = [
   "/.git/",
   "__pycache__/",
+  "/.vscode/"
 ]
 
 [permissions]

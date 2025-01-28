@@ -234,6 +234,7 @@ In order to skin your model, you must import the BF2 skeleton into your scene. W
 - [Animation - rig setup, export, import and editing (by Ekiso)](https://youtu.be/xO1848HzetQ)
 - [StaticMesh - hierarchy, materials and export (by Ason)](https://www.youtube.com/watch?v=H97o0d3zkoY)
 - [BundledMesh - simple weapon export (by Krayt)](https://www.youtube.com/watch?v=crQRXm-4lxQ)
+- [BundledMesh - tracked vehicle export (by Krayt)](https://www.youtube.com/watch?v=HYPFTYakv1M)
 
 # Scripting
 The add-on import/export functions can be used in python scripts to automate tasks, some examples below.

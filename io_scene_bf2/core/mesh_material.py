@@ -176,9 +176,14 @@ def get_tex_type_to_file_mapping(material, texture_files):
         if len(texture_files) > 2:
             map_name_to_file['Wreck'] = texture_files[2]
     elif material.bf2_shader == 'STATICMESH':
-        if material.bf2_technique not in STATICMESH_TECHNIQUES:
+        bf2_technique = None
+        for sm_technique in STATICMESH_TECHNIQUES:
+            if material.bf2_technique.lower() == sm_technique.lower():
+                bf2_technique = sm_technique
+                break
+        if not bf2_technique:
             raise ImportException(f'Unsupported staticmesh technique "{material.bf2_technique}"')
-        maps = _split_str_from_word_set(material.bf2_technique, set(STATICMESH_TEXUTRE_MAP_TYPES))
+        maps = _split_str_from_word_set(bf2_technique, set(STATICMESH_TEXUTRE_MAP_TYPES))
         if len(texture_files) != len(maps):
             raise ImportException(f'Material technique ({material.bf2_technique}) doesn\'t match number of texture maps ({len(texture_files)})')
         for map_name, tex_node in zip(maps, texture_files):
