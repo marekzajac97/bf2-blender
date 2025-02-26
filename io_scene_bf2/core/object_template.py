@@ -24,8 +24,6 @@ from .exceptions import ImportException, ExportException
 NONVIS_PRFX = 'NONVIS_'
 COL_SUFFIX = '_COL'
 ANCHOR_PREFIX = 'ANCHOR__'
-# SKIN_PREFIX = 'SKIN__'
-
 
 ################################
 ########## IMPORT ##############
@@ -272,39 +270,7 @@ def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_par
 
         return geometry_part_obj
 
-    root_geom_part_obj = _fix_geom_parts(root_template)
-
-    # Add armature, create real bones and bind it to the dummy bone objects using constraint
-    # for skinned_obj_name, (skinned_obj, bones) in skinned_objects.items():
-    #     armature = bpy.data.armatures.new(SKIN_PREFIX + skinned_obj_name)
-    #     armature_obj = bpy.data.objects.new(SKIN_PREFIX + skinned_obj_name, armature)
-    #     armature_obj.parent = skinned_obj
-
-    #     context.scene.collection.objects.link(armature_obj)
-    #     context.view_layer.objects.active = armature_obj
-    #     bpy.ops.object.mode_set(mode='EDIT')
-
-    #     # add armature modifier to the object
-    #     modifier = skinned_obj.modifiers.new(type='ARMATURE', name="Armature")
-    #     modifier.object = armature_obj
-
-    #     for bone_dummy_obj, transform in bones:
-    #         bone = armature.edit_bones.new(bone_dummy_obj.name)
-
-    #         # transform is in armature space, so first need to move bone to origin
-    #         bone.head = transform.translation
-    #         bone.tail = transform.translation
-    #         bone.tail[2] += 0.4
-
-    #     bpy.ops.object.mode_set(mode='POSE')
-
-    #     for bone_dummy_obj, pos, rot in bones:
-    #         child_of = armature_obj.pose.bones[bone_dummy_obj.name].constraints.new(type='CHILD_OF')
-    #         child_of.target = bone_dummy_obj
-
-    #     bpy.ops.object.mode_set(mode='OBJECT')
-
-    return root_geom_part_obj
+    return _fix_geom_parts(root_template)
 
 def _transform_verts(geometry_part_obj, vertex_group, transform):
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -424,6 +390,10 @@ def _split_mesh_by_vertex_groups(context, mesh_obj):
             vgs_assigned.append(vg)
     for vg in vgs_assigned:
         mesh_obj.vertex_groups.remove(vg)
+
+    # rename the object (this avoids duplicating object names later)
+    mesh_obj.name = mesh_obj.name + "_UNSPLITABLE"
+    mesh_obj.data.name = mesh_obj.name + "_UNSPLITABLE"
 
     return splitted_parts
 
