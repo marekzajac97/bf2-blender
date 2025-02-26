@@ -5,7 +5,7 @@
   * [Texturing in BF2](#texturing-in-bf2)
     + [StaticMesh](#staticmesh)
     + [BundledMesh/SkinnedMesh](#bundledmesh-skinnedmesh)
-- [Initial setup](#initial-setup)
+- [Initial Add-on setup](#initial-add-on-setup)
 - [Animating](#animating)
 - [ObjectTemplate vs Mesh import/export](#objecttemplate-vs-mesh-importexport)
 - [ObjectTemplate export guide](#objecttemplate-export-guide)
@@ -54,7 +54,7 @@ Only some combinations of the above texture layers are valid.
 ### BundledMesh/SkinnedMesh
 BundledMesh and SkinnedMesh materials use two texture maps: diffuse and normal. BundledMesh may use an extra "wreck" texture map which gets multiplied with the diffuse texture when a vehicle gets destroyed. BundledMesh materials use a grayscale roughness map which is saved in the alpha channel of the diffuse texture (when alpha mode is set to `None`) or the normal map texture (when alpha mode is set to `Alpha Blend` or `Alpha Test`). In the latter case the alpha channel of the diffuse texture is then used to map opacity. SkinnedMesh materials always have the roughness map in the normal map's alpha channel. SkinnedMesh materials may use either tangent space or object space normal maps with the latter one being more common, the engine differentiates them by `_b` or `_os` suffix.
 
-# Initial setup
+# Initial Add-on setup
 After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (optional but needed to load textures) Then you can use the `BF2` submenu in the `File -> Import/Export` or drag-and-drop any supported BF2 file.
 
 # Animating
@@ -64,6 +64,8 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - You can use other add-ons such as `Rigify` to create the rig for animating, but also automatically create basic controllers and IK setup using the built-in `Pose -> BF2 -> Setup Controllers` option. This option can also be used after animation import which makes editing existing animations much easier (NOTE: importing an animation with a rig already set up will not work). By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing position/rotation keyframes.
 - TIP: If you plan to modify the imported animation, you can delete redundant keyframes using [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) option
 - When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
+## Known issues
+- Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions.
 
 # ObjectTemplate vs Mesh import/export
 There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure lacking some data present in the `.con` file, that's why its usage is limited. The second (and preferred) method is the `ObjecTemplate (.con)` option, which parses the ObjectTemplate definition allowing it to:
@@ -78,6 +80,11 @@ When you want to re-export a mesh that has been imported and modified, a proper 
 - export visible mesh and collision mesh into the `Meshes` sub-directory in addition to saving ObjectTemplate's definition to a `.con` file
 
 **IMPORTANT**: Before exporting anything, the root of the whole mesh/ObjectTemplate hierarchy must be an [Active Object](https://docs.blender.org/manual/en/latest/scene_layout/object/selecting.html#selections-and-the-active-object)!
+
+## Known issues
+- Some vBF2 meshes and meshes exported with Autodesk 3ds Max may contain backfaces (another face defined over the same set of vertices but opossing normal directons). Such faces are (rightfully) illegal in Blender but for compatibility resons are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face will be tagged using a custom [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) called `backface`. When exporting a mesh, each face having attribute `backface` set will be exported as double-sided. To see which faces will be treated as double-sided while in `Edit Mode` select `backface` from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribyte](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html).
+- Blender does not support mesh deformations when using Object Space normal maps. This means most SkinnedMeshes will have shading issues when deformed/animated, no workaround found yet.
+- Blender does not allow to import custom tangent data, therefore when re-exporting meshes, vertex tangents always get re-calculated. This may increase the number of unique vertices being exported. Generated tangents may also be totally wrong if the normal map used was not generated using Mikk TSpace method (which Blender uses).
 
 # ObjectTemplate export guide
 
@@ -220,6 +227,8 @@ SkinnedMesh_soldier
 ## Collision meshes
 - Each object may contain collision mesh data. To add it, you must create an empty child object prefixed with `NONVIS__`. This new object should have a maximum of 4 child objects (suffixed with `_COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added under the object's Lod0 hierarchies.
 - Each COL can have an arbitrary number of materials assigned, no special material settings are required, object's material index-to-name mapping will be saved inside the `.con` file.
+### Known Issues
+- CollisionMesh exports to a slightly older file format version (9) than 3ds Max exporter (10). Latest file version contains some extra face adjacency info for drawing debug meshes which is disabled by default in-game anyway.
 
 ## Skinning (BundledMesh)
 BF2 BundledMeshes support a basic method of skinning allowing one "bone" per vertex, where the "bone" is another object (geometry part). In other words, it enables "moving" some vertices from one object (geometry part) to another so that individual vertices that make up a face get split among different parts, which can be affected by the in-game physics differently and may cause some faces to stretch and deform. This technique is most commonly used for setting up tank tracks by splitting them up and "linking" track pieces to wheel objects. To achieve this in Blender create a new [Vertex Group](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/vertex_groups/index.html) named **exactly** the same as the child object that the vertices are supposed to be transferred to and add them to the group. A single vertex must be assigned to **exactly one** vertex group, or you will get an export error. You can ensure this by using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) in `Weight Paint` mode.

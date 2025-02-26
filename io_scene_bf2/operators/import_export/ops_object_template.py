@@ -69,6 +69,12 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
         default=False
     ) # type: ignore
 
+    load_backfaces: BoolProperty(
+        name="Backfaces",
+        description="Adds 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        default=True
+    ) # type: ignore
+
     skeletons_to_link : CollectionProperty(type=SkeletonsToLinkCollection) # type: ignore
 
     instance=None
@@ -99,6 +105,9 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
         col = layout.column()
         col.prop(self, "weld_verts")
 
+        col = layout.column()
+        col.prop(self, "load_backfaces")
+
     def execute(self, context):
         mod_path = get_mod_dir(context)
 
@@ -116,6 +125,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
                 texture_path=mod_path,
                 merge_materials=self.merge_materials,
                 weld_verts=self.weld_verts,
+                load_backfaces=self.load_backfaces,
                 reporter=Reporter(self.report))
         except ImportException as e:
             self.report({"ERROR"}, str(e))
@@ -329,6 +339,12 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         max=1.0
     ) # type: ignore
 
+    save_backfaces: BoolProperty(
+        name="Backfaces",
+        description="Exports faces with 'backface' attribute as double-sided",
+        default=True
+    ) # type: ignore
+
     def draw(self, context):
         layout = self.layout
 
@@ -374,6 +390,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         layout.prop(self, "apply_modifiers")
         layout.prop(self, "normal_weld_threshold")
         layout.prop(self, "tangent_weld_threshold")
+        layout.prop(self, "save_backfaces")
 
     @classmethod
     def poll(cls, context):
@@ -406,6 +423,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
                 samples_size=samples_size,
                 use_edge_margin=self.use_edge_margin,
                 sample_padding=self.sample_padding,
+                save_backfaces=self.save_backfaces,
                 reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))

@@ -50,6 +50,12 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         default=True
     ) # type: ignore
 
+    load_backfaces: BoolProperty(
+        name="Backfaces",
+        description="Adds 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        default=True
+    ) # type: ignore
+
     def draw(self, context):
         layout = self.layout
 
@@ -64,6 +70,9 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
 
         col = layout.column()
         col.prop(self, "merge_materials")
+
+        col = layout.column()
+        col.prop(self, "load_backfaces")
 
     def invoke(self, context, _event):
         try:
@@ -94,6 +103,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
             self.__class__.IMPORT_FUNC(context, self.filepath,
                                        texture_path=mod_path,
                                        merge_materials=self.merge_materials,
+                                       load_backfaces=self.load_backfaces,
                                        **kwargs)
         except ImportException as e:
             self.report({"ERROR"}, str(e))
@@ -151,6 +161,12 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
         items=get_uv_layers
     ) # type: ignore
 
+    save_backfaces: BoolProperty(
+        name="Backfaces",
+        description="Exports faces with 'backface' attribute as double-sided",
+        default=True
+    ) # type: ignore
+
     @classmethod
     def poll(cls, context):
         cls.poll_message_set("No object active")
@@ -162,7 +178,8 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
         try:
            self.__class__.EXPORT_FUNC(active_obj, self.filepath,
                                       texture_path=mod_path,
-                                      tangent_uv_map=self.tangent_uv_map)
+                                      tangent_uv_map=self.tangent_uv_map,
+                                      save_backfaces=self.save_backfaces)
         except ExportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}

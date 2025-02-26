@@ -20,13 +20,6 @@ Download the latest package from [Releases](https://github.com/marekzajac97/bf2-
 ## Usage
 - Head over to the [Documentation](docs/README.md) for details on how to use this add-on
 
-## Limitations and known issues:
-- SkinnedMeshes using Object Space normal maps will have shading issues when deformed/animated inside of Blender.
-- Blender does not allow to import custom tangent data, therefore when re-exporting meshes, vertex tangents always get re-calculated. This may increase the number of unique vertices being exported. Generated tangents may also be totally wrong if the normal map used was not generated using Mikk TSpace method (which Blender uses).
-- Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions.
-- CollisionMesh exports to a slightly older file format version (9) than 3DsMax exporter (10). Latest file version contains some extra data for drawing debug meshes which is disabled by default in-game anyway.
-Please report any other issues found!
-
 ## Credits
 - [rpoxo](https://github.com/rpoxo) for the [BF2 mesh file parser](https://github.com/rpoxo/bf2mesh) (MIT License)
 - Remdul for guidance and [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/) (a lot of the stuff is ported over from there)

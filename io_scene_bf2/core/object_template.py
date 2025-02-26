@@ -14,7 +14,7 @@ from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import import_collisionmesh, export_collisionmesh
 from .skeleton import find_all_skeletons, find_rig_attached_to_object
 
-from .utils import delete_object, check_suffix, check_prefix, DEFAULT_REPORTER
+from .utils import delete_object, check_suffix, check_prefix, swap_zy, DEFAULT_REPORTER
 from .exceptions import ImportException, ExportException
 
 NONVIS_PRFX = 'NONVIS_'
@@ -103,21 +103,19 @@ def import_object_template(context, con_filepath, import_collmesh=True,
             else:
                 geom_parts = _split_mesh_by_vertex_groups(context, lod_obj)
 
-            if weld_verts:
-                for geom_part_obj in geom_parts.values():
-                    _weld_verts(geom_part_obj)
-
-            new_lod = _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom_idx, lod_idx)
+            new_lod = _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_parts, geom_idx, lod_idx)
             new_lod.parent = geom_obj
             _fix_unassigned_parts(geom_obj, new_lod)
             _delete_hierarchy_if_has_no_meshes(new_lod)
             _cleanup_unused_materials(new_lod)
+            if weld_verts:
+                _weld_vers_recursive(new_lod)
 
     # create anchor
     if root_template.anchor_point:
         anchor_obj = bpy.data.objects.new(ANCHOR_PREFIX + root_template.name, None)
         anchor_obj.parent = root_geometry_obj
-        anchor_obj.location = _swap_zy(root_template.anchor_point)
+        anchor_obj.location = swap_zy(root_template.anchor_point)
         context.scene.collection.objects.link(anchor_obj)
 
     return root_geometry_obj
@@ -268,7 +266,7 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
             root_obj_template.col_material_map[mat_idx] = mat
 
     if anchor_obj:
-        root_obj_template.anchor_point = _swap_zy(anchor_obj.location)
+        root_obj_template.anchor_point = swap_zy(anchor_obj.location)
 
     print(f"Writing con file to '{con_file}'")
     _dump_con_file(root_obj_template, con_file)
@@ -420,7 +418,7 @@ def _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id
             continue
         child_object = ObjectTemplate.ChildObject(child_template.name)
         child_object.template = child_template
-        child_object.position = _swap_zy(child_obj.location)
+        child_object.position = swap_zy(child_obj.location)
         child_object.rotation = _matrix_to_yaw_pitch_roll(child_obj.matrix_local)
         obj_template.children.append(child_object)
 
@@ -469,7 +467,7 @@ def _fix_unassigned_parts(geom_obj, lod_obj):
             child.bf2_object_type = ''
             i += 1
 
-def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom, lod):
+def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_parts, geom, lod):
     prfx = MeshImporter.build_mesh_prefix(geom, lod)
     add_col = coll_parts and lod == 0 # Add colistion only for LOD 0
 
@@ -479,7 +477,7 @@ def _apply_mesh_data_to_lod(context, root_template, geom_parts, coll_parts, geom
         geom_part_id = obj_template.geom_part
         vertex_group_name = f'mesh{geom_part_id + 1}'
         part_name = f'{prfx}{obj_template.name}'
-        part_position = Vector(_swap_zy(position))
+        part_position = Vector(swap_zy(position))
         part_rotation = _yaw_pitch_roll_to_matrix(rotation).to_euler('XYZ')
 
         if vertex_group_name in geom_parts:
@@ -901,6 +899,26 @@ def _triangulate(obj):
     bpy.ops.object.mode_set(mode='OBJECT')
     obj.hide_set(hide)
 
+def _object_hierarchy_has_any_meshes(obj, parent_bones):
+    if obj.data and isinstance(obj.data, Mesh) and len(obj.data.vertices):
+        return True
+    if obj.name in parent_bones:
+        # empty object but refers to parent vertex group, keep this
+        return True
+    if obj.data and isinstance(obj.data, Armature):
+        return True # skin, keep this
+
+    for child_obj in obj.children:
+        return _object_hierarchy_has_any_meshes(child_obj, parent_bones)
+    return False
+
+def _weld_vers_recursive(obj):
+    if obj.data and isinstance(obj.data, Mesh):
+        _weld_verts(obj)
+    else:
+        for child_obj in obj.children:
+            _weld_vers_recursive(child_obj)
+
 def _weld_verts(obj):
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
@@ -935,9 +953,6 @@ def _dump_con_file(root_obj_template, con_file):
         root_obj_template.make_script(f)
         f.write(f'include {root_obj_template.name}.tweak')
         f.write('\n')
-
-def _swap_zy(vec):
-    return (vec[0], vec[2], vec[1])
 
 def _yaw_pitch_roll_to_matrix(rotation):
     rotation = tuple(map(lambda x: -math.radians(x), rotation))

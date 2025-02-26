@@ -3,7 +3,12 @@ import bmesh # type: ignore
 
 from itertools import cycle
 from .bf2.bf2_collmesh import BF2CollMesh, BF2CollMeshException, GeomPart, Geom, Col, Face, Vec3
-from .utils import delete_object_if_exists, delete_material_if_exists, delete_mesh_if_exists, check_prefix
+from .utils import (delete_object_if_exists,
+                    delete_material_if_exists,
+                    delete_mesh_if_exists,
+                    check_prefix,
+                    invert_face,
+                    add_backface_modifier)
 from .exceptions import ImportException, ExportException
 
 MATERIAL_COLORS = [
@@ -18,6 +23,8 @@ MATERIAL_COLORS = [
     [0.477504, 0.821444, 0.318195, 1.],
     [0.741388, 0.873449, 0.149561, 1.]
 ]
+
+DEBUG_BACKFACES = False
 
 def _build_col_prefix(geompart=None, geom=None, col=None):
     if geompart is not None and geom is not None and col is not None:
@@ -82,6 +89,10 @@ def _make_objects(context, name, geom_parts, reload):
                 col_name = _build_col_prefix(geompart_idx, geom_idx, col_idx) + name
                 if reload: delete_object_if_exists(col_name)
                 col_obj = bpy.data.objects.new(col_name, col_mesh)
+
+                if DEBUG_BACKFACES:
+                    add_backface_modifier(col_obj)
+
                 col_obj.parent = geom_obj
                 context.scene.collection.objects.link(col_obj)
 
@@ -108,7 +119,7 @@ def _import_collisionmesh_dummy_materials(name, bf2_mesh):
 
     return materials
 
-def _import_collisionmesh_col(name, bf2_col, materials):
+def _import_collisionmesh_col(name, bf2_col, materials, load_backfaces=True):
     # swap order
     verts = [(v.x, v.z, v.y) for v in bf2_col.verts]
     faces = [face.verts for face in bf2_col.faces]
@@ -117,7 +128,7 @@ def _import_collisionmesh_col(name, bf2_col, materials):
     # map bf2 material index to blender material index
     material_indexes = list(set(face_materials))
     bf2_mat_idx_to_blend_mat_idx = dict()
-    for blender_idx, bf2_index in enumerate(material_indexes):
+    for blender_idx, bf2_index in enumerate(list(material_indexes)):
         bf2_mat_idx_to_blend_mat_idx[bf2_index] = blender_idx
 
     bm = bmesh.new()
@@ -127,18 +138,37 @@ def _import_collisionmesh_col(name, bf2_col, materials):
     bm.verts.ensure_lookup_table()
     bm.verts.index_update()
 
+    faces_having_backfaces = set()
     for face, bf2_mat_idx in zip(faces, face_materials):
         face_verts = [bm.verts[i] for i in face]
+        material_index = bf2_mat_idx_to_blend_mat_idx[bf2_mat_idx]
 
         try:
             bm_face = bm.faces.new(face_verts)
+            bm_face.material_index = material_index
         except ValueError:
-            pass # XXX sometimes mesh hsa duplicated faces or face duplicated verts...
-
-        bm_face.material_index = bf2_mat_idx_to_blend_mat_idx[bf2_mat_idx]
+            # duplicate face! find the other one
+            if not load_backfaces:
+                continue
+            bm.faces.index_update()
+            bm_face_verts = set([vert.index for vert in face_verts])
+            for other_bm_face in bm.faces:
+                other_bm_face_verts = set([vert.index for vert in other_bm_face.verts])
+                if bm_face_verts == other_bm_face_verts:
+                    if material_index != other_bm_face.material_index: # XXX: could they differ ??
+                        raise ImportException("Attempted to create a backface with different material index, aborting")
+                    faces_having_backfaces.add(other_bm_face.index)
+                    break
+            else:
+                raise # XXX: not found ??
 
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
+
+    # mark faces with backfaces
+    if faces_having_backfaces:
+        animuv_matrix_index = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
+        animuv_matrix_index.data.foreach_set('value', [poly.index in faces_having_backfaces for poly in mesh.polygons])
 
     # add materials to mesh
     for bf2_index in material_indexes:
@@ -149,7 +179,7 @@ def _import_collisionmesh_col(name, bf2_col, materials):
 
 def _collect_collisionmesh_nodes_geoms_lods(collmesh_obj):
     if not collmesh_obj.children:
-        raise ExportException(f"collisionmesh '{collmesh_obj.name}' has no children (nodes)!")
+        raise ExportException(f"collisionMesh '{collmesh_obj.name}' has no children (nodes)!")
 
     geom_parts = list()
 
@@ -157,7 +187,7 @@ def _collect_collisionmesh_nodes_geoms_lods(collmesh_obj):
     for geompart_obj in collmesh_obj.children:
         geompart_idx = check_prefix(geompart_obj.name, ('N',))
         if geompart_idx in mesh_geomparts:
-            raise ExportException(f"collisionmesh '{collmesh_obj.name}' has duplicated N{geompart_idx}")
+            raise ExportException(f"collisionMesh '{collmesh_obj.name}' has duplicated N{geompart_idx}")
         mesh_geomparts[geompart_idx] = geompart_obj
     for _, geompart_obj in sorted(mesh_geomparts.items()):
         geoms = list()
@@ -226,11 +256,13 @@ def export_collisionmesh(root_obj, mesh_file, geom_parts=None):
 
     return collmesh, material_to_index
 
-def _export_collistionmesh_col(col_idx, mesh_obj, material_to_index):
+def _export_collistionmesh_col(col_idx, mesh_obj, material_to_index, save_backfaces=True):
     col = Col()
     mesh = mesh_obj.data
     if mesh is None:
         raise ExportException(f"col '{mesh_obj.name}' has no mesh data!")
+    
+    backface_attr = mesh.attributes.get('backface') if save_backfaces else None
 
     if col_idx < 0 or col_idx > 3:
         raise ExportException(f"'{mesh_obj.name}' Invalid col index '{col_idx}, must be in 0-3")
@@ -248,6 +280,9 @@ def _export_collistionmesh_col(col_idx, mesh_obj, material_to_index):
         material_index = material_to_index[mat_name]
         face = Face(vert_indexes, material_index)
         col.faces.append(face)
+        if backface_attr and backface_attr.data[p.index].value:
+            backface = Face(invert_face(vert_indexes), material_index)
+            col.faces.append(backface)
         for v in vert_indexes:
             col.vert_materials[v] = material_index
     return col

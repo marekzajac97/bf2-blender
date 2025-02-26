@@ -16,6 +16,10 @@ from .utils import (conv_bf2_to_blender,
                     conv_blender_to_bf2,
                     delete_object_if_exists,
                     check_prefix,
+                    swap_zy,
+                    flip_uv,
+                    invert_face,
+                    add_backface_modifier,
                     DEFAULT_REPORTER)
 from .skeleton import (ske_get_bone_rot,
                        ske_weapon_part_ids,
@@ -53,6 +57,8 @@ _MESH_TYPES = {
 # hardcoded BF2 limit
 # if you are a BF2142 modder you could increase this to 50 :)
 MAX_GEOM_LIMIT = MAX_BONE_LIMIT = 26
+
+DEBUG_BACKFACES = False
 
 def collect_uv_layers(mesh_obj, geom=0, lod=0):
     uv_layers = dict()
@@ -102,7 +108,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
                  texture_path='', geom_to_ske=None, merge_materials=True,
-                 reporter=DEFAULT_REPORTER):
+                 load_backfaces=True, reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
 
@@ -118,6 +124,7 @@ class MeshImporter:
         self.reporter = reporter
         self.mesh_materials = []
         self.merge_materials = merge_materials
+        self.load_backfaces = load_backfaces
 
     def import_mesh(self, name='', geom=None, lod=None):
         try:
@@ -186,11 +193,11 @@ class MeshImporter:
 
             # create vertices
             for vert in bf2_mat.vertices:
-                bm.verts.new(_swap_zy(vert.position))
+                bm.verts.new(swap_zy(vert.position))
 
                 # Normals
                 if has_normals:
-                    vertex_normals.append(_swap_zy(vert.normal))
+                    vertex_normals.append(swap_zy(vert.normal))
                     # XXX: Blender does NOT support custom tangents import
 
                 # UVs
@@ -210,7 +217,7 @@ class MeshImporter:
                         vert_animuv_center = vert.texcoord1
                         uv = (uv[0] + vert_animuv_center[0] * uv_ratio[0],
                             uv[1] + vert_animuv_center[1] * uv_ratio[1])
-                    uv = _flip_uv(uv)
+                    uv = flip_uv(uv)
                     vertex_uv.append(uv)
 
                 # Animated UVs data
@@ -264,25 +271,40 @@ class MeshImporter:
             except ValueError:
                 material_index = len(mesh_materials)
                 mesh_materials.append(material)
- 
+
             # create faces
+            faces_having_backfaces = set()
             for face in bf2_mat.faces:
-                face_verts = [bm.verts[v + vertex_offset] for v in _invert_face(face)]
+                face_verts = [bm.verts[v + vertex_offset] for v in invert_face(face)]
                 try:
                     bm_face = bm.faces.new(face_verts)
                     bm_face.material_index = material_index
                 except ValueError:
-                    pass
-                    # XXX: some meshes (e.g. vBF2 usrif_remington11-87)
-                    # produce "face already exists" error
-                    # even though vert indexes are unique
-                    # I don't know wtf is going on, so lets just ignore it
+                    # duplicate face! find the other one
+                    if not self.load_backfaces:
+                        continue
+                    bm.faces.index_update()
+                    bm_face_verts = set([vert.index for vert in face_verts])
+                    for other_bm_face in bm.faces:
+                        other_bm_face_verts = set([vert.index for vert in other_bm_face.verts])
+                        if bm_face_verts == other_bm_face_verts:
+                            if material_index != other_bm_face.material_index: # XXX: could they differ ??
+                                raise ImportException("Attempted to create a backface with different material index, aborting")
+                            faces_having_backfaces.add(other_bm_face.index)
+                            break
+                    else:
+                        raise # XXX: not found ??
 
             vertex_offset += len(bf2_mat.vertices)
 
         mesh = bpy.data.meshes.new(name)
         bm.to_mesh(mesh)
         bm.free()
+
+        # mark faces with backfaces
+        if faces_having_backfaces:
+            animuv_matrix_index = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
+            animuv_matrix_index.data.foreach_set('value', [poly.index in faces_having_backfaces for poly in mesh.polygons])
 
         # apply materials
         for material in mesh_materials:
@@ -313,6 +335,9 @@ class MeshImporter:
             self._import_rig_skinned_mesh(mesh_obj, bf2_lod)
         elif isinstance(bf2_mesh, BF2BundledMesh):
             self._import_parts_bundled_mesh(mesh_obj, bf2_lod)
+
+        if DEBUG_BACKFACES:
+            add_backface_modifier(mesh_obj)
 
         return mesh_obj
 
@@ -495,6 +520,7 @@ class MeshExporter:
                  texture_path='', tangent_uv_map='',
                  normal_weld_thres=0.999,
                  tangent_weld_thres=0.999,
+                 save_backfaces=True,
                  reporter=DEFAULT_REPORTER):
         self.mesh_obj = mesh_obj
         self.mesh_file = mesh_file
@@ -509,6 +535,7 @@ class MeshExporter:
         self.tangent_weld_thres = tangent_weld_thres
         self.reporter = reporter
         self.has_animated_uvs = self._has_anim_uv()
+        self.save_backfaces = save_backfaces
 
     def export_mesh(self):
         self._setup_vertex_attributes()
@@ -612,9 +639,12 @@ class MeshExporter:
         if mesh_type != BF2BundledMesh: # just in case someone does this...
             animuv_matrix_index = None
             animuv_rot_center = None
+        
+        backface_attr = mesh.attributes.get('backface') if self.save_backfaces else None
 
         if not self.tangent_uv_map:
-            raise ExportException("No UV selected for tangent space generation!")
+            raise ExportException("No UV selected for tangent space generation!\n Make sure your UV maps are called UV0, UV1 etc..")
+
         mesh.calc_tangents(uvmap=self.tangent_uv_map)
 
         # lightmap UV, if not present, generate it
@@ -793,9 +823,9 @@ class MeshExporter:
                 for loop in loops:
                     vert = Vertex()
 
-                    vert.position = _swap_zy(blend_vertex.co)
-                    vert.normal = _swap_zy(loop.normal)
-                    vert.tangent = _swap_zy(loop.tangent)
+                    vert.position = swap_zy(blend_vertex.co)
+                    vert.normal = swap_zy(loop.normal)
+                    vert.tangent = swap_zy(loop.tangent)
 
                     # blendindices
                     blendindices = [0, 0, 0, 0]
@@ -854,7 +884,7 @@ class MeshExporter:
                     for uv_chan in range(uv_count):
                         uvlayer = uv_layers.get(uv_chan)
                         if uvlayer:
-                            uv = _flip_uv(uvlayer.data[loop.index].uv)
+                            uv = flip_uv(uvlayer.data[loop.index].uv)
                         else:
                             uv = (0, 0)
                         setattr(vert, f'texcoord{uv_chan}', uv)
@@ -898,8 +928,10 @@ class MeshExporter:
 
             # create material's faces
             for face in blend_faces:
-                face_verts = _invert_face(loop_to_vert_idx[face.loop_start:face.loop_start + face.loop_total])
+                face_verts = invert_face(loop_to_vert_idx[face.loop_start:face.loop_start + face.loop_total])
                 bf2_mat.faces.append(face_verts)
+                if backface_attr and backface_attr.data[face.index].value:
+                    bf2_mat.faces.append(invert_face(face_verts))
 
             # print stats
             if _DEBUG:
@@ -933,18 +965,6 @@ class MeshExporter:
             if any([abs(this_uv[i] - other_uv[i]) > 0.0001 for i in (0, 1)]):
                 return False
         return True
-
-# BF2 <-> Blender convertions
-
-def _swap_zy(vec):
-    return (vec[0], vec[2], vec[1])
-
-def _invert_face(verts):
-    return (verts[2], verts[1], verts[0])
-
-def _flip_uv(uv):
-    u, v = uv
-    return (u, 1 - v)
 
 # utils
 

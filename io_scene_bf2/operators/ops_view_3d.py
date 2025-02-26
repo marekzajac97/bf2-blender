@@ -6,7 +6,8 @@ from bpy.props import IntProperty, BoolProperty # type: ignore
 from ..core.utils import Reporter
 from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
 from ..core.skeleton import is_bf2_skeleton
-from ..core.mesh import AnimUv, _flip_uv
+from ..core.utils import flip_uv
+from ..core.mesh import AnimUv
 from ..core.object_template import parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 
 def _bf2_setup_started(context, rig):
@@ -186,7 +187,7 @@ class EDIT_MESH_OT_bf2_set_anim_uv_rotation_center(bpy.types.Operator):
         obj = context.view_layer.objects.active
         mesh = obj.data
 
-        uv = _flip_uv(_get_2d_cursor_location(context))
+        uv = flip_uv(_get_2d_cursor_location(context))
         if 'animuv_rot_center' not in mesh.attributes:
             mesh.attributes.new('animuv_rot_center', 'FLOAT2', 'POINT')
         mesh.attributes.active = mesh.attributes['animuv_rot_center']
