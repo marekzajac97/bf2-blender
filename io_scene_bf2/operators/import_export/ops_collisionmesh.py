@@ -1,6 +1,6 @@
 import bpy # type: ignore
 import traceback
-from bpy.props import StringProperty # type: ignore
+from bpy.props import StringProperty, BoolProperty # type: ignore
 from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
 
 from ...core.exceptions import ImportException, ExportException # type: ignore
@@ -13,9 +13,16 @@ class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
     bl_label = "Import Collision Mesh"
     filter_glob: StringProperty(default="*.collisionmesh", options={'HIDDEN'}) # type: ignore
 
+    load_backfaces: BoolProperty(
+        name="Backfaces",
+        description="Adds 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        default=True
+    ) # type: ignore
+
     def execute(self, context):
         try:
-            import_collisionmesh(context, self.filepath)
+            import_collisionmesh(context, self.filepath,
+                                 load_backfaces=self.load_backfaces)
         except ImportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}
@@ -31,6 +38,18 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
     filename_ext = ".collisionmesh"
     filter_glob: StringProperty(default="*.collisionmesh", options={'HIDDEN'}) # type: ignore
 
+    save_backfaces: BoolProperty(
+        name="Backfaces",
+        description="Exports faces with 'backface' attribute as double-sided",
+        default=True
+    ) # type: ignore
+
+    apply_modifiers: BoolProperty(
+        name="Apply Modifiers",
+        description="Apply object modifiers",
+        default=True
+    ) # type: ignore
+
     @classmethod
     def poll(cls, context):
         cls.poll_message_set("No object active")
@@ -38,7 +57,10 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         try:
-           export_collisionmesh(self.root, self.filepath)
+           export_collisionmesh(self.root, self.filepath,
+                                save_backfaces=self.save_backfaces,
+                                apply_modifiers=self.apply_modifiers,
+                                triangulate=True)
         except ExportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}

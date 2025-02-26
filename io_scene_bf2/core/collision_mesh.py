@@ -1,14 +1,20 @@
 import bpy # type: ignore
 import bmesh # type: ignore
 
+from os import path
 from itertools import cycle
 from .bf2.bf2_collmesh import BF2CollMesh, BF2CollMeshException, GeomPart, Geom, Col, Face, Vec3
-from .utils import (delete_object_if_exists,
+from .utils import (delete_object,
+                    delete_object_if_exists,
                     delete_material_if_exists,
                     delete_mesh_if_exists,
                     check_prefix,
                     invert_face,
-                    add_backface_modifier)
+                    are_backfaces,
+                    add_backface_modifier,
+                    apply_modifiers as _apply_modifiers,
+                    triangulate as _triangulate,
+                    DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
 MATERIAL_COLORS = [
@@ -36,14 +42,16 @@ def _build_col_prefix(geompart=None, geom=None, col=None):
     else:
         return ''
 
-def import_collisionmesh(context, mesh_file, name='', make_objects=True, reload=False):
-    """Import all meshes from collisionmesh file as Blender's Mesh objects"""
+def import_collisionmesh(context, mesh_file, name='', reload=False, **kwargs):
+    name = name or path.splitext(path.basename(mesh_file))[0]
+    geom_parts, _ = _import_collisionmesh(context, mesh_file, name, reload=reload, **kwargs)
+    return _make_objects(context, name, geom_parts, reload) 
+
+def _import_collisionmesh(context, mesh_file, name, reload=False, **kwargs):
     try:
         bf2_mesh = BF2CollMesh(mesh_file)
     except BF2CollMeshException as e:
         raise ImportException(str(e)) from e
-
-    name = name or bf2_mesh.name
 
     materials = _import_collisionmesh_dummy_materials(name, bf2_mesh)
     geom_parts = list()
@@ -57,10 +65,7 @@ def import_collisionmesh(context, mesh_file, name='', make_objects=True, reload=
                 prfx = _build_col_prefix(geompart_idx, geom_idx, col_idx)
                 col_name = prfx + name
                 if reload: delete_mesh_if_exists(col_name)
-                cols[bf2_col.col_type] = _import_collisionmesh_col(col_name, bf2_col, materials)
-
-    if make_objects:
-        return _make_objects(context, name, geom_parts, reload) 
+                cols[bf2_col.col_type] = _import_collisionmesh_col(col_name, bf2_col, materials, **kwargs)
 
     return geom_parts, materials
 
@@ -138,6 +143,7 @@ def _import_collisionmesh_col(name, bf2_col, materials, load_backfaces=True):
     bm.verts.ensure_lookup_table()
     bm.verts.index_update()
 
+    fucked_up_faces = 0
     faces_having_backfaces = set()
     for face, bf2_mat_idx in zip(faces, face_materials):
         face_verts = [bm.verts[i] for i in face]
@@ -147,20 +153,29 @@ def _import_collisionmesh_col(name, bf2_col, materials, load_backfaces=True):
             bm_face = bm.faces.new(face_verts)
             bm_face.material_index = material_index
         except ValueError:
-            # duplicate face! find the other one
+            # duplicate face.. or vert, lets find out
             if not load_backfaces:
+                fucked_up_faces += 1
                 continue
+            if len(set(face_verts)) != 3: # duplicate verts
+                fucked_up_faces += 1
+                continue
+
             bm.faces.index_update()
-            bm_face_verts = set([vert.index for vert in face_verts])
+            bm_face_verts = [vert.index for vert in face_verts]
             for other_bm_face in bm.faces:
-                other_bm_face_verts = set([vert.index for vert in other_bm_face.verts])
-                if bm_face_verts == other_bm_face_verts:
+                if are_backfaces(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
                     if material_index != other_bm_face.material_index: # XXX: could they differ ??
                         raise ImportException("Attempted to create a backface with different material index, aborting")
                     faces_having_backfaces.add(other_bm_face.index)
                     break
             else:
-                raise # XXX: not found ??
+                # must be a duplicate face
+                fucked_up_faces += 1
+
+    if fucked_up_faces:
+        pass # TODO report!
+        # reporter.warning(f"{name} Skipped {fucked_up_faces} invalid faces")
 
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
@@ -231,12 +246,58 @@ def _collect_collisionmesh_dummy_materials(geom_parts):
                     material_to_index[mat_name] = len(material_to_index)
     return material_to_index
 
-def export_collisionmesh(root_obj, mesh_file, geom_parts=None):
+TMP_PREFIX = "TMP__"
+
+def _make_temp_object(obj, prefix=TMP_PREFIX):
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
+    obj.select_set(True)
+    name = obj.name
+    obj.name = prefix + name # rename original
+    bpy.ops.object.duplicate() # duplicate
+    new_obj = bpy.context.view_layer.objects.active
+    new_obj.name = name # set copy name to original object
+    obj.hide_set(hide)
+    return new_obj
+
+def _revert_temp_object(obj, prefix=TMP_PREFIX):
+    name = obj.name
+    org_obj = bpy.data.objects[prefix + obj.name]
+    delete_object(obj, recursive=False)
+    org_obj.name = name
+
+def _revert_temp_geom_lods(geom_parts):
+    for geoms in geom_parts:
+        for cols in geoms:
+            for col_obj in cols.values():
+                _revert_temp_object(col_obj)
+
+def _make_temp_nodes_geoms_lods(geom_parts):
+    new_geom_parts = list()
+    for geoms in geom_parts:
+        new_geoms = list()
+        new_geom_parts.append(new_geoms)
+        for cols in geoms:
+            new_cols = dict()
+            new_geoms.append(new_cols)
+            for col_idx, col_obj in cols.items():
+                new_cols[col_idx] = _make_temp_object(col_obj)
+    return new_geom_parts
+
+def export_collisionmesh(root_obj, mesh_file, **kwargs):
+    geom_parts = _collect_collisionmesh_nodes_geoms_lods(root_obj)
+    geom_parts = _make_temp_nodes_geoms_lods(geom_parts)
+    try:
+        return _export_collisionmesh(root_obj, mesh_file, geom_parts, **kwargs)
+    except Exception:
+        raise
+    finally:
+        _revert_temp_geom_lods(geom_parts)
+
+def _export_collisionmesh(root_obj, mesh_file, geom_parts, **kwargs):
     collmesh = BF2CollMesh(name=root_obj.name)
-
-    if geom_parts is None:
-        geom_parts = _collect_collisionmesh_nodes_geoms_lods(root_obj)
-
     material_to_index = _collect_collisionmesh_dummy_materials(geom_parts)
 
     for geoms in geom_parts:
@@ -246,7 +307,7 @@ def export_collisionmesh(root_obj, mesh_file, geom_parts=None):
             geom = Geom()
             geompart.geoms.append(geom)
             for col_idx, col_obj in cols.items():
-                col = _export_collistionmesh_col(col_idx, col_obj, material_to_index)
+                col = _export_collistionmesh_col(col_idx, col_obj, material_to_index, **kwargs)
                 geom.cols.append(col)
 
     try:
@@ -256,12 +317,20 @@ def export_collisionmesh(root_obj, mesh_file, geom_parts=None):
 
     return collmesh, material_to_index
 
-def _export_collistionmesh_col(col_idx, mesh_obj, material_to_index, save_backfaces=True):
+def _export_collistionmesh_col(col_idx, mesh_obj, material_to_index,
+                               apply_modifiers=False,
+                               triangulate=False,
+                               save_backfaces=True):
     col = Col()
     mesh = mesh_obj.data
     if mesh is None:
         raise ExportException(f"col '{mesh_obj.name}' has no mesh data!")
-    
+
+    if apply_modifiers:
+        _apply_modifiers(mesh_obj)
+    if triangulate:
+        _triangulate(mesh_obj)
+
     backface_attr = mesh.attributes.get('backface') if save_backfaces else None
 
     if col_idx < 0 or col_idx > 3:

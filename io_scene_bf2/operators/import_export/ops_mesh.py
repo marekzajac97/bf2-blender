@@ -186,6 +186,12 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
         default=True
     ) # type: ignore
 
+    apply_modifiers: BoolProperty(
+        name="Apply Modifiers",
+        description="Apply object modifiers",
+        default=True
+    ) # type: ignore
+
     @classmethod
     def poll(cls, context):
         cls.poll_message_set("No object active")
@@ -197,7 +203,9 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
            self.__class__.EXPORT_FUNC(self.root, self.filepath,
                                       texture_path=mod_path,
                                       tangent_uv_map=self.tangent_uv_map,
-                                      save_backfaces=self.save_backfaces)
+                                      save_backfaces=self.save_backfaces,
+                                      apply_modifiers=self.apply_modifiers,
+                                      triangulate=True)
         except ExportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}

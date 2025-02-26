@@ -11,17 +11,25 @@ from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
 from .bf2.bf2_collmesh import NATIVE_BSP_EXPORT
 from .bf2.bf2_mesh import BF2Samples
 from .mesh import MeshImporter, MeshExporter
-from .collision_mesh import import_collisionmesh, export_collisionmesh
+from .collision_mesh import _import_collisionmesh, _export_collisionmesh
 from .skeleton import find_all_skeletons, find_rig_attached_to_object
 
-from .utils import delete_object, check_suffix, check_prefix, swap_zy, DEFAULT_REPORTER
+from .utils import (delete_object, check_suffix,
+                    check_prefix, swap_zy,
+                    apply_modifiers as _apply_modifiers,
+                    triangulate as _triangulate,
+                    DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
 NONVIS_PRFX = 'NONVIS_'
 COL_SUFFIX = '_COL'
-TMP_PREFIX = 'TMP__'
-SKIN_PREFIX = 'SKIN__'
 ANCHOR_PREFIX = 'ANCHOR__'
+# SKIN_PREFIX = 'SKIN__'
+
+
+################################
+########## IMPORT ##############
+################################
 
 class GeomPartInfo:
     def __init__(self, part_id, obj) -> None:
@@ -35,7 +43,7 @@ class GeomPartInfo:
 
 def import_object_template(context, con_filepath, import_collmesh=True,
                            import_rig_mode='AUTO', geom_to_ske_name=None, reload=False,
-                           weld_verts=False, reporter=DEFAULT_REPORTER, **kwargs):
+                           weld_verts=False, load_backfaces=True, reporter=DEFAULT_REPORTER, **kwargs):
     BF2Engine().shutdown() # clear previous state
     obj_template_manager = BF2Engine().get_manager(ObjectTemplate)
     geom_template_manager = BF2Engine().get_manager(GeometryTemplate)
@@ -81,8 +89,11 @@ def import_object_template(context, con_filepath, import_collmesh=True,
     geom_to_ske = _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name, reporter)
 
     importer = MeshImporter(context, geometry_filepath,
-                            reload=reload, geom_to_ske=geom_to_ske,
-                            reporter=reporter, **kwargs)
+                            reload=reload,
+                            geom_to_ske=geom_to_ske,
+                            reporter=reporter,
+                            load_backfaces=True,
+                            **kwargs)
 
     root_geometry_obj = importer.import_mesh(name=root_template.name)
     root_geometry_obj.name = f'{geometry_type}_{root_template.name}'
@@ -90,7 +101,7 @@ def import_object_template(context, con_filepath, import_collmesh=True,
     coll_parts = None
     if collmesh_template and import_collmesh:
         collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{collmesh_template.name}.collisionmesh')
-        coll_parts, col_materials = import_collisionmesh(context, collmesh_filepath, name=root_template.name, make_objects=False, reload=reload)
+        coll_parts, col_materials = _import_collisionmesh(context, collmesh_filepath, name=root_template.name, reload=reload)
         # name materials
         for col_material_idx, col_material_name in root_template.col_material_map.items():
             col_materials[col_material_idx].name = col_material_name
@@ -134,312 +145,6 @@ def parse_geom_type_safe(mesh_obj):
         return parse_geom_type(mesh_obj)
     except Exception:
         return None
-
-def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=True,
-                           apply_modifiers=False, samples_size=None, sample_padding=6,
-                           use_edge_margin=True, reporter=DEFAULT_REPORTER, **kwargs):
-    geometry_type, obj_name = parse_geom_type(mesh_obj)
-
-    # find anchor
-    anchor_obj = None
-    for child in mesh_obj.children:
-        if child.name.startswith(ANCHOR_PREFIX):
-            anchor_obj = child
-            break
-
-    # temporarily remove parent to not be taken as geom
-    if anchor_obj:
-        anchor_obj.parent = None
-
-    try:
-        mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
-    except Exception:
-        raise
-    finally:
-        if anchor_obj:
-            anchor_obj.parent = mesh_obj
-
-    obj_to_geom_part = _find_geom_parts(mesh_geoms)
-
-    for obj_name, geom_part in obj_to_geom_part.items():
-        if geom_part.part_id == 0:
-            root_geom_part = geom_part
-            break
-
-    for geom_obj in mesh_geoms:
-        for lod_obj in geom_obj:
-            _verify_lods_consistency(root_geom_part, lod_obj)
-
-    collmesh_parts, obj_to_col_part_id = _find_collmeshes(mesh_geoms)
-
-    root_obj_template = _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id)
-    if root_obj_template is None:
-        raise ExportException(f"root object '{root_geom_part.name}' is missing ObjectTemplate type, check object properties!")
-    root_obj_template.save_in_separate_file = True
-    root_obj_template.creator_name = getuser()
-    root_obj_template.geom = GeometryTemplate(geometry_type, obj_name)
-    if root_obj_template.has_collision_physics:
-        root_obj_template.collmesh = CollisionMeshTemplate(obj_name)
-
-    con_dir = os.path.dirname(con_file)
-    if geom_export or colmesh_export:
-        os.makedirs(os.path.join(con_dir, 'Meshes'), exist_ok=True)
-
-    geometry_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.geom.name}.{geometry_type.lower()}')
-
-    # create temporary meshes for export, that we can modify e.g trigangulate
-    print(f"duplicating LODs...")
-    temp_mesh_geoms = _duplicate_lods(mesh_geoms)
-    try:
-        if geometry_type == 'BundledMesh':
-            print(f"joining LODs...")
-            _join_lods(temp_mesh_geoms, obj_to_geom_part)
-
-            root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
-
-        for geom_obj in temp_mesh_geoms:
-            for lod_obj in geom_obj:
-                if apply_modifiers:
-                    rig = find_rig_attached_to_object(lod_obj)
-                    _apply_modifiers(lod_obj)
-                    if rig:
-                        modifier = lod_obj.modifiers.new(type='ARMATURE', name="Armature")
-                        modifier.object = rig
-                _triangulate(lod_obj)
-
-        if geom_export:
-            print(f"Exporting geometry to '{geometry_filepath}'")
-            bf2_mesh = MeshExporter(mesh_obj, geometry_filepath, mesh_geoms=temp_mesh_geoms,
-                                    mesh_type=geometry_type, reporter=reporter, **kwargs).export_mesh()
-
-            if samples_size is not None and geometry_type == 'StaticMesh':
-                if len(bf2_mesh.geoms) != 1:
-                    reporter.error("Cannot generate samples for meshes with more than one Geom")
-                elif not bf2_mesh.has_uv(4):
-                    reporter.error(f"Cannot generate samples, missing ligtmap UV Layer (UV4)")
-                else:
-                    for lod_idx, bf2_lod in enumerate(bf2_mesh.geoms[0].lods):
-                        MIN_SAMPLE_SIZE = 8
-                        if lod_idx == 0:
-                            sample_size = samples_size
-                            samples_filename = obj_name + '.samples'
-                        else:
-                            sample_size = [max(int(i / (2**lod_idx)), MIN_SAMPLE_SIZE) for i in samples_size]
-                            samples_filename = obj_name + f'.samp_{lod_idx:02d}'
-
-                        samples = BF2Samples(bf2_lod, size=sample_size, sample_padding=sample_padding,
-                                             use_edge_margin=use_edge_margin, uv_chan=4)
-
-                        samples_filepath = os.path.join(os.path.dirname(geometry_filepath), samples_filename)
-                        print(f"Exporting samples to '{samples_filepath}'")
-                        samples.export(samples_filepath)
-
-    except Exception:
-        raise
-    finally:
-        _delete_lods(temp_mesh_geoms)
-
-    if root_obj_template.collmesh and colmesh_export:
-        collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.collmesh.name}.collisionmesh')
-
-        print(f"duplicating COLs...")
-        temp_collmesh_parts = _duplicate_cols(collmesh_parts)
-
-        for geoms in temp_collmesh_parts:
-            for cols in geoms:
-                for _, col_obj in cols.items():
-                    if apply_modifiers:
-                        _apply_modifiers(col_obj)
-                    _triangulate(col_obj)
-        try:
-            print(f"Exporting collision to '{collmesh_filepath}'")
-            _, material_to_index = export_collisionmesh(mesh_obj, collmesh_filepath, geom_parts=temp_collmesh_parts)
-        except Exception:
-            raise
-        finally:
-            _delete_cols(temp_collmesh_parts)
-
-        for mat, mat_idx in sorted(material_to_index.items(), key=lambda item: item[1]):
-            if ' ' in mat:
-                # XXX: add quoting when dumping con to allow this
-                raise ExportException(f"CollisionMesh material: '{mat}' must not contain whitespaces!")
-            root_obj_template.col_material_map[mat_idx] = mat
-
-    if anchor_obj:
-        root_obj_template.anchor_point = swap_zy(anchor_obj.location)
-
-    print(f"Writing con file to '{con_file}'")
-    _dump_con_file(root_obj_template, con_file)
-
-
-def _find_geom_parts(mesh_geoms):
-    obj_to_part = dict()
-    for geom_obj in mesh_geoms:
-        for lod_obj in geom_obj:
-            _collect_geometry_parts(lod_obj, obj_to_part)
-    return obj_to_part
-
-def _collect_geometry_parts(obj, obj_to_part):
-    object_name = _strip_prefix(obj.name)
-    geom_part = obj_to_part.get(object_name)
-    if geom_part is None:
-        part_id = len(obj_to_part)
-        geom_part = GeomPartInfo(part_id, obj)
-        obj_to_part[object_name] = geom_part        
-
-    for _, child_obj in sorted([(_strip_prefix(child.name), child) for child in obj.children]):
-        if not _is_colmesh_dummy(child_obj):
-            child_geom_part = _collect_geometry_parts(child_obj, obj_to_part)
-            if child_geom_part not in geom_part.children:
-                geom_part.children.append(child_geom_part)
-    return geom_part
-
-def _find_collmeshes(mesh_geoms):
-    collmesh_parts_per_geom = list()
-    obj_to_part_id = dict()
-
-    for geom_obj in mesh_geoms:
-        parts = list()
-        lod0 = geom_obj[0] # only lod0 might have collmesh
-        _collect_collmesh_parts(lod0, parts, obj_to_part_id)
-        collmesh_parts_per_geom.append(parts)
-
-    collmesh_parts = list() # part id -> geoms -> colmeshes
-    for col_part_idx in sorted(obj_to_part_id.values()):
-        col_geoms = list()
-        for geom_col_parts in collmesh_parts_per_geom:
-            if len(geom_col_parts) > col_part_idx:
-                col_geoms.append(geom_col_parts[col_part_idx])
-            else:
-                col_geoms.append(dict()) # no cols for this geom
-        collmesh_parts.append(col_geoms)
-
-    # for node_idx, node in enumerate(collmesh_parts):
-    #     print(f"node-{node_idx}")
-    #     for geom_idx, geom in enumerate(node):
-    #         print(f"   geom-{geom_idx}")
-    #         for col_idx, col in geom.items():
-    #             print(f"      col-{col_idx}", col)
-
-    return collmesh_parts, obj_to_part_id
-
-def _collect_collmesh_parts(obj, collmesh_parts, obj_to_part_id):
-    # find and add collmeshes first
-    for child_obj in obj.children:
-        if _is_colmesh_dummy(child_obj):
-            # map object template name to collistion part
-            part_id = len(collmesh_parts)
-            object_name = _strip_prefix(obj.name)
-            obj_to_part_id[object_name] = part_id
-            # map collision part to collision meshes
-            cols = dict()
-            collmesh_parts.append(cols)
-            for col_obj in child_obj.children:
-                col_idx = check_suffix(col_obj.name, COL_SUFFIX)
-                cols[col_idx] = col_obj
-            break
-
-    # process childs
-    for child_obj in obj.children:
-        if not _is_colmesh_dummy(child_obj):
-            _collect_collmesh_parts(child_obj, collmesh_parts, obj_to_part_id)
-    return collmesh_parts
-
-def _is_colmesh_dummy(obj):
-    return obj.name.lower().startswith(NONVIS_PRFX.lower())
-
-def _verify_lods_consistency(root_geom_part, lod_obj):
-    lod_name = _strip_prefix(lod_obj.name)
-
-    if any([c.isspace() for c in lod_obj.name]):
-        raise ExportException(f"'{lod_obj.name}' name contain spaces!")
-
-    if tuple(lod_obj.scale) != (1, 1, 1):
-        raise ExportException(f"'{lod_obj.name}' has non uniform scale: {lod_obj.scale}")
-
-    if lod_obj.data is None:
-        raise ExportException(f"'{lod_obj.name}' has no mesh data! If you don't want it to contain any, simply make it a mesh object and delete all vertices")
-
-    def _inconsistency(item, val, exp_val):
-        raise ExportException(f"{lod_obj.name}: Inconsistent {item} for different Geoms/LODs, got '{val}' but other Geom/LOD has '{exp_val}'")
-
-    if lod_name != root_geom_part.name:
-        _inconsistency('object names', lod_obj.name, root_geom_part.name)
-    if lod_obj.bf2_object_type != root_geom_part.bf2_object_type:
-        _inconsistency('BF2 Object Types', lod_obj.bf2_object_type, root_geom_part.bf2_object_type)
-    if (root_geom_part.location - lod_obj.location).length > 0.0001:
-        _inconsistency('object locations', lod_obj.location, root_geom_part.location)
-    if root_geom_part.rotation_quaternion.rotation_difference(lod_obj.rotation_quaternion).angle > 0.0001:
-        _inconsistency('object rotations', lod_obj.rotation_quaternion, root_geom_part.rotation_quaternion)
-
-    root_geom_children = dict()
-    for child_geom_part in root_geom_part.children:
-        root_geom_children[child_geom_part.name] = child_geom_part
-
-    for child_obj in lod_obj.children:
-        child_name = _strip_prefix(child_obj.name)
-        if _is_colmesh_dummy(child_obj):
-            continue
-        if child_name not in root_geom_children:
-            raise ExportException(f"Unexpected object '{child_obj.name}' found, hierarchy does not match with other LOD(s)")
-
-        geom_part_child = root_geom_children[child_name]
-        _verify_lods_consistency(geom_part_child, child_obj)
-
-def _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id, is_vehicle=None) -> ObjectTemplate:
-    if root_geom_part.bf2_object_type == '': # special case, geom part which has no object template (see GenericFirearm)
-        return None
-
-    obj_name = root_geom_part.name
-    obj_template = ObjectTemplate(root_geom_part.bf2_object_type, obj_name)
-
-    if is_vehicle is None: # root object
-        # TODO: no idea how to properly detect whether the exported object
-        # should or should not have mobile physics
-        is_vehicle = obj_template.type.lower() == 'PlayerControlObject'.lower()
-
-    obj_template.has_mobile_physics = is_vehicle
-
-    if obj_name in obj_to_col_part_id:
-        obj_template.physics_type = ObjectTemplate._PhysicsType.MESH
-        obj_template.has_collision_physics = True
-        obj_template.col_part = obj_to_col_part_id[obj_name]
-
-    if obj_name in obj_to_geom_part:
-        obj_template.geom_part = obj_to_geom_part[obj_name].part_id
-
-    for _, child_obj in sorted([(child.name, child) for child in root_geom_part.children]):
-        if _is_colmesh_dummy(child_obj): # skip collmeshes
-            continue
-        child_template = _create_object_template(child_obj, obj_to_geom_part, obj_to_col_part_id, is_vehicle)
-        if child_template is None:
-            continue
-        child_object = ObjectTemplate.ChildObject(child_template.name)
-        child_object.template = child_template
-        child_object.position = swap_zy(child_obj.location)
-        child_object.rotation = _matrix_to_yaw_pitch_roll(child_obj.matrix_local)
-        obj_template.children.append(child_object)
-
-    return obj_template
-
-def _strip_prefix(s):
-    for char_idx, _ in enumerate(s):
-        if s[char_idx:].startswith('__'):
-            return s[char_idx+2:]
-    raise ExportException(f"'{s}' has no GxLx__ prefix!")
-
-def _object_hierarchy_has_any_meshes(obj, parent_bones):
-    if obj.data and isinstance(obj.data, Mesh) and len(obj.data.vertices):
-        return True
-    if obj.name in parent_bones:
-        # empty object but refers to parent vertex group, keep this
-        return True
-    if obj.data and isinstance(obj.data, Armature):
-        return True # skin, keep this
-
-    for child_obj in obj.children:
-        return _object_hierarchy_has_any_meshes(child_obj, parent_bones)
-    return False
 
 def _delete_hierarchy_if_has_no_meshes(obj, parent_bones=None):
     if parent_bones is None: parent_bones = set()
@@ -720,6 +425,401 @@ def _split_mesh_by_vertex_groups(context, mesh_obj):
 
     return splitted_parts
 
+def _object_hierarchy_has_any_meshes(obj, parent_bones):
+    if obj.data and isinstance(obj.data, Mesh) and len(obj.data.vertices):
+        return True
+    if obj.name in parent_bones:
+        # empty object but refers to parent vertex group, keep this
+        return True
+    if obj.data and isinstance(obj.data, Armature):
+        return True # skin, keep this
+
+    for child_obj in obj.children:
+        return _object_hierarchy_has_any_meshes(child_obj, parent_bones)
+    return False
+
+def _weld_vers_recursive(obj):
+    if obj.data and isinstance(obj.data, Mesh):
+        _weld_verts(obj)
+    else:
+        for child_obj in obj.children:
+            _weld_vers_recursive(child_obj)
+
+def _weld_verts(obj):
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='VERT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.remove_doubles(threshold=0.0001)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+def _yaw_pitch_roll_to_matrix(rotation):
+    rotation = tuple(map(lambda x: -math.radians(x), rotation))
+    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
+    pitch = Matrix.Rotation(rotation[1], 4, 'X')
+    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
+    return (yaw @ pitch @ roll)
+
+def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):
+    if import_rig_mode == 'OFF':
+        return None
+    else:
+        geom_to_ske = dict()
+        rigs = dict()
+        for s in find_all_skeletons():
+            rigs[s.name] = s
+
+        def put_rig_safe(geom_idx, ske_name):
+            rig = rigs.get(ske_name)
+            if rig is None:
+                reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type '{root_template.type}'")
+            geom_to_ske[geom_idx] = rig
+
+        if import_rig_mode == 'AUTO':
+            if geometry_type == 'SkinnedMesh':
+                if root_template.type.lower() == 'soldier':
+                    put_rig_safe(0, '1p_setup')
+                    put_rig_safe(1, '3p_setup')
+                elif 'kits' in root_template.name.lower(): # actually hardcoded in engine
+                    put_rig_safe(-1, '3p_setup')
+                elif root_template.type.lower() == 'animatedbundle':
+                    if rigs:
+                        geom_to_ske[-1] = list(rigs.values())[0]
+                    else:
+                        reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type 'AnimatedBundle'")
+                        geom_to_ske = None
+            elif geometry_type == 'BundledMesh':
+                if root_template.type.lower() == 'genericfirearm':
+                    put_rig_safe(0, '1p_setup')
+                    put_rig_safe(1, '3p_setup')
+                else:
+                    geom_to_ske = None
+        elif import_rig_mode == 'MANUAL':
+            if geom_to_ske_name is None:
+                raise ImportException(f'geom_to_ske_name missing for MANUAL mode')
+            for geom_idx, ske_name in geom_to_ske_name.items():
+                geom_to_ske[geom_idx] = rigs[ske_name]
+        else:
+            raise ImportException(f'Unhandled import_rig_mode {import_rig_mode}')
+        return geom_to_ske
+
+def _verify_template(root_obj_template):
+    part_id_to_obj_template = dict()
+    def _check_geom_part_unique(obj_template):
+        if obj_template.geom_part in part_id_to_obj_template:
+            raise ImportException(f"'{obj_template.name}' has the same ObjectTemplate.geometryPart index as '{part_id_to_obj_template[obj_template.geom_part].name}'")
+        part_id_to_obj_template[obj_template.geom_part] = obj_template
+        for child in obj_template.children:
+            _check_geom_part_unique(child.template)
+    _check_geom_part_unique(root_obj_template)
+
+
+################################
+########## EXPORT ##############
+################################
+
+TMP_PREFIX = 'TMP__' # prefix for temporary object copy
+
+def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=True,
+                           apply_modifiers=False, samples_size=None, sample_padding=6,
+                           use_edge_margin=True, save_backfaces=True, reporter=DEFAULT_REPORTER, **kwargs):
+    geometry_type, obj_name = parse_geom_type(mesh_obj)
+
+    # find anchor
+    anchor_obj = None
+    for child in mesh_obj.children:
+        if child.name.startswith(ANCHOR_PREFIX):
+            anchor_obj = child
+            break
+
+    # temporarily remove parent to not be taken as geom
+    if anchor_obj:
+        anchor_obj.parent = None
+
+    try:
+        mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
+    except Exception:
+        raise
+    finally:
+        if anchor_obj:
+            anchor_obj.parent = mesh_obj
+
+    obj_to_geom_part = _find_geom_parts(mesh_geoms)
+
+    for obj_name, geom_part in obj_to_geom_part.items():
+        if geom_part.part_id == 0:
+            root_geom_part = geom_part
+            break
+
+    for geom_obj in mesh_geoms:
+        for lod_obj in geom_obj:
+            _verify_lods_consistency(root_geom_part, lod_obj)
+
+    collmesh_parts, obj_to_col_part_id = _find_collmeshes(mesh_geoms)
+
+    root_obj_template = _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id)
+    if root_obj_template is None:
+        raise ExportException(f"root object '{root_geom_part.name}' is missing ObjectTemplate type, check object properties!")
+    root_obj_template.save_in_separate_file = True
+    root_obj_template.creator_name = getuser()
+    root_obj_template.geom = GeometryTemplate(geometry_type, obj_name)
+    if root_obj_template.has_collision_physics:
+        root_obj_template.collmesh = CollisionMeshTemplate(obj_name)
+
+    con_dir = os.path.dirname(con_file)
+    if geom_export or colmesh_export:
+        os.makedirs(os.path.join(con_dir, 'Meshes'), exist_ok=True)
+
+    geometry_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.geom.name}.{geometry_type.lower()}')
+
+    # create temporary meshes for export, that we can modify e.g trigangulate
+    print(f"duplicating LODs...")
+    temp_mesh_geoms = _duplicate_lods(mesh_geoms)
+    try:
+        if geometry_type == 'BundledMesh':
+            print(f"joining LODs...")
+            _join_lods(temp_mesh_geoms, obj_to_geom_part)
+
+            root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
+
+        for geom_obj in temp_mesh_geoms:
+            for lod_obj in geom_obj:
+                if apply_modifiers:
+                    rig = find_rig_attached_to_object(lod_obj)
+                    _apply_modifiers(lod_obj)
+                    if rig:
+                        modifier = lod_obj.modifiers.new(type='ARMATURE', name="Armature")
+                        modifier.object = rig
+                _triangulate(lod_obj)
+
+        if geom_export:
+            print(f"Exporting geometry to '{geometry_filepath}'")
+            bf2_mesh = MeshExporter(mesh_obj, geometry_filepath,
+                                    mesh_geoms=temp_mesh_geoms,
+                                    mesh_type=geometry_type,
+                                    reporter=reporter,
+                                    save_backfaces=save_backfaces,
+                                    **kwargs).export_mesh()
+
+            if samples_size is not None and geometry_type == 'StaticMesh':
+                if len(bf2_mesh.geoms) != 1:
+                    reporter.error("Cannot generate samples for meshes with more than one Geom")
+                elif not bf2_mesh.has_uv(4):
+                    reporter.error(f"Cannot generate samples, missing ligtmap UV Layer (UV4)")
+                else:
+                    for lod_idx, bf2_lod in enumerate(bf2_mesh.geoms[0].lods):
+                        MIN_SAMPLE_SIZE = 8
+                        if lod_idx == 0:
+                            sample_size = samples_size
+                            samples_filename = obj_name + '.samples'
+                        else:
+                            sample_size = [max(int(i / (2**lod_idx)), MIN_SAMPLE_SIZE) for i in samples_size]
+                            samples_filename = obj_name + f'.samp_{lod_idx:02d}'
+
+                        samples = BF2Samples(bf2_lod, size=sample_size, sample_padding=sample_padding,
+                                             use_edge_margin=use_edge_margin, uv_chan=4)
+
+                        samples_filepath = os.path.join(os.path.dirname(geometry_filepath), samples_filename)
+                        print(f"Exporting samples to '{samples_filepath}'")
+                        samples.export(samples_filepath)
+
+    except Exception:
+        raise
+    finally:
+        _delete_lods(temp_mesh_geoms)
+
+    if root_obj_template.collmesh and colmesh_export:
+        collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.collmesh.name}.collisionmesh')
+
+        print(f"duplicating COLs...")
+        temp_collmesh_parts = _duplicate_cols(collmesh_parts)
+
+        for geoms in temp_collmesh_parts:
+            for cols in geoms:
+                for _, col_obj in cols.items():
+                    if apply_modifiers:
+                        _apply_modifiers(col_obj)
+                    _triangulate(col_obj)
+        try:
+            print(f"Exporting collision to '{collmesh_filepath}'")
+            _, material_to_index = _export_collisionmesh(mesh_obj, collmesh_filepath, temp_collmesh_parts)
+        except Exception:
+            raise
+        finally:
+            _delete_cols(temp_collmesh_parts)
+
+        for mat, mat_idx in sorted(material_to_index.items(), key=lambda item: item[1]):
+            if ' ' in mat:
+                # XXX: add quoting when dumping con to allow this
+                raise ExportException(f"CollisionMesh material: '{mat}' must not contain whitespaces!")
+            root_obj_template.col_material_map[mat_idx] = mat
+
+    if anchor_obj:
+        root_obj_template.anchor_point = swap_zy(anchor_obj.location)
+
+    print(f"Writing con file to '{con_file}'")
+    _dump_con_file(root_obj_template, con_file)
+
+
+def _find_geom_parts(mesh_geoms):
+    obj_to_part = dict()
+    for geom_obj in mesh_geoms:
+        for lod_obj in geom_obj:
+            _collect_geometry_parts(lod_obj, obj_to_part)
+    return obj_to_part
+
+def _collect_geometry_parts(obj, obj_to_part):
+    object_name = _strip_prefix(obj.name)
+    geom_part = obj_to_part.get(object_name)
+    if geom_part is None:
+        part_id = len(obj_to_part)
+        geom_part = GeomPartInfo(part_id, obj)
+        obj_to_part[object_name] = geom_part        
+
+    for _, child_obj in sorted([(_strip_prefix(child.name), child) for child in obj.children]):
+        if not _is_colmesh_dummy(child_obj):
+            child_geom_part = _collect_geometry_parts(child_obj, obj_to_part)
+            if child_geom_part not in geom_part.children:
+                geom_part.children.append(child_geom_part)
+    return geom_part
+
+def _find_collmeshes(mesh_geoms):
+    collmesh_parts_per_geom = list()
+    obj_to_part_id = dict()
+
+    for geom_obj in mesh_geoms:
+        parts = list()
+        lod0 = geom_obj[0] # only lod0 might have collmesh
+        _collect_collmesh_parts(lod0, parts, obj_to_part_id)
+        collmesh_parts_per_geom.append(parts)
+
+    collmesh_parts = list() # part id -> geoms -> colmeshes
+    for col_part_idx in sorted(obj_to_part_id.values()):
+        col_geoms = list()
+        for geom_col_parts in collmesh_parts_per_geom:
+            if len(geom_col_parts) > col_part_idx:
+                col_geoms.append(geom_col_parts[col_part_idx])
+            else:
+                col_geoms.append(dict()) # no cols for this geom
+        collmesh_parts.append(col_geoms)
+
+    # for node_idx, node in enumerate(collmesh_parts):
+    #     print(f"node-{node_idx}")
+    #     for geom_idx, geom in enumerate(node):
+    #         print(f"   geom-{geom_idx}")
+    #         for col_idx, col in geom.items():
+    #             print(f"      col-{col_idx}", col)
+
+    return collmesh_parts, obj_to_part_id
+
+def _collect_collmesh_parts(obj, collmesh_parts, obj_to_part_id):
+    # find and add collmeshes first
+    for child_obj in obj.children:
+        if _is_colmesh_dummy(child_obj):
+            # map object template name to collistion part
+            part_id = len(collmesh_parts)
+            object_name = _strip_prefix(obj.name)
+            obj_to_part_id[object_name] = part_id
+            # map collision part to collision meshes
+            cols = dict()
+            collmesh_parts.append(cols)
+            for col_obj in child_obj.children:
+                col_idx = check_suffix(col_obj.name, COL_SUFFIX)
+                cols[col_idx] = col_obj
+            break
+
+    # process childs
+    for child_obj in obj.children:
+        if not _is_colmesh_dummy(child_obj):
+            _collect_collmesh_parts(child_obj, collmesh_parts, obj_to_part_id)
+    return collmesh_parts
+
+def _is_colmesh_dummy(obj):
+    return obj.name.lower().startswith(NONVIS_PRFX.lower())
+
+def _verify_lods_consistency(root_geom_part, lod_obj):
+    lod_name = _strip_prefix(lod_obj.name)
+
+    if any([c.isspace() for c in lod_obj.name]):
+        raise ExportException(f"'{lod_obj.name}' name contain spaces!")
+
+    if tuple(lod_obj.scale) != (1, 1, 1):
+        raise ExportException(f"'{lod_obj.name}' has non uniform scale: {lod_obj.scale}")
+
+    if lod_obj.data is None:
+        raise ExportException(f"'{lod_obj.name}' has no mesh data! If you don't want it to contain any, simply make it a mesh object and delete all vertices")
+
+    def _inconsistency(item, val, exp_val):
+        raise ExportException(f"{lod_obj.name}: Inconsistent {item} for different Geoms/LODs, got '{val}' but other Geom/LOD has '{exp_val}'")
+
+    if lod_name != root_geom_part.name:
+        _inconsistency('object names', lod_obj.name, root_geom_part.name)
+    if lod_obj.bf2_object_type != root_geom_part.bf2_object_type:
+        _inconsistency('BF2 Object Types', lod_obj.bf2_object_type, root_geom_part.bf2_object_type)
+    if (root_geom_part.location - lod_obj.location).length > 0.0001:
+        _inconsistency('object locations', lod_obj.location, root_geom_part.location)
+    if root_geom_part.rotation_quaternion.rotation_difference(lod_obj.rotation_quaternion).angle > 0.0001:
+        _inconsistency('object rotations', lod_obj.rotation_quaternion, root_geom_part.rotation_quaternion)
+
+    root_geom_children = dict()
+    for child_geom_part in root_geom_part.children:
+        root_geom_children[child_geom_part.name] = child_geom_part
+
+    for child_obj in lod_obj.children:
+        child_name = _strip_prefix(child_obj.name)
+        if _is_colmesh_dummy(child_obj):
+            continue
+        if child_name not in root_geom_children:
+            raise ExportException(f"Unexpected object '{child_obj.name}' found, hierarchy does not match with other LOD(s)")
+
+        geom_part_child = root_geom_children[child_name]
+        _verify_lods_consistency(geom_part_child, child_obj)
+
+def _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id, is_vehicle=None) -> ObjectTemplate:
+    if root_geom_part.bf2_object_type == '': # special case, geom part which has no object template (see GenericFirearm)
+        return None
+
+    obj_name = root_geom_part.name
+    obj_template = ObjectTemplate(root_geom_part.bf2_object_type, obj_name)
+
+    if is_vehicle is None: # root object
+        # TODO: no idea how to properly detect whether the exported object
+        # should or should not have mobile physics
+        is_vehicle = obj_template.type.lower() == 'PlayerControlObject'.lower()
+
+    obj_template.has_mobile_physics = is_vehicle
+
+    if obj_name in obj_to_col_part_id:
+        obj_template.physics_type = ObjectTemplate._PhysicsType.MESH
+        obj_template.has_collision_physics = True
+        obj_template.col_part = obj_to_col_part_id[obj_name]
+
+    if obj_name in obj_to_geom_part:
+        obj_template.geom_part = obj_to_geom_part[obj_name].part_id
+
+    for _, child_obj in sorted([(child.name, child) for child in root_geom_part.children]):
+        if _is_colmesh_dummy(child_obj): # skip collmeshes
+            continue
+        child_template = _create_object_template(child_obj, obj_to_geom_part, obj_to_col_part_id, is_vehicle)
+        if child_template is None:
+            continue
+        child_object = ObjectTemplate.ChildObject(child_template.name)
+        child_object.template = child_template
+        child_object.position = swap_zy(child_obj.location)
+        child_object.rotation = _matrix_to_yaw_pitch_roll(child_obj.matrix_local)
+        obj_template.children.append(child_object)
+
+    return obj_template
+
+def _strip_prefix(s):
+    for char_idx, _ in enumerate(s):
+        if s[char_idx:].startswith('__'):
+            return s[char_idx+2:]
+    raise ExportException(f"'{s}' has no GxLx__ prefix!")
+
 def _strip_tmp_prefix(name):
     if name.startswith(TMP_PREFIX):
         return name[len(TMP_PREFIX):]
@@ -873,61 +973,6 @@ def _delete_lods(mesh_geoms):
         for lod_obj in geom_obj:
             delete_object(lod_obj, recursive=True)
 
-def _apply_modifiers(obj):
-    bpy.ops.object.select_all(action='DESELECT')
-    hide = obj.hide_get()
-    obj.hide_set(False)
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.convert()
-    obj.hide_set(hide)
-
-def _triangulate(obj):
-    bpy.ops.object.select_all(action='DESELECT')
-    hide = obj.hide_get()
-    obj.hide_set(False)
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_mode(type='FACE')
-    bpy.ops.mesh.reveal(select=False)
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.quads_convert_to_tris()
-    bpy.ops.object.mode_set(mode='OBJECT')
-    obj.hide_set(hide)
-
-def _object_hierarchy_has_any_meshes(obj, parent_bones):
-    if obj.data and isinstance(obj.data, Mesh) and len(obj.data.vertices):
-        return True
-    if obj.name in parent_bones:
-        # empty object but refers to parent vertex group, keep this
-        return True
-    if obj.data and isinstance(obj.data, Armature):
-        return True # skin, keep this
-
-    for child_obj in obj.children:
-        return _object_hierarchy_has_any_meshes(child_obj, parent_bones)
-    return False
-
-def _weld_vers_recursive(obj):
-    if obj.data and isinstance(obj.data, Mesh):
-        _weld_verts(obj)
-    else:
-        for child_obj in obj.children:
-            _weld_vers_recursive(child_obj)
-
-def _weld_verts(obj):
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_mode(type='VERT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.remove_doubles(threshold=0.0001)
-    bpy.ops.object.mode_set(mode='OBJECT')
-
 def _get_nr_of_animted_uvs(mesh_geoms):
     matrix_set = set()
     for geom_obj in mesh_geoms:
@@ -952,68 +997,8 @@ def _dump_con_file(root_obj_template, con_file):
         f.write(f'include {root_obj_template.name}.tweak')
         f.write('\n')
 
-def _yaw_pitch_roll_to_matrix(rotation):
-    rotation = tuple(map(lambda x: -math.radians(x), rotation))
-    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
-    pitch = Matrix.Rotation(rotation[1], 4, 'X')
-    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
-    return (yaw @ pitch @ roll)
-
 def _matrix_to_yaw_pitch_roll(m):
     yaw = math.atan2(m[0][1], m[1][1])
     pitch = math.asin(-m[2][1])
     roll = math.atan2(m[2][0], m[2][2])
     return tuple(map(math.degrees, (yaw, pitch, roll)))
-
-def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):
-    if import_rig_mode == 'OFF':
-        return None
-    else:
-        geom_to_ske = dict()
-        rigs = dict()
-        for s in find_all_skeletons():
-            rigs[s.name] = s
-
-        def put_rig_safe(geom_idx, ske_name):
-            rig = rigs.get(ske_name)
-            if rig is None:
-                reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type '{root_template.type}'")
-            geom_to_ske[geom_idx] = rig
-
-        if import_rig_mode == 'AUTO':
-            if geometry_type == 'SkinnedMesh':
-                if root_template.type.lower() == 'soldier':
-                    put_rig_safe(0, '1p_setup')
-                    put_rig_safe(1, '3p_setup')
-                elif 'kits' in root_template.name.lower(): # actually hardcoded in engine
-                    put_rig_safe(-1, '3p_setup')
-                elif root_template.type.lower() == 'animatedbundle':
-                    if rigs:
-                        geom_to_ske[-1] = list(rigs.values())[0]
-                    else:
-                        reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type 'AnimatedBundle'")
-                        geom_to_ske = None
-            elif geometry_type == 'BundledMesh':
-                if root_template.type.lower() == 'genericfirearm':
-                    put_rig_safe(0, '1p_setup')
-                    put_rig_safe(1, '3p_setup')
-                else:
-                    geom_to_ske = None
-        elif import_rig_mode == 'MANUAL':
-            if geom_to_ske_name is None:
-                raise ImportException(f'geom_to_ske_name missing for MANUAL mode')
-            for geom_idx, ske_name in geom_to_ske_name.items():
-                geom_to_ske[geom_idx] = rigs[ske_name]
-        else:
-            raise ImportException(f'Unhandled import_rig_mode {import_rig_mode}')
-        return geom_to_ske
-
-def _verify_template(root_obj_template):
-    part_id_to_obj_template = dict()
-    def _check_geom_part_unique(obj_template):
-        if obj_template.geom_part in part_id_to_obj_template:
-            raise ImportException(f"'{obj_template.name}' has the same ObjectTemplate.geometryPart index as '{part_id_to_obj_template[obj_template.geom_part].name}'")
-        part_id_to_obj_template[obj_template.geom_part] = obj_template
-        for child in obj_template.children:
-            _check_geom_part_unique(child.template)
-    _check_geom_part_unique(root_obj_template)

@@ -236,3 +236,45 @@ def find_root(obj):
     if obj.parent is None:
         return obj
     return find_root(obj.parent)
+
+def apply_modifiers(obj, context=None):
+    if context is None:
+        context = bpy.context
+    bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    bpy.ops.object.convert()
+    obj.hide_set(hide)
+
+def triangulate(obj, context=None):
+    if context is None:
+        context = bpy.context
+    bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='FACE')
+    bpy.ops.mesh.reveal(select=False)
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.quads_convert_to_tris()
+    bpy.ops.object.mode_set(mode='OBJECT')
+    obj.hide_set(hide)
+
+def are_backfaces(face1, face2):
+    face1_set = set(face1)
+    face2_set = set(face2)
+
+    if face1_set != face2_set or len(face1_set) != 3:
+        # vert sets are not the same or contain duplicate verts
+        return False
+
+    for i in range(3):
+        if face1[i:] + face1[:i] == face2:
+            return False # face is a duplicate just with verts in different order
+
+    return True

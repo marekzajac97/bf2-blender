@@ -14,12 +14,16 @@ from .bf2.fileutils import FileUtils
 from .exceptions import ImportException, ExportException
 from .utils import (conv_bf2_to_blender,
                     conv_blender_to_bf2,
+                    delete_object,
                     delete_object_if_exists,
                     check_prefix,
                     swap_zy,
                     flip_uv,
                     invert_face,
+                    are_backfaces,
                     add_backface_modifier,
+                    apply_modifiers,
+                    triangulate,
                     DEFAULT_REPORTER)
 from .skeleton import (ske_get_bone_rot,
                        ske_weapon_part_ids,
@@ -166,7 +170,6 @@ class MeshImporter:
 
         if self.reload:
             delete_object_if_exists(name)
-
         
         has_normals = bf2_mesh.has_normal()
         has_anim_uv = (isinstance(bf2_mesh, BF2BundledMesh) and
@@ -273,6 +276,7 @@ class MeshImporter:
                 mesh_materials.append(material)
 
             # create faces
+            fucked_up_faces = 0
             faces_having_backfaces = set()
             for face in bf2_mat.faces:
                 face_verts = [bm.verts[v + vertex_offset] for v in invert_face(face)]
@@ -280,20 +284,28 @@ class MeshImporter:
                     bm_face = bm.faces.new(face_verts)
                     bm_face.material_index = material_index
                 except ValueError:
-                    # duplicate face! find the other one
+                    # duplicate face.. or vert, lets find out
                     if not self.load_backfaces:
+                        fucked_up_faces += 1
                         continue
+                    if len(set(face_verts)) != 3: # duplicate vert
+                        fucked_up_faces += 1
+                        continue
+
                     bm.faces.index_update()
-                    bm_face_verts = set([vert.index for vert in face_verts])
+                    bm_face_verts = [vert.index for vert in face_verts]
                     for other_bm_face in bm.faces:
-                        other_bm_face_verts = set([vert.index for vert in other_bm_face.verts])
-                        if bm_face_verts == other_bm_face_verts:
+                        if are_backfaces(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
                             if material_index != other_bm_face.material_index: # XXX: could they differ ??
                                 raise ImportException("Attempted to create a backface with different material index, aborting")
                             faces_having_backfaces.add(other_bm_face.index)
                             break
                     else:
-                        raise # XXX: not found ??
+                        # must be a duplicate face
+                        fucked_up_faces += 1
+
+            if fucked_up_faces:
+                self.reporter.warning(f"{name} Skipped {fucked_up_faces} invalid faces")
 
             vertex_offset += len(bf2_mat.vertices)
 
@@ -513,6 +525,8 @@ class MeshImporter:
         return mat_idx
 
 
+TMP_PREFIX = 'TMP__'
+
 class MeshExporter:
 
     def __init__(self, mesh_obj, mesh_file, mesh_type,
@@ -521,12 +535,12 @@ class MeshExporter:
                  normal_weld_thres=0.999,
                  tangent_weld_thres=0.999,
                  save_backfaces=True,
+                 apply_modifiers=False,
+                 triangulate=False,
                  reporter=DEFAULT_REPORTER):
         self.mesh_obj = mesh_obj
         self.mesh_file = mesh_file
         self.mesh_geoms = mesh_geoms
-        if self.mesh_geoms is None:
-            self.mesh_geoms = self.collect_geoms_lods(self.mesh_obj)
         self.bf2_mesh = _MESH_TYPES[mesh_type.upper()](name=mesh_obj.name)
         self.gen_lightmap_uv = gen_lightmap_uv
         self.texture_path = texture_path
@@ -534,10 +548,26 @@ class MeshExporter:
         self.normal_weld_thres = normal_weld_thres
         self.tangent_weld_thres = tangent_weld_thres
         self.reporter = reporter
-        self.has_animated_uvs = self._has_anim_uv()
+        self.has_animated_uvs = None # checked later
         self.save_backfaces = save_backfaces
+        self.apply_modifiers = apply_modifiers
+        self.triangulate = triangulate
 
     def export_mesh(self):
+        if self.mesh_geoms:
+            return self._export_mesh()
+        else:
+            try:
+                self.mesh_geoms = self.collect_geoms_lods(self.mesh_obj)
+                self.mesh_geoms = self._make_temp_geoms_lods(self.mesh_geoms)
+                return self._export_mesh()
+            except Exception:
+                raise
+            finally:
+                self._revert_temp_geom_lods()
+
+    def _export_mesh(self):
+        self.has_animated_uvs = self._has_anim_uv()
         self._setup_vertex_attributes()
         for geom_obj in self.mesh_geoms:
             bf2_geom = self.bf2_mesh.new_geom()
@@ -588,6 +618,46 @@ class MeshExporter:
         return False
 
     @staticmethod
+    def _make_temp_object(obj, prefix=TMP_PREFIX):
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.select_all(action='DESELECT')
+        hide = obj.hide_get()
+        obj.hide_set(False)
+        obj.select_set(True)
+        name = obj.name
+        obj.name = prefix + name # rename original
+        bpy.ops.object.duplicate() # duplicate
+        new_obj = bpy.context.view_layer.objects.active
+        new_obj.name = name # set copy name to original object
+        obj.hide_set(hide)
+        return new_obj
+
+    @staticmethod
+    def _revert_temp_object(obj, prefix=TMP_PREFIX):
+        name = obj.name
+        org_obj = bpy.data.objects[prefix + obj.name]
+        delete_object(obj, recursive=False)
+        org_obj.name = name
+
+    def _revert_temp_geom_lods(self):
+        if not hasattr(self, '_tmp_mesh_geoms'):
+            return
+        for geom_obj in self._tmp_mesh_geoms:
+            for lod_obj in geom_obj:
+                self._revert_temp_object(lod_obj)
+
+    def _make_temp_geoms_lods(self, mesh_geoms):
+        new_mesh_geoms = list()
+        for geom_obj in mesh_geoms:
+            new_geom_obj = list()
+            new_mesh_geoms.append(new_geom_obj)
+            for lod_obj in geom_obj:
+                new_lod_obj = self._make_temp_object(lod_obj)
+                new_geom_obj.append(new_lod_obj)
+        self._tmp_mesh_geoms = new_mesh_geoms
+        return new_mesh_geoms
+
+    @staticmethod
     def collect_geoms_lods(mesh_obj):
         if not mesh_obj.children:
             raise ExportException(f"mesh object '{mesh_obj.name}' has no children (geoms)!")
@@ -629,6 +699,11 @@ class MeshExporter:
         return geoms
 
     def _export_mesh_lod(self, bf2_lod, lod_obj):
+        if self.apply_modifiers:
+            apply_modifiers(lod_obj)
+        if self.triangulate:
+            triangulate(lod_obj)
+
         mesh = lod_obj.data
         mesh_type = type(self.bf2_mesh)
 
