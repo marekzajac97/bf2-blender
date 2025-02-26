@@ -8,7 +8,7 @@ from ...core.object_template import (import_object_template, export_object_templ
 from ...core.mesh import collect_uv_layers
 from ...core.skeleton import find_all_skeletons
 from ...core.exceptions import ImportException, ExportException
-from ...core.utils import Reporter
+from ...core.utils import Reporter, find_root
 
 from ... import get_mod_dir
 
@@ -211,11 +211,11 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     def get_uv_layers(self, context):
         items = []
-        active_obj = context.view_layer.objects.active
-        object_uv_layers = collect_uv_layers(active_obj)
+        root = find_root(context.view_layer.objects.active)
+        object_uv_layers = collect_uv_layers(root)
         default = None
 
-        geom_type, _ = parse_geom_type(active_obj)
+        geom_type, _ = parse_geom_type(root)
         if geom_type == 'StaticMesh':
             default = 1 # Detail normal
         elif geom_type == 'BundledMesh' or geom_type == 'SkinnedMesh':
@@ -397,13 +397,15 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
         cls.poll_message_set("No object active")
         try:
             active_obj = context.view_layer.objects.active
-            return active_obj is not None and parse_geom_type(active_obj)
+            if not active_obj:
+                return
+            root = find_root(active_obj)
+            return parse_geom_type(root)
         except Exception as e:
             cls.poll_message_set(str(e))
             return False
 
     def execute(self, context):
-        active_obj = context.view_layer.objects.active
         mod_path = get_mod_dir(context)
 
         samples_size = self.samples_size
@@ -411,7 +413,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
             samples_size = None
 
         try:
-           export_object_template(active_obj, self.filepath,
+           export_object_template(self.root, self.filepath,
                 geom_export=self.export_geometry,
                 colmesh_export=self.export_collmesh,
                 apply_modifiers=self.apply_modifiers,
@@ -436,12 +438,15 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     def invoke(self, context, _event):
         active_obj = context.view_layer.objects.active
-        geom_type, obj_name = parse_geom_type(active_obj)
+        self.root = find_root(active_obj)
+        geom_type, obj_name = parse_geom_type(self.root)
         self.filepath = obj_name + self.filename_ext
         self.geom_type = geom_type
         op = context.window_manager.operator_properties_last(EXPORT_OT_bf2_object.bl_idname)
         self.samples_size = op.samples_size
-        return super().invoke(context, _event)
+        result = super().invoke(context, _event)
+        context.view_layer.objects.active = active_obj # restore
+        return result
 
 
 class IMPORT_EXPORT_FH_con(bpy.types.FileHandler):

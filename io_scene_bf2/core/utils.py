@@ -231,3 +231,8 @@ def _make_backface_modifier(name, only_backfaces=True):
 def add_backface_modifier(obj, only_backfaces=True):
     modifier = obj.modifiers.new(type='NODES', name="MaskBackfaces")
     modifier.node_group = _make_backface_modifier('MaskBackfaces', only_backfaces)
+
+def find_root(obj):
+    if obj.parent is None:
+        return obj
+    return find_root(obj.parent)

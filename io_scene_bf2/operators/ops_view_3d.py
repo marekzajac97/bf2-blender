@@ -6,7 +6,7 @@ from bpy.props import IntProperty, BoolProperty # type: ignore
 from ..core.utils import Reporter
 from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
 from ..core.skeleton import is_bf2_skeleton
-from ..core.utils import flip_uv
+from ..core.utils import flip_uv, find_root
 from ..core.mesh import AnimUv
 from ..core.object_template import parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 
@@ -319,22 +319,17 @@ class OBJECT_SHOWHIDE_OT_bf2_show_hide(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        self.root = self.find_root(context.view_layer.objects.active)
+        self.root = find_root(context.view_layer.objects.active)
         return self.execute(context)
-
-    @classmethod
-    def find_root(cls, obj):
-        if obj is None:
-            return None
-        if parse_geom_type_safe(obj):
-            return obj
-        return cls.find_root(obj.parent)
 
     @classmethod
     def poll(cls, context):
         cls.poll_message_set("No object active")
         try:
-            return cls.find_root(context.view_layer.objects.active)
+            if not context.view_layer.objects.active:
+                return False
+            root = find_root(context.view_layer.objects.active)
+            return parse_geom_type_safe(root)
         except Exception as e:
             cls.poll_message_set(str(e))
             return False

@@ -5,6 +5,7 @@ from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_dro
 
 from ...core.exceptions import ImportException, ExportException # type: ignore
 from ...core.collision_mesh import import_collisionmesh, export_collisionmesh
+from ...core.utils import find_root
 
 class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_collisionmesh.import"
@@ -36,9 +37,8 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
         return context.view_layer.objects.active is not None
 
     def execute(self, context):
-        active_obj = context.view_layer.objects.active
         try:
-           export_collisionmesh(active_obj, self.filepath)
+           export_collisionmesh(self.root, self.filepath)
         except ExportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}
@@ -49,8 +49,12 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
     def invoke(self, context, _event):
-        self.filepath = context.view_layer.objects.active.name + self.filename_ext
-        return super().invoke(context, _event)
+        active_obj = context.view_layer.objects.active
+        self.root = find_root(active_obj)
+        self.filepath = self.root.name + self.filename_ext
+        result = super().invoke(context, _event)
+        context.view_layer.objects.active = active_obj # restore
+        return result
 
 
 class IMPORT_EXPORT_FH_collisionmesh(bpy.types.FileHandler):

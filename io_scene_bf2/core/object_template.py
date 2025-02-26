@@ -271,8 +271,6 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     print(f"Writing con file to '{con_file}'")
     _dump_con_file(root_obj_template, con_file)
 
-    bpy.context.view_layer.objects.active = mesh_obj
-
 
 def _find_geom_parts(mesh_geoms):
     obj_to_part = dict()

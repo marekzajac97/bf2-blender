@@ -13,6 +13,7 @@ from ...core.mesh import (import_mesh,
                           export_skinnedmesh,
                           collect_uv_layers)
 from ...core.skeleton import find_active_skeleton
+from ...core.utils import find_root
 
 from ... import get_mod_dir
 
@@ -149,15 +150,33 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
 
     def get_uv_layers(self, context):
         items = []
-        active_obj = context.view_layer.objects.active
-        for uv_channel, uv_layer in collect_uv_layers(active_obj).items():
-            items.append((uv_layer, uv_layer, "", uv_channel))
+        root = find_root(context.view_layer.objects.active)
+        object_uv_layers = collect_uv_layers(root)
+        default = None
+
+        idname = self.bl_rna.identifier
+        if idname == 'BF2_MESH_OT_export_staticmesh':
+            default = 1 # Detail normal
+        elif idname == 'BF2_MESH_OT_export_bundledmesh' or idname == 'BF2_MESH_OT_export_skinnedmesh':
+            default = 0 # Diffuse/Normal
+
+        # XXX: it is not possible to define a default for dynamic enums
+        # the only way is to reorder items in such a way that the default one
+        # is the first one in the list, not ideal but works
+        start = 0
+        if default in object_uv_layers:
+            uv_layer = object_uv_layers.pop(default)
+            items.append((uv_layer, uv_layer, "", 0))
+            start = 1
+
+        for i, uv_layer in enumerate(object_uv_layers.values(), start=start):
+            items.append((uv_layer, uv_layer, "", i))
+
         return items
 
     tangent_uv_map : EnumProperty(
         name="Tangent UV",
         description="UV Layer that you've used to bake the normal map, needed for tangent space generation",
-        default=1,
         items=get_uv_layers
     ) # type: ignore
 
@@ -173,10 +192,9 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
         return context.view_layer.objects.active is not None
 
     def execute(self, context):
-        active_obj = context.view_layer.objects.active
         mod_path = get_mod_dir(context)
         try:
-           self.__class__.EXPORT_FUNC(active_obj, self.filepath,
+           self.__class__.EXPORT_FUNC(self.root, self.filepath,
                                       texture_path=mod_path,
                                       tangent_uv_map=self.tangent_uv_map,
                                       save_backfaces=self.save_backfaces)
@@ -190,8 +208,12 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
     def invoke(self, context, _event):
-        self.filepath = context.view_layer.objects.active.name + self.filename_ext
-        return super().invoke(context, _event)
+        active_obj = context.view_layer.objects.active
+        self.root = find_root(active_obj)
+        self.filepath = self.root.name + self.filename_ext
+        result = super().invoke(context, _event)
+        context.view_layer.objects.active = active_obj # restore
+        return result
 
 
 class EXPORT_OT_bf2_staticmesh(EXPORT_OT_bf2_mesh):
