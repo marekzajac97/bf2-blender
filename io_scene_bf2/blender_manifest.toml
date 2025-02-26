@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "io_scene_bf2"
-version = "0.9.0"
+version = "0.9.1"
 name = "Battlefield 2"
 tagline = "Import and export asset files for DICE's Refractor 2 engine"
 maintainer = "Marek Zajac <marekzajac97@gmail.com>"

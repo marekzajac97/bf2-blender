@@ -161,7 +161,7 @@ class CollMeshImporter:
         bm.verts.index_update()
 
         fucked_up_faces = 0
-        faces_having_backfaces = set()
+        double_sided_faces = set()
         for face, bf2_mat_idx in zip(faces, face_materials):
             face_verts = [bm.verts[i] for i in face]
             material_index = bf2_mat_idx_to_blend_mat_idx[bf2_mat_idx]
@@ -184,7 +184,7 @@ class CollMeshImporter:
                     if are_backfaces(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
                         if material_index != other_bm_face.material_index: # XXX: could they differ ??
                             raise ImportException("Attempted to create a backface with different material index, aborting")
-                        faces_having_backfaces.add(other_bm_face.index)
+                        double_sided_faces.add(other_bm_face.index)
                         break
                 else:
                     # must be a duplicate face
@@ -197,9 +197,9 @@ class CollMeshImporter:
         bm.to_mesh(mesh)
 
         # mark faces with backfaces
-        if faces_having_backfaces:
+        if double_sided_faces:
             animuv_matrix_index = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
-            animuv_matrix_index.data.foreach_set('value', [poly.index in faces_having_backfaces for poly in mesh.polygons])
+            animuv_matrix_index.data.foreach_set('value', [poly.index in double_sided_faces for poly in mesh.polygons])
 
         # add materials to mesh
         for bf2_index in material_indexes:

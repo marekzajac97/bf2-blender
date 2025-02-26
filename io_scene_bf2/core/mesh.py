@@ -191,6 +191,9 @@ class MeshImporter:
         bm = bmesh.new()
         vertex_offset = 0
 
+        fucked_up_faces = 0
+        double_sided_faces = set()
+
         for bf2_mat in bf2_lod.materials:
             uv_ratio = None
 
@@ -276,8 +279,6 @@ class MeshImporter:
                 mesh_materials.append(material)
 
             # create faces
-            fucked_up_faces = 0
-            faces_having_backfaces = set()
             for face in bf2_mat.faces:
                 face_verts = [bm.verts[v + vertex_offset] for v in invert_face(face)]
                 try:
@@ -298,14 +299,11 @@ class MeshImporter:
                         if are_backfaces(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
                             if material_index != other_bm_face.material_index: # XXX: could they differ ??
                                 raise ImportException("Attempted to create a backface with different material index, aborting")
-                            faces_having_backfaces.add(other_bm_face.index)
+                            double_sided_faces.add(other_bm_face.index)
                             break
                     else:
                         # must be a duplicate face
                         fucked_up_faces += 1
-
-            if fucked_up_faces:
-                self.reporter.warning(f"{name} Skipped {fucked_up_faces} invalid faces")
 
             vertex_offset += len(bf2_mat.vertices)
 
@@ -313,10 +311,13 @@ class MeshImporter:
         bm.to_mesh(mesh)
         bm.free()
 
+        if fucked_up_faces:
+            self.reporter.warning(f"{name} Skipped {fucked_up_faces} invalid faces")
+
         # mark faces with backfaces
-        if faces_having_backfaces:
+        if double_sided_faces:
             animuv_matrix_index = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
-            animuv_matrix_index.data.foreach_set('value', [poly.index in faces_having_backfaces for poly in mesh.polygons])
+            animuv_matrix_index.data.foreach_set('value', [poly.index in double_sided_faces for poly in mesh.polygons])
 
         # apply materials
         for material in mesh_materials:
