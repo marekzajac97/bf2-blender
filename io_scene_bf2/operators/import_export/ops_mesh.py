@@ -13,7 +13,7 @@ from ...core.mesh import (import_mesh,
                           export_skinnedmesh,
                           collect_uv_layers)
 from ...core.skeleton import find_active_skeleton
-from ...core.utils import find_root
+from ...core.utils import find_root, Reporter
 
 from ... import get_mod_dir
 
@@ -105,6 +105,7 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
                                        texture_path=mod_path,
                                        merge_materials=self.merge_materials,
                                        load_backfaces=self.load_backfaces,
+                                       reporter=Reporter(self.report),
                                        **kwargs)
         except ImportException as e:
             self.report({"ERROR"}, str(e))
@@ -205,7 +206,8 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
                                       tangent_uv_map=self.tangent_uv_map,
                                       save_backfaces=self.save_backfaces,
                                       apply_modifiers=self.apply_modifiers,
-                                      triangulate=True)
+                                      triangulate=True,
+                                      reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}

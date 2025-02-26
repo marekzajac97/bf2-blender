@@ -11,7 +11,7 @@ from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
 from .bf2.bf2_collmesh import NATIVE_BSP_EXPORT
 from .bf2.bf2_mesh import BF2Samples
 from .mesh import MeshImporter, MeshExporter
-from .collision_mesh import _import_collisionmesh, _export_collisionmesh
+from .collision_mesh import CollMeshImporter, CollMeshExporter
 from .skeleton import find_all_skeletons, find_rig_attached_to_object
 
 from .utils import (delete_object, check_suffix,
@@ -101,7 +101,9 @@ def import_object_template(context, con_filepath, import_collmesh=True,
     coll_parts = None
     if collmesh_template and import_collmesh:
         collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{collmesh_template.name}.collisionmesh')
-        coll_parts, col_materials = _import_collisionmesh(context, collmesh_filepath, name=root_template.name, reload=reload)
+
+        collmesh_importer = CollMeshImporter(collmesh_filepath, name=root_template.name, reload=reload)
+        coll_parts, col_materials = collmesh_importer.import_collmesh()
         # name materials
         for col_material_idx, col_material_name in root_template.col_material_map.items():
             col_materials[col_material_idx].name = col_material_name
@@ -645,7 +647,9 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
                     _triangulate(col_obj)
         try:
             print(f"Exporting collision to '{collmesh_filepath}'")
-            _, material_to_index = _export_collisionmesh(mesh_obj, collmesh_filepath, temp_collmesh_parts)
+            collmesh_exporter = CollMeshExporter(mesh_obj, collmesh_filepath, geom_parts=temp_collmesh_parts)
+            collmesh_exporter.export_collmesh()
+            material_to_index = collmesh_exporter.material_to_index
         except Exception:
             raise
         finally:

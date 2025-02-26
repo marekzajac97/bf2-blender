@@ -640,9 +640,7 @@ class MeshExporter:
         org_obj.name = name
 
     def _revert_temp_geom_lods(self):
-        if not hasattr(self, '_tmp_mesh_geoms'):
-            return
-        for geom_obj in self._tmp_mesh_geoms:
+        for geom_obj in self.mesh_geoms:
             for lod_obj in geom_obj:
                 self._revert_temp_object(lod_obj)
 
@@ -654,7 +652,6 @@ class MeshExporter:
             for lod_obj in geom_obj:
                 new_lod_obj = self._make_temp_object(lod_obj)
                 new_geom_obj.append(new_lod_obj)
-        self._tmp_mesh_geoms = new_mesh_geoms
         return new_mesh_geoms
 
     @staticmethod

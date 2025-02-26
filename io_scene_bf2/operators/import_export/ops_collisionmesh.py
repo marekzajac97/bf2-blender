@@ -5,7 +5,7 @@ from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_dro
 
 from ...core.exceptions import ImportException, ExportException # type: ignore
 from ...core.collision_mesh import import_collisionmesh, export_collisionmesh
-from ...core.utils import find_root
+from ...core.utils import find_root, Reporter
 
 class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_collisionmesh.import"
@@ -22,7 +22,8 @@ class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
     def execute(self, context):
         try:
             import_collisionmesh(context, self.filepath,
-                                 load_backfaces=self.load_backfaces)
+                                 load_backfaces=self.load_backfaces,
+                                 reporter=Reporter(self.report))
         except ImportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}
@@ -60,7 +61,8 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
            export_collisionmesh(self.root, self.filepath,
                                 save_backfaces=self.save_backfaces,
                                 apply_modifiers=self.apply_modifiers,
-                                triangulate=True)
+                                triangulate=True,
+                                reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}
