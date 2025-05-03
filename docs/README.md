@@ -2,7 +2,7 @@
 # Table of Contents
 
 - [BF2 glossary](#bf2-glossary)
-  * [Texturing in BF2](#texturing-in-bf2)
+  * [Texturing](#texturing)
     + [StaticMesh](#staticmesh)
     + [BundledMesh/SkinnedMesh](#bundledmesh-skinnedmesh)
 - [Initial Add-on setup](#initial-add-on-setup)
@@ -23,36 +23,42 @@
 An explanation of BF2 terms and systems used throughout this documentation.
 
 - **Skeleton** - a set of bones with a defined hierarchy and transformations (position + rotation), exclusively used for skinning and animating SkinnedMeshes. Soldier skeletons (`1p_setup` and `3p_setup`) contain special `mesh` bones which are used for animating weapon parts (`mesh1` to `mesh16` for 1P and `mesh1` to `mesh8` for 3P). `3p_setup` also contains bones used for animating kit parts (`mesh9` to `mesh16`)
-- **Visible geometry** - either BundledMesh, SkinnedMesh or StaticMesh
-- **Geom** - each visible geometry type may define multiple sub-meshes called geoms, each geom usually represents the same object viewed from a different perspective or in a different state e.g. for Soldiers/Weapons/Vehicles Geom0 and Geom1 refer to 1P and 3P meshes respectively. Statics and Vehicles may also have an extra Geom for the destroyed/wreck variant.
-- **Lod** - level of detail. Multiple Lods can be defined per Geom. Each Lod should be a simplified version of the previous one with Lod0 being the most detailed version. Most BF2 models are rather low-poly and modern GPUs are _fast_, so optimizing the poly count will usually have little to no impact on the performance. Reducing the number of materials on Lods should be prioritized instead to limit the number of draw calls and CPU load, which is the main bottleneck in the BF2 engine.
+- **Visible mesh** - refers to either the BundledMesh, SkinnedMesh or StaticMesh
+- **Geom** - "geometry". Each visible mesh type may define multiple sub-meshes refered to as geoms, each geom usually represents the same object viewed from a different perspective or in a different state e.g. for Soldiers/Weapons/Vehicles Geom0 and Geom1 refer to 1P and 3P meshes respectively. Statics and Vehicles may also have an extra Geom for their destroyed/wreck variant.
+- **Lod** - "level of detail". Multiple Lods can be defined per Geom. Each Lod should be a simplified version of the previous one with Lod0 being the most detailed version. Most BF2 models are rather low-poly and modern GPUs are _fast_, so optimizing the poly count will usually have little to no impact on the performance. Reducing the number of materials on Lods should be prioritized instead to limit the number of draw calls and CPU load, which is the main bottleneck in the BF2 engine.
 - **StaticMesh** - Used for static, non-movable objects (e.g. bridges, buildings) with baked lighting via light maps.
 - **BundledMesh** - Used for movable objects (e.g. vehicles, weapons)
 - **SkinnedMesh** - Used for deformable objects (e.g. soldiers, flags)
 - **CollisionMesh** - Used for object collision calculations, contains three meshes, each used for calculating collision with different object types (projectiles, vehicles, soldiers). Static objects may use additional mesh for AI navmesh generation.
-- **ObjectTemplate** - A blueprint for every object, defines object type (e.g. `Bundle`, `PlayerControlObject`), its properties, visible geometry and collision mesh. ObjectTemplates (and objects) in BF2 are hierarchical, they may contain other ObjectTemplates as children (e.g. a root ObjectTemplate "tank" may define "turret" and "engine" as its children)
-- **Geometry part** - A fragment of the BundledMesh which can be independently transformed (moved/rotated). Each geometry part is usually bound to one specific child ObjectTemplate. Handheld weapons are one exception in which they can define multiple geometry parts but only a single ObjectTemplate (they are just used for animating).
+- **ObjectTemplate** - A blueprint for every object, defines object type (e.g. `Bundle`, `PlayerControlObject`), its properties, visible mesh and collision mesh. ObjectTemplates (and objects) in BF2 are hierarchical, they may contain other ObjectTemplates as children (e.g. a root ObjectTemplate "tank" may define "turret" and "engine" as its children)
+- **Geometry part** - A fragment of the BundledMesh's geom which can be independently transformed (moved/rotated). Each geometry part is usually bound to one specific child ObjectTemplate. Handheld weapons are one exception in which they can define multiple geometry parts but only a single ObjectTemplate (they are just used for animating).
 - **Material** - defines a set of textures and shading properties. Every face and vertex is assigned to a material.
 - **Alpha Mode** - either `None`, `Alpha Test` (cheap, one-bit alpha), `Alpha Blend` (expensive, may increase overdraw)
-- **Shader** - name of the shader for drawing the material.
-- **Technique** - name that describes the shader permutation (a set of shader features) to use.
-- **Animated UVs** - UV (texture) coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement or wheel rotation (although you can also make the wheels separate objects and have the whole geometry part rotate instead). Each vertex must be assigned to a different UV matrix depending on whether it belongs to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 combinations) so it gets transformed correctly.
+- **Shader** - name of the shader (.fx) file to use for drawing the material, usually matches the visible mesh type name.
+- **Technique** - a combination of names that describe the shader permutation (a set of shader features) to use for a particular material. These names are harcoded in the game engine.
+- **Animated UVs** - UV (texture) coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement and/or wheel rotation. Vertices that shall use this feature must be mapped to a specific UV transformation matrix depending on whether they belong to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 different combinations).
 
-## Texturing in BF2
+## Texturing
+
+A brief explanation of how the texturing system in BF2 works.
 
 ### StaticMesh
-StaticMesh materials in BF2 are designed to use texture atlases (multiple generic textures composed into one image file) which are reused between different objects to reduce the memory load. They use a set of the following texture layers:
-- Base: a very basic uniform colour texture.
-- Detail: contains surface details and patterns like wood or bricks (gets multiplied with the Base texture).
-- Dirt: used for adding dirt, stains or ambient occlusion (gets multiplied with the Base and Detail textures)
-- Crack: used for adding cracks or other decals (gets overlayed on top of the Base, Detail and Dirt textures)
-- NDetail: Normal map for the Detail texture.
-- NCrack: Normal map for the Crack texture.
+StaticMesh materials in BF2 are designed to use [texture atlases](https://en.wikipedia.org/wiki/Texture_atlas) and a set of layers, including:
+- `Base`: a very basic uniform colour texture.
+- `Detail`: contains surface details and patterns like wood or bricks (gets multiplied with the Base texture).
+- `Dirt`: used for adding dirt, stains or ambient occlusion (gets multiplied with the Base and Detail textures)
+- `Crack`: used for adding cracks or other decals (gets overlayed on top of the Base, Detail and Dirt textures)
+- `NDetail`: Normal map for the Detail texture.
+- `NCrack`: Normal map for the Crack texture.
 
-Only some combinations of the above texture layers are valid.
+NOTE: Only some combinations of the above texture layers are valid.
+
+The roughness map is embeded into the alpha channel of either the `Detail` map when Alpha Mode is set to `None` or the `NDetail` map when Alpha Mode is set to either `Alpha Blend` or `Alpha Test`.
 
 ### BundledMesh/SkinnedMesh
-BundledMesh and SkinnedMesh materials use two texture maps: diffuse and normal. BundledMesh may use an extra "wreck" texture map which gets multiplied with the diffuse texture when a vehicle gets destroyed. BundledMesh materials use a grayscale roughness map which is saved in the alpha channel of the diffuse texture (when alpha mode is set to `None`) or the normal map texture (when alpha mode is set to `Alpha Blend` or `Alpha Test`). In the latter case the alpha channel of the diffuse texture is then used to map opacity. SkinnedMesh materials always have the roughness map in the normal map's alpha channel. SkinnedMesh materials may use either tangent space or object space normal maps with the latter one being more common, the engine differentiates them by `_b` or `_os` suffix.
+BundledMesh and SkinnedMesh materials use two texture maps: `Diffuse Color` and `Normal`. BundledMesh may use an extra `Wreck` texture map which gets multiplied with the `Diffuse Color` when a vehicle gets destroyed. SkinnedMesh materials may use either tangent space or object space normal maps with the latter one being more common, the engine differentiates them by `_b` or `_os` suffix.
+
+For BundledMesh, the roughness map is embeded into the alpha channel of either the `Diffuse Color` map when Alpha Mode is set to `None` or the `Normal` map when Alpha Mode is set to either `Alpha Blend` or `Alpha Test`. SkinnedMesh materials always have their roughness map in the `Normal` map's alpha channel.
 
 # Initial Add-on setup
 After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (optional but needed to load textures) Then you can use the `BF2` submenu in the `File -> Import/Export` or drag-and-drop any supported BF2 file.
@@ -61,16 +67,17 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - The import order of things does matter! The skeleton (`.ske`) needs to be loaded first, followed by the soldier/kit mesh (`.skinnedMesh`), the animated weapon (`.bundledMesh`) and the animation (`.baf`) loaded at the very end (**IMPORTANT**: DO NOT use `Import -> ObjecTemplate (.con)` for importing soldiers, kit meshes or weapons for animating).
 - When importing weapon or soldier meshes, select only Geom0 Lod0 (First Person Animating) or Geom1 Lod0 (Third Person Animating) in the import settings. Each part of the weapon mesh will be automatically assigned to a vertex group from `mesh1` to `mesh16` and their respective bones.
 - The skeleton will be imported as Blender's Armature object. The armature can be freely extended e.g. by adding helper bones for animating, but **DO NOT** modify imported bones! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. Instead, create additional helper bones and set up constraints like `Child Of` and/or `Copy Transforms` on the original bones.
-- You can use other add-ons such as `Rigify` to create the rig for animating, but also automatically create basic controllers and IK setup using the built-in `Pose -> BF2 -> Setup Controllers` option. This option can also be used after animation import which makes editing existing animations much easier (NOTE: importing an animation with a rig already set up will not work). By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing position/rotation keyframes.
+- You can use other add-ons such as `Rigify` to create the rig for animating, but also automatically create basic controllers and IK setup using the built-in `Pose -> BF2 -> Setup Controllers` option. This option can also be used after animation import for easier editing of existing animations (NOTE: importing an animation **AFTER** setting up the controllers will not work). By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing position/rotation keyframes.
 - TIP: If you plan to modify the imported animation, you can delete redundant keyframes using [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) option
 - When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
+
 ## Known issues
 - Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions.
 - Blender does not support mesh deformations when using Object Space normal maps. This means most SkinnedMeshes will have shading issues when deformed/animated, no workaround found yet.
 
 # ObjectTemplate vs Mesh import/export
 There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure lacking some data present in the `.con` file, that's why its usage is limited. The second (and preferred) method is the `ObjecTemplate (.con)` option, which parses the ObjectTemplate definition allowing it to:
-- load visible geometry of the proper type
+- load visible mesh of the proper type
 - separate all geometry parts into Blender objects
 - transform (move & rotate) all geometry parts
 - map geometry parts to ObjectTemplates applying their names, types and hierarchy.
@@ -79,7 +86,7 @@ There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` me
 When you want to re-export a mesh that has been imported and modified, a proper option from the `Export -> BF2` menu has to be chosen based on the option used to import the mesh, meaning that when you import `.staticMesh` also export it as `.staticMesh`, other combinations will not work! Bare in mind that the `ObjectTemplate (.con)` exporter not only saves the ObjectTemplate's definition to a `.con` file but also exports visible mesh and collision mesh into the `Meshes` sub-directory.
 
 ## Known issues
-- Some vBF2 meshes and meshes exported with Autodesk 3ds Max may contain backfaces (another face defined over the same set of vertices but opossing normal directons). Such faces are (rightfully) illegal in Blender but for compatibility resons are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face will be tagged using a custom [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) called `backface`. When exporting a mesh, each face having attribute `backface` set will be exported as double-sided. To see which faces will be treated as double-sided while in `Edit Mode` select `backface` from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribyte](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html).
+- Some vBF2 meshes and meshes exported with Autodesk 3ds Max may contain backfaces (another face defined over the same set of vertices but opossing normal directons). Such faces are (rightfully) illegal in Blender but for compatibility reasons are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face will be tagged using a custom [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) called `backface`. When exporting a mesh, each face having attribute `backface` set will be exported as double-sided. To see which faces will be treated as double-sided while in `Edit Mode` select `backface` from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribyte](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html).
 - Blender does not allow to import custom tangent data, therefore when re-exporting meshes, vertex tangents always get re-calculated. This may increase the number of unique vertices being exported. Generated tangents may also be totally wrong if the normal map used was not generated using Mikk TSpace method (which Blender uses).
 
 # ObjectTemplate export guide

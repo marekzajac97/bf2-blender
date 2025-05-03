@@ -410,8 +410,9 @@ def _setup_3p_controllers(context, rig, step):
     ik.pole_target = rig
     ik.pole_subtarget = left_elbow_CTRL.name
     ik.pole_angle = 0
-    ik.chain_count = 5
+    ik.chain_count = 4
     ik.name = AUTO_SETUP_ID + '_IK_left_wrist1'
+    ik.use_tail = False
 
     ik = rig.pose.bones['right_collar'].constraints.new(type='IK')
     ik.target = rig
@@ -425,8 +426,9 @@ def _setup_3p_controllers(context, rig, step):
     ik.pole_target = rig
     ik.pole_subtarget = right_elbow_CTRL.name
     ik.pole_angle = math.radians(180)
-    ik.chain_count = 4
+    ik.chain_count = 3
     ik.name = AUTO_SETUP_ID + '_IK_right_ullna'
+    ik.use_tail = False
 
     # legs
     cp_rot = rig.pose.bones['left_foot'].constraints.new(type='COPY_ROTATION')

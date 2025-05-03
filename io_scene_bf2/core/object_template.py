@@ -90,7 +90,7 @@ def import_object_template(context, con_filepath, import_collmesh=True,
                             reload=reload,
                             geom_to_ske=geom_to_ske,
                             reporter=reporter,
-                            load_backfaces=True,
+                            load_backfaces=load_backfaces,
                             **kwargs)
 
     root_geometry_obj = importer.import_mesh(name=root_template.name)

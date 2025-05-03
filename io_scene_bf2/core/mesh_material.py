@@ -282,9 +282,9 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
     if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         UV_CHANNEL = 0
 
-        # TODO SETUP it properly based on techinique
-
-        has_envmap = 'envmap' in material.bf2_technique.lower() and material.bf2_shader == 'BUNDLEDMESH'
+        technique = material.bf2_technique.lower()
+        has_envmap = 'envmap' in technique and material.bf2_shader == 'BUNDLEDMESH'
+        has_alphatest = 'alpha_test' in technique and material.bf2_shader == 'SKINNEDMESH'
 
         diffuse = texture_nodes['Diffuse']
         normal = texture_nodes.get('Normal')
@@ -321,7 +321,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         specular_txt = None
         if material.bf2_shader == 'SKINNEDMESH':
             specular_txt = normal
-        elif has_alpha:
+        elif has_alpha: # BM with alpha
             specular_txt = normal
         else:
             specular_txt = diffuse
@@ -375,7 +375,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             node_tree.links.new(normal_out, shader_normal)
 
         # transparency
-        if has_alpha:
+        if has_alpha or has_alphatest:
             node_tree.links.new(diffuse.outputs['Alpha'], shader_alpha)
 
         # envmap reflections
