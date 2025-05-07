@@ -1,6 +1,7 @@
 import bpy # type: ignore
 import os
 import math
+import bmesh
 
 from getpass import getuser
 from mathutils import Matrix, Vector, Euler # type: ignore
@@ -68,7 +69,7 @@ def import_object_template(context, con_filepath, import_collmesh=True,
 
     geometry_template_name = root_template.geom.lower()
     if geometry_template_name not in geom_template_manager.templates:
-        raise ImportException(f"Geometry '{collmesh_template_name}' is not defined")
+        raise ImportException(f"Geometry '{geometry_template_name}' is not defined")
 
     geometry_template = geom_template_manager.templates[geometry_template_name]
 
@@ -551,20 +552,31 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     print(f"duplicating LODs...")
     temp_mesh_geoms = _duplicate_lods(mesh_geoms)
     try:
+        if apply_modifiers:
+            lod_rigs = list()
+            for geom_obj in temp_mesh_geoms:
+                for lod_obj in geom_obj:
+                    # backup rigs in LOD's Armature modifier data
+                    # MeshExporter needs it
+                    rig = find_rig_attached_to_object(lod_obj)
+                    lod_rigs.append(rig)
+                    _apply_modifiers(lod_obj, recursive=True)
+
+            # re-add Armature modifiers
+            for geom_obj in temp_mesh_geoms:
+                for lod_obj in geom_obj:
+                    rig = lod_rigs.pop(0)
+                    if rig:
+                        modifier = lod_obj.modifiers.new(type='ARMATURE', name="Armature")
+                        modifier.object = rig
+
         if geometry_type == 'BundledMesh':
             print(f"joining LODs...")
             _join_lods(temp_mesh_geoms, obj_to_geom_part)
-
             root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
 
         for geom_obj in temp_mesh_geoms:
             for lod_obj in geom_obj:
-                if apply_modifiers:
-                    rig = find_rig_attached_to_object(lod_obj)
-                    _apply_modifiers(lod_obj)
-                    if rig:
-                        modifier = lod_obj.modifiers.new(type='ARMATURE', name="Armature")
-                        modifier.object = rig
                 _triangulate(lod_obj)
 
         if geom_export:

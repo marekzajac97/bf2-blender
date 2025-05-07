@@ -16,7 +16,7 @@
   * [Skinning (BundledMesh)](#skinning-bundledmesh)
   * [Animated UVs (BundledMesh)](#animated-uvs-bundledmesh)
   * [Skinning (SkinnedMesh)](#skinning-skinnedmesh)
-- [Tutorials](#tutorials)
+- [Video Tutorials](#video-tutorials)
 - [Scripting](#scripting)
 
 # BF2 glossary
@@ -29,8 +29,8 @@ An explanation of BF2 terms and systems used throughout this documentation.
 - **StaticMesh** - Used for static, non-movable objects (e.g. bridges, buildings) with baked lighting via light maps.
 - **BundledMesh** - Used for movable objects (e.g. vehicles, weapons)
 - **SkinnedMesh** - Used for deformable objects (e.g. soldiers, flags)
-- **CollisionMesh** - Used for object collision calculations, contains three meshes, each used for calculating collision with different object types (projectiles, vehicles, soldiers). Static objects may use additional mesh for AI navmesh generation.
-- **ObjectTemplate** - A blueprint for every object, defines object type (e.g. `Bundle`, `PlayerControlObject`), its properties, visible mesh and collision mesh. ObjectTemplates (and objects) in BF2 are hierarchical, they may contain other ObjectTemplates as children (e.g. a root ObjectTemplate "tank" may define "turret" and "engine" as its children)
+- **CollisionMesh** - Used for object collision calculations, cosists of three sub-meshes, each used for calculating collision between different object types (projectiles, vehicles and soldiers). Static objects may use additional sub-mesh for AI navmesh generation.
+- **ObjectTemplate** - A blueprint for every in-game object, defines object type (e.g. `Bundle`, `PlayerControlObject`), its properties, visible mesh and collision mesh. ObjectTemplates (and objects) in BF2 are hierarchical, they may contain other ObjectTemplates as children (e.g. a root ObjectTemplate "tank" may define "turret" and "engine" as its children)
 - **Geometry part** - A fragment of the BundledMesh's geom which can be independently transformed (moved/rotated). Each geometry part is usually bound to one specific child ObjectTemplate. Handheld weapons are one exception in which they can define multiple geometry parts but only a single ObjectTemplate (they are just used for animating).
 - **Material** - defines a set of textures and shading properties. Every face and vertex is assigned to a material.
 - **Alpha Mode** - either `None`, `Alpha Test` (cheap, one-bit alpha), `Alpha Blend` (expensive, may increase overdraw)
@@ -67,8 +67,8 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - The import order of things does matter! The skeleton (`.ske`) needs to be loaded first, followed by the soldier/kit mesh (`.skinnedMesh`), the animated weapon (`.bundledMesh`) and the animation (`.baf`) loaded at the very end (**IMPORTANT**: DO NOT use `Import -> ObjecTemplate (.con)` for importing soldiers, kit meshes or weapons for animating).
 - When importing weapon or soldier meshes, select only Geom0 Lod0 (First Person Animating) or Geom1 Lod0 (Third Person Animating) in the import settings. Each part of the weapon mesh will be automatically assigned to a vertex group from `mesh1` to `mesh16` and their respective bones.
 - The skeleton will be imported as Blender's Armature object. The armature can be freely extended e.g. by adding helper bones for animating, but **DO NOT** modify imported bones! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. Instead, create additional helper bones and set up constraints like `Child Of` and/or `Copy Transforms` on the original bones.
-- You can use other add-ons such as `Rigify` to create the rig for animating, but also automatically create basic controllers and IK setup using the built-in `Pose -> BF2 -> Setup Controllers` option. This option can also be used after animation import for easier editing of existing animations (NOTE: importing an animation **AFTER** setting up the controllers will not work). By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing position/rotation keyframes.
-- TIP: If you plan to modify the imported animation, you can delete redundant keyframes using [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) option
+- You can use other add-ons such as `Rigify` to create the rig for animating, but you can also use the add-on's built-in automated rig setup using the `Pose -> BF2 -> Setup Controllers` option. This option can also be used after animation import for easier editing of existing animations (NOTE: importing an animation **AFTER** setting up the controllers will not work). By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing position/rotation keyframes.
+- TIP: If you plan to edit an imported animation, you can delete redundant keyframes using [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) option
 - When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
 
 ## Known issues
@@ -91,9 +91,12 @@ When you want to re-export a mesh that has been imported and modified, a proper 
 
 # ObjectTemplate export guide
 
+This section lists all the requirements needed for the finished model to become export-ready and usable in the game engine.
+
 ## The object hierarchy
-- The root of the hierarchy must be an empty object, must have no parent and needs to be prefixed with the geometry type (`StaticMesh`, `BundledMesh` or `SkinnedMesh`) followed by an underscore and the name of the root ObjectTemplate. Each child of the root object must be an empty object corresponding to Geom (prefixed with `G<index>__`). A static may also contain an empty child object which defines its anchor point (prefixed with `ANCHOR__`).
+- The root of the hierarchy must be an empty object, must have no parent and needs to be prefixed with the geometry type (`StaticMesh`, `BundledMesh` or `SkinnedMesh`) followed by an underscore and the name of the root ObjectTemplate. Each child of the root object must be an empty object corresponding to Geom (prefixed with `G<index>__`). Statics may also contain an empty child object which defines its anchor point (prefixed with `ANCHOR__`).
 - Each child of the Geom object must be an object that corresponds to Lod (prefixed with `G<index>L<index>__`) containing mesh data. There must be at least one Lod.
+- Lods should have their [origin set at center of the geometry](https://docs.blender.org/manual/en/latest/scene_layout/object/origin.html#set-origin). This optimizes bounding spheres and avoids frustum culling related bugs (objects disappearing at certain viewing angles).
 - For BundledMeshes, each Lod may contain multiple child objects that will be exported as separate geometry parts bound to child ObjectTemplates. Each Lod must contain the same hierarchy of objects (their names and transformations must match between Lods). Geometry parts cannot be empty Blender objects, each one must contain mesh data to export properly! However, the mesh data itself may have no geometry (verts & faces deleted), which is useful for exporting things as invisible but separate logical gameplay objects.
 - Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set. You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. It can be left empty when an object is intended to be exported as a separate geometry part but not bound to any child ObjectTemplate (mostly applies to exporting handheld weapon parts).
 
@@ -242,7 +245,7 @@ To set up animated UVs go to `Edit Mode`, select specific parts (vertices/faces)
 ## Skinning (SkinnedMesh)
 In order to skin your model, you must import the BF2 skeleton into your scene. When skinning soldiers you will need two skeletons `1p_setup.ske` for 1P (Geom 0) and `3p_setup.ske` 3P (Geom 1). The first step is to switch to `Pose Mode` and pose the armature(s) to align it with your mesh(es) as best as possible. When you are done, make sure you apply this pose as the rest pose [Pose -> Apply -> Apply Pose As Rest Pose](https://docs.blender.org/manual/en/latest/animation/armatures/posing/editing/apply.html), then switch to `Object Mode` and for each Lod object go to `Modifiers` tab and [Add Modifier -> Deform -> Armature](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/armature.html), in modifier settings select 'Object' to point to the name of the imported skeleton. Now the hard part, you have to set vertex weights for each Lod, meaning how much each bone affects each vertex of the mesh. You could use automatic weights (which should be a good starting point) as follows: In `Object Mode` select the Armature, go to `Pose Mode`, click `Select -> All`, go back to `Object Mode`, select the mesh while holding the `Shift` key, go to `Weight Paint` mode use [Weights -> Assign Automatic From Bones](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#assign-automatic-from-bone). Bare in mind that to export properly, each vertex must have at most two weights (be assigned to a maximum of two vertex groups), and all those weights have to be normalized (add-up to one). You can limit the number of vertex weights in `Weight Paint` mode using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) option (make sure it is set to 2). You can normalize weights using [Weights -> Normalize All](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#normalize-all) option. Also, make sure that `Auto Normalize` is enabled in [Weight Paint Tools Settings](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/tool_settings/options.html) when skinning in `Weight Paint` mode.
 
-# Tutorials
+# Video Tutorials
 - [Animation - rig setup, export, import and editing (by Ekiso)](https://youtu.be/xO1848HzetQ)
 - [StaticMesh - hierarchy, materials and export (by Ason)](https://www.youtube.com/watch?v=H97o0d3zkoY)
 - [BundledMesh - simple weapon export (by Krayt)](https://www.youtube.com/watch?v=crQRXm-4lxQ)
