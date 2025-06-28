@@ -17,7 +17,6 @@ from .skeleton import find_all_skeletons, find_rig_attached_to_object
 
 from .utils import (delete_object, check_suffix,
                     check_prefix, swap_zy,
-                    apply_modifiers as _apply_modifiers,
                     DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
@@ -581,6 +580,7 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
                                     mesh_type=geometry_type,
                                     reporter=reporter,
                                     save_backfaces=save_backfaces,
+                                    apply_modifiers=False,
                                     **kwargs).export_mesh()
 
             if samples_size is not None and geometry_type == 'StaticMesh':
@@ -614,22 +614,17 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
         collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.collmesh.name}.collisionmesh')
 
         print(f"duplicating COLs...")
-        temp_collmesh_parts = _duplicate_cols(collmesh_parts)
+        if apply_modifiers:
+            eval_collmesh_parts = _eval_cols(collmesh_parts)
+        else:
+            eval_collmesh_parts = collmesh_parts
 
-        for geoms in temp_collmesh_parts:
-            for cols in geoms:
-                for _, col_obj in cols.items():
-                    if apply_modifiers:
-                        _apply_modifiers(col_obj)
-        try:
-            print(f"Exporting collision to '{collmesh_filepath}'")
-            collmesh_exporter = CollMeshExporter(mesh_obj, collmesh_filepath, geom_parts=temp_collmesh_parts)
-            collmesh_exporter.export_collmesh()
-            material_to_index = collmesh_exporter.material_to_index
-        except Exception:
-            raise
-        finally:
-            _delete_cols(temp_collmesh_parts)
+        print(f"Exporting collision to '{collmesh_filepath}'")
+        collmesh_exporter = CollMeshExporter(mesh_obj, collmesh_filepath,
+                                             geom_parts=eval_collmesh_parts)
+        collmesh_exporter.export_collmesh()
+        material_to_index = collmesh_exporter.material_to_index
+
 
         for mat, mat_idx in sorted(material_to_index.items(), key=lambda item: item[1]):
             if ' ' in mat:
@@ -920,7 +915,8 @@ def _duplicate_object(obj, recursive=True, prefix=TMP_PREFIX):
             new_child.parent = new_obj
     return new_obj
 
-def _duplicate_cols(geom_parts):
+def _eval_cols(geom_parts):
+    depsgraph = bpy.context.evaluated_depsgraph_get()
     new_geom_parts = list()
     for geoms in geom_parts:
         new_geom_obj = list()
@@ -929,7 +925,7 @@ def _duplicate_cols(geom_parts):
             new_cols = dict()
             new_geom_obj.append(new_cols)
             for col_idx, col_obj in cols.items():
-                new_cols[col_idx] = _duplicate_object(col_obj, recursive=False)
+                new_cols[col_idx] = col_obj.evaluated_get(depsgraph)
     return new_geom_parts
 
 def _duplicate_lods(mesh_geoms):
@@ -941,12 +937,6 @@ def _duplicate_lods(mesh_geoms):
             new_lod_obj = _duplicate_object(lod_obj)
             new_geom_obj.append(new_lod_obj)
     return new_mesh_geoms
-
-def _delete_cols(geom_parts):
-    for geoms in geom_parts:
-        for cols in geoms:
-            for _, col_obj in cols.items():
-                delete_object(col_obj, recursive=True)
 
 def _delete_lods(mesh_geoms):
     for geom_obj in mesh_geoms:
@@ -982,3 +972,19 @@ def _matrix_to_yaw_pitch_roll(m):
     pitch = math.asin(-m[2][1])
     roll = math.atan2(m[2][0], m[2][2])
     return tuple(map(math.degrees, (yaw, pitch, roll)))
+
+def _apply_modifiers(obj, context=None, recursive=False):
+    if context is None:
+        context = bpy.context
+
+    bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    bpy.ops.object.convert()
+    obj.hide_set(hide)
+
+    if recursive:
+        for child in obj.children:
+            _apply_modifiers(child, recursive=True)

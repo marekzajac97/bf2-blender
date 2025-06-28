@@ -14,7 +14,6 @@ from .bf2.fileutils import FileUtils
 from .exceptions import ImportException, ExportException
 from .utils import (conv_bf2_to_blender,
                     conv_blender_to_bf2,
-                    delete_object,
                     delete_object_if_exists,
                     check_prefix,
                     swap_zy,
@@ -22,7 +21,6 @@ from .utils import (conv_bf2_to_blender,
                     invert_face,
                     are_backfaces,
                     add_backface_modifier,
-                    apply_modifiers,
                     DEFAULT_REPORTER)
 from .skeleton import (ske_get_bone_rot,
                        ske_weapon_part_ids,
@@ -525,8 +523,6 @@ class MeshImporter:
         return mat_idx
 
 
-TMP_PREFIX = 'TMP__'
-
 class MeshExporter:
 
     def __init__(self, mesh_obj, mesh_file, mesh_type,
@@ -552,17 +548,9 @@ class MeshExporter:
         self.apply_modifiers = apply_modifiers
 
     def export_mesh(self):
-        if self.mesh_geoms:
-            return self._export_mesh()
-        else:
-            try:
-                self.mesh_geoms = self.collect_geoms_lods(self.mesh_obj)
-                self.mesh_geoms = self._make_temp_geoms_lods(self.mesh_geoms)
-                return self._export_mesh()
-            except Exception:
-                raise
-            finally:
-                self._revert_temp_geom_lods()
+        if not self.mesh_geoms:
+            self.mesh_geoms = self.collect_geoms_lods(self.mesh_obj)
+        return self._export_mesh()
 
     def _export_mesh(self):
         self.has_animated_uvs = self._has_anim_uv()
@@ -616,43 +604,6 @@ class MeshExporter:
         return False
 
     @staticmethod
-    def _make_temp_object(obj, prefix=TMP_PREFIX):
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.select_all(action='DESELECT')
-        hide = obj.hide_get()
-        obj.hide_set(False)
-        obj.select_set(True)
-        name = obj.name
-        obj.name = prefix + name # rename original
-        bpy.ops.object.duplicate() # duplicate
-        new_obj = bpy.context.view_layer.objects.active
-        new_obj.name = name # set copy name to original object
-        obj.hide_set(hide)
-        return new_obj
-
-    @staticmethod
-    def _revert_temp_object(obj, prefix=TMP_PREFIX):
-        name = obj.name
-        org_obj = bpy.data.objects[prefix + obj.name]
-        delete_object(obj, recursive=False)
-        org_obj.name = name
-
-    def _revert_temp_geom_lods(self):
-        for geom_obj in self.mesh_geoms:
-            for lod_obj in geom_obj:
-                self._revert_temp_object(lod_obj)
-
-    def _make_temp_geoms_lods(self, mesh_geoms):
-        new_mesh_geoms = list()
-        for geom_obj in mesh_geoms:
-            new_geom_obj = list()
-            new_mesh_geoms.append(new_geom_obj)
-            for lod_obj in geom_obj:
-                new_lod_obj = self._make_temp_object(lod_obj)
-                new_geom_obj.append(new_lod_obj)
-        return new_mesh_geoms
-
-    @staticmethod
     def collect_geoms_lods(mesh_obj):
         if not mesh_obj.children:
             raise ExportException(f"mesh object '{mesh_obj.name}' has no children (geoms)!")
@@ -695,7 +646,8 @@ class MeshExporter:
 
     def _export_mesh_lod(self, bf2_lod, lod_obj):
         if self.apply_modifiers:
-            apply_modifiers(lod_obj)
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            lod_obj = lod_obj.evaluated_get(depsgraph)
 
         mesh = lod_obj.data
         mesh_type = type(self.bf2_mesh)

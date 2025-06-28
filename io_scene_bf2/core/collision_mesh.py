@@ -4,15 +4,13 @@ import bmesh # type: ignore
 from os import path
 from itertools import cycle
 from .bf2.bf2_collmesh import BF2CollMesh, BF2CollMeshException, GeomPart, Geom, Col, Face, Vec3
-from .utils import (delete_object,
-                    delete_object_if_exists,
+from .utils import (delete_object_if_exists,
                     delete_material_if_exists,
                     delete_mesh_if_exists,
                     check_prefix,
                     invert_face,
                     are_backfaces,
                     add_backface_modifier,
-                    apply_modifiers as _apply_modifiers,
                     DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
@@ -211,7 +209,6 @@ def export_collisionmesh(root_obj, mesh_file, **kwargs):
     exporter = CollMeshExporter(root_obj, mesh_file, **kwargs)
     return exporter.export_collmesh()
 
-TMP_PREFIX = "TMP__"
 
 class CollMeshExporter:
     def __init__(self, root_obj, mesh_file,
@@ -225,46 +222,6 @@ class CollMeshExporter:
         self.save_backfaces = save_backfaces
         self.apply_modifiers = apply_modifiers
         self.reporter = reporter
-
-    @staticmethod
-    def _make_temp_object(obj, prefix=TMP_PREFIX):
-        bpy.context.view_layer.objects.active = obj
-        bpy.ops.object.select_all(action='DESELECT')
-        hide = obj.hide_get()
-        obj.hide_set(False)
-        obj.select_set(True)
-        name = obj.name
-        obj.name = prefix + name # rename original
-        bpy.ops.object.duplicate() # duplicate
-        new_obj = bpy.context.view_layer.objects.active
-        new_obj.name = name # set copy name to original object
-        obj.hide_set(hide)
-        return new_obj
-
-    @staticmethod
-    def _revert_temp_object(obj, prefix=TMP_PREFIX):
-        name = obj.name
-        org_obj = bpy.data.objects[prefix + obj.name]
-        delete_object(obj, recursive=False)
-        org_obj.name = name
-
-    def _revert_temp_geom_lods(self):
-        for geoms in self.geom_parts:
-            for cols in geoms:
-                for col_obj in cols.values():
-                    self._revert_temp_object(col_obj)
-
-    def _make_temp_nodes_geoms_lods(self):
-        new_geom_parts = list()
-        for geoms in self.geom_parts:
-            new_geoms = list()
-            new_geom_parts.append(new_geoms)
-            for cols in geoms:
-                new_cols = dict()
-                new_geoms.append(new_cols)
-                for col_idx, col_obj in cols.items():
-                    new_cols[col_idx] = self._make_temp_object(col_obj)
-        return new_geom_parts
 
     @staticmethod
     def _collect_nodes_geoms_lods(collmesh_obj):
@@ -309,17 +266,9 @@ class CollMeshExporter:
         return geom_parts
 
     def export_collmesh(self):
-        if self.geom_parts:
-            return self._export_collmesh()
-        else:
+        if not self.geom_parts:
             self.geom_parts = self._collect_nodes_geoms_lods(self.root_obj)
-            self.geom_parts = self._make_temp_nodes_geoms_lods()
-            try:
-                return self._export_collmesh()
-            except Exception:
-                raise
-            finally:
-                self._revert_temp_geom_lods()
+        return self._export_collmesh()
 
     def _collect_materials(self):
         # important to preserve material order as they appear in cols
@@ -359,11 +308,12 @@ class CollMeshExporter:
 
     def _export_col(self, col_idx, mesh_obj):
         col = Col()
-        mesh = mesh_obj.data
 
         if self.apply_modifiers:
-            _apply_modifiers(mesh_obj)
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            mesh_obj = mesh_obj.evaluated_get(depsgraph)
 
+        mesh = mesh_obj.data
         mesh.calc_loop_triangles()
         backface_attr = mesh.attributes.get('backface') if self.save_backfaces else None
 
