@@ -18,7 +18,6 @@ from .skeleton import find_all_skeletons, find_rig_attached_to_object
 from .utils import (delete_object, check_suffix,
                     check_prefix, swap_zy,
                     apply_modifiers as _apply_modifiers,
-                    triangulate as _triangulate,
                     DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
@@ -575,10 +574,6 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
             _join_lods(temp_mesh_geoms, obj_to_geom_part)
             root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
 
-        for geom_obj in temp_mesh_geoms:
-            for lod_obj in geom_obj:
-                _triangulate(lod_obj)
-
         if geom_export:
             print(f"Exporting geometry to '{geometry_filepath}'")
             bf2_mesh = MeshExporter(mesh_obj, geometry_filepath,
@@ -626,7 +621,6 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
                 for _, col_obj in cols.items():
                     if apply_modifiers:
                         _apply_modifiers(col_obj)
-                    _triangulate(col_obj)
         try:
             print(f"Exporting collision to '{collmesh_filepath}'")
             collmesh_exporter = CollMeshExporter(mesh_obj, collmesh_filepath, geom_parts=temp_collmesh_parts)

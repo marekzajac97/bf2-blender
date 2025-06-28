@@ -61,7 +61,6 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
            export_collisionmesh(self.root, self.filepath,
                                 save_backfaces=self.save_backfaces,
                                 apply_modifiers=self.apply_modifiers,
-                                triangulate=True,
                                 reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))

@@ -206,7 +206,6 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
                                       tangent_uv_map=self.tangent_uv_map,
                                       save_backfaces=self.save_backfaces,
                                       apply_modifiers=self.apply_modifiers,
-                                      triangulate=True,
                                       reporter=Reporter(self.report))
         except ExportException as e:
             self.report({"ERROR"}, str(e))

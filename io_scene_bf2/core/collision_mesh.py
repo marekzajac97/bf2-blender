@@ -13,7 +13,6 @@ from .utils import (delete_object,
                     are_backfaces,
                     add_backface_modifier,
                     apply_modifiers as _apply_modifiers,
-                    triangulate as _triangulate,
                     DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
@@ -219,14 +218,12 @@ class CollMeshExporter:
                  geom_parts=None,
                  save_backfaces=True,
                  apply_modifiers=False,
-                 triangulate=False,
                  reporter=DEFAULT_REPORTER):
         self.root_obj = root_obj
         self.mesh_file = mesh_file
         self.geom_parts = geom_parts
         self.save_backfaces = save_backfaces
         self.apply_modifiers = apply_modifiers
-        self.triangulate = triangulate
         self.reporter = reporter
 
     @staticmethod
@@ -332,8 +329,8 @@ class CollMeshExporter:
             for geom in geompart:
                 for _, col_obj in sorted(geom.items()):
                     mesh = col_obj.data
-                    for p in mesh.polygons:
-                        mat_name = mesh.materials[p.material_index].name
+                    for poly in mesh.polygons:
+                        mat_name = mesh.materials[poly.material_index].name
                         if mat_name in material_to_index:
                             continue
                         material_to_index[mat_name] = len(material_to_index)
@@ -366,9 +363,8 @@ class CollMeshExporter:
 
         if self.apply_modifiers:
             _apply_modifiers(mesh_obj)
-        if self.triangulate:
-            _triangulate(mesh_obj)
 
+        mesh.calc_loop_triangles()
         backface_attr = mesh.attributes.get('backface') if self.save_backfaces else None
 
         if col_idx < 0 or col_idx > 3:
@@ -379,15 +375,13 @@ class CollMeshExporter:
             vert = Vec3(v.co[0], v.co[2], v.co[1])
             col.verts.append(vert)
             col.vert_materials.append(0)
-        for p in mesh.polygons:
-            if p.loop_total > 3:
-                raise ExportException(f"{mesh_obj.name}: Exporter does not support polygons with more than 3 vertices! It must be triangulated")
-            vert_indexes = tuple(p.vertices)
-            mat_name = mesh.materials[p.material_index].name
+        for tri in mesh.loop_triangles:
+            vert_indexes = tuple(tri.vertices)
+            mat_name = mesh.materials[tri.material_index].name
             material_index = self.material_to_index[mat_name]
             face = Face(vert_indexes, material_index)
             col.faces.append(face)
-            if backface_attr and backface_attr.data[p.index].value:
+            if backface_attr and backface_attr.data[tri.polygon_index].value:
                 backface = Face(invert_face(vert_indexes), material_index)
                 col.faces.append(backface)
             for v in vert_indexes:

@@ -23,7 +23,6 @@ from .utils import (conv_bf2_to_blender,
                     are_backfaces,
                     add_backface_modifier,
                     apply_modifiers,
-                    triangulate,
                     DEFAULT_REPORTER)
 from .skeleton import (ske_get_bone_rot,
                        ske_weapon_part_ids,
@@ -316,8 +315,8 @@ class MeshImporter:
 
         # mark faces with backfaces
         if double_sided_faces:
-            animuv_matrix_index = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
-            animuv_matrix_index.data.foreach_set('value', [poly.index in double_sided_faces for poly in mesh.polygons])
+            backface = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
+            backface.data.foreach_set('value', [poly.index in double_sided_faces for poly in mesh.polygons])
 
         # apply materials
         for material in mesh_materials:
@@ -537,7 +536,6 @@ class MeshExporter:
                  tangent_weld_thres=0.999,
                  save_backfaces=True,
                  apply_modifiers=False,
-                 triangulate=False,
                  reporter=DEFAULT_REPORTER):
         self.mesh_obj = mesh_obj
         self.mesh_file = mesh_file
@@ -552,7 +550,6 @@ class MeshExporter:
         self.has_animated_uvs = None # checked later
         self.save_backfaces = save_backfaces
         self.apply_modifiers = apply_modifiers
-        self.triangulate = triangulate
 
     def export_mesh(self):
         if self.mesh_geoms:
@@ -699,8 +696,6 @@ class MeshExporter:
     def _export_mesh_lod(self, bf2_lod, lod_obj):
         if self.apply_modifiers:
             apply_modifiers(lod_obj)
-        if self.triangulate:
-            triangulate(lod_obj)
 
         mesh = lod_obj.data
         mesh_type = type(self.bf2_mesh)
@@ -719,6 +714,7 @@ class MeshExporter:
             raise ExportException("No UV selected for tangent space generation!\n Make sure your UV maps are called UV0, UV1 etc..")
 
         mesh.calc_tangents(uvmap=self.tangent_uv_map)
+        mesh.calc_loop_triangles()
 
         # lightmap UV, if not present, generate it
         if mesh_type == BF2StaticMesh and 'UV4' not in mesh.uv_layers and self.gen_lightmap_uv:
@@ -775,15 +771,13 @@ class MeshExporter:
 
         # map materials to verts and faces
         mat_idx_to_verts_faces = dict()
-        for poly in mesh.polygons:
-            if poly.loop_total > 3:
-                raise ExportException("Exporter does not support polygons with more than 3 vertices! It must be triangulated")
-            if poly.material_index not in mat_idx_to_verts_faces:
-                mat_idx_to_verts_faces[poly.material_index] = (set(), list())
-            vert_set, face_list = mat_idx_to_verts_faces[poly.material_index]
-            for v in poly.vertices:
+        for tri in mesh.loop_triangles:
+            if tri.material_index not in mat_idx_to_verts_faces:
+                mat_idx_to_verts_faces[tri.material_index] = (set(), list())
+            vert_set, face_list = mat_idx_to_verts_faces[tri.material_index]
+            for v in tri.vertices:
                 vert_set.add(v)
-            face_list.append(poly)
+            face_list.append(tri)
         
         # map each vert to a list of loops that use this vert
         vert_loops = dict()
@@ -1001,9 +995,9 @@ class MeshExporter:
 
             # create material's faces
             for face in blend_faces:
-                face_verts = invert_face(loop_to_vert_idx[face.loop_start:face.loop_start + face.loop_total])
+                face_verts = invert_face([loop_to_vert_idx[face.loops[i]] for i in range(3)])
                 bf2_mat.faces.append(face_verts)
-                if backface_attr and backface_attr.data[face.index].value:
+                if backface_attr and backface_attr.data[face.polygon_index].value:
                     bf2_mat.faces.append(invert_face(face_verts))
 
             # print stats

@@ -253,23 +253,6 @@ def apply_modifiers(obj, context=None, recursive=False):
         for child in obj.children:
             apply_modifiers(child, recursive=True)
 
-def triangulate(obj, context=None):
-    if context is None:
-        context = bpy.context
-    bpy.ops.object.select_all(action='DESELECT')
-    hide = obj.hide_get()
-    obj.hide_set(False)
-    obj.select_set(True)
-    context.view_layer.objects.active = obj
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_mode(type='FACE')
-    bpy.ops.mesh.reveal(select=False)
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.quads_convert_to_tris()
-    bpy.ops.object.mode_set(mode='OBJECT')
-    obj.hide_set(hide)
-
 def are_backfaces(face1, face2):
     face1_set = set(face1)
     face2_set = set(face2)
