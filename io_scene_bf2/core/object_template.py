@@ -544,87 +544,67 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     if geom_export or colmesh_export:
         os.makedirs(os.path.join(con_dir, 'Meshes'), exist_ok=True)
 
-    geometry_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.geom.name}.{geometry_type.lower()}')
+    if geom_export:
+        geometry_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.geom.name}.{geometry_type.lower()}')
+        temp_mesh_geoms = None
+        try:
+            if geometry_type == 'BundledMesh':
+                # create temporary copy of all BM geom parts for export
+                # all have to be merged into a single object (LOD)
+                print(f"duplicating BundledMesh geom parts...")
+                temp_mesh_geoms = _make_temp_lods(mesh_geoms, apply_modifiers=apply_modifiers)
+                mesh_geoms = temp_mesh_geoms
+                print(f"joining BundledMesh geom parts...")
+                _join_lods(mesh_geoms, obj_to_geom_part)
+                root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(mesh_geoms)
 
-    # create temporary meshes for export, that we can modify e.g trigangulate
-    print(f"duplicating LODs...")
-    temp_mesh_geoms = _duplicate_lods(mesh_geoms)
-    try:
-        if apply_modifiers:
-            lod_rigs = list()
-            for geom_obj in temp_mesh_geoms:
-                for lod_obj in geom_obj:
-                    # backup rigs in LOD's Armature modifier data
-                    # MeshExporter needs it
-                    rig = find_rig_attached_to_object(lod_obj)
-                    lod_rigs.append(rig)
-                    _apply_modifiers(lod_obj, recursive=True)
-
-            # re-add Armature modifiers
-            for geom_obj in temp_mesh_geoms:
-                for lod_obj in geom_obj:
-                    rig = lod_rigs.pop(0)
-                    if rig:
-                        modifier = lod_obj.modifiers.new(type='ARMATURE', name="Armature")
-                        modifier.object = rig
-
-        if geometry_type == 'BundledMesh':
-            print(f"joining LODs...")
-            _join_lods(temp_mesh_geoms, obj_to_geom_part)
-            root_obj_template.geom.nr_of_animated_uv_matrix = _get_nr_of_animted_uvs(temp_mesh_geoms)
-
-        if geom_export:
             print(f"Exporting geometry to '{geometry_filepath}'")
             bf2_mesh = MeshExporter(mesh_obj, geometry_filepath,
-                                    mesh_geoms=temp_mesh_geoms,
+                                    mesh_geoms=mesh_geoms,
                                     mesh_type=geometry_type,
                                     reporter=reporter,
                                     save_backfaces=save_backfaces,
-                                    apply_modifiers=False,
+                                    # for BM, modifiers are already applied when making mesh copies
+                                    apply_modifiers=False if geometry_type == 'BundledMesh' else apply_modifiers,
                                     **kwargs).export_mesh()
+        except Exception:
+            raise
+        finally:
+            if temp_mesh_geoms:
+                _delete_temp_lods(temp_mesh_geoms)
 
-            if samples_size is not None and geometry_type == 'StaticMesh':
-                if len(bf2_mesh.geoms) != 1:
-                    reporter.error("Cannot generate samples for meshes with more than one Geom")
-                elif not bf2_mesh.has_uv(4):
-                    reporter.error(f"Cannot generate samples, missing ligtmap UV Layer (UV4)")
-                else:
-                    for lod_idx, bf2_lod in enumerate(bf2_mesh.geoms[0].lods):
-                        MIN_SAMPLE_SIZE = 8
-                        if lod_idx == 0:
-                            sample_size = samples_size
-                            samples_filename = obj_name + '.samples'
-                        else:
-                            sample_size = [max(int(i / (2**lod_idx)), MIN_SAMPLE_SIZE) for i in samples_size]
-                            samples_filename = obj_name + f'.samp_{lod_idx:02d}'
+        if samples_size is not None and geometry_type == 'StaticMesh':
+            if len(bf2_mesh.geoms) != 1:
+                reporter.error("Cannot generate samples for meshes with more than one Geom")
+            elif not bf2_mesh.has_uv(4):
+                reporter.error(f"Cannot generate samples, missing ligtmap UV Layer (UV4)")
+            else:
+                for lod_idx, bf2_lod in enumerate(bf2_mesh.geoms[0].lods):
+                    MIN_SAMPLE_SIZE = 8
+                    if lod_idx == 0:
+                        sample_size = samples_size
+                        samples_filename = obj_name + '.samples'
+                    else:
+                        sample_size = [max(int(i / (2**lod_idx)), MIN_SAMPLE_SIZE) for i in samples_size]
+                        samples_filename = obj_name + f'.samp_{lod_idx:02d}'
 
-                        samples = BF2Samples(bf2_lod, size=sample_size, sample_padding=sample_padding,
-                                             use_edge_margin=use_edge_margin, uv_chan=4)
+                    samples = BF2Samples(bf2_lod, size=sample_size, sample_padding=sample_padding,
+                                            use_edge_margin=use_edge_margin, uv_chan=4)
 
-                        samples_filepath = os.path.join(os.path.dirname(geometry_filepath), samples_filename)
-                        print(f"Exporting samples to '{samples_filepath}'")
-                        samples.export(samples_filepath)
+                    samples_filepath = os.path.join(os.path.dirname(geometry_filepath), samples_filename)
+                    print(f"Exporting samples to '{samples_filepath}'")
+                    samples.export(samples_filepath)
 
-    except Exception:
-        raise
-    finally:
-        _delete_lods(temp_mesh_geoms)
 
     if root_obj_template.collmesh and colmesh_export:
         collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.collmesh.name}.collisionmesh')
 
-        print(f"duplicating COLs...")
-        if apply_modifiers:
-            eval_collmesh_parts = _eval_cols(collmesh_parts)
-        else:
-            eval_collmesh_parts = collmesh_parts
-
         print(f"Exporting collision to '{collmesh_filepath}'")
         collmesh_exporter = CollMeshExporter(mesh_obj, collmesh_filepath,
-                                             geom_parts=eval_collmesh_parts)
+                                             geom_parts=collmesh_parts,
+                                             apply_modifiers=apply_modifiers)
         collmesh_exporter.export_collmesh()
         material_to_index = collmesh_exporter.material_to_index
-
 
         for mat, mat_idx in sorted(material_to_index.items(), key=lambda item: item[1]):
             if ' ' in mat:
@@ -891,12 +871,27 @@ def _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part):
     _select_all_geometry_parts(lod_obj)
     bpy.ops.object.join()
 
+def _apply_modifiers(obj, recursive=False):
+    bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.convert()
+    obj.hide_set(hide)
+
+    if recursive:
+        for child in obj.children:
+            if _is_colmesh_dummy(child):
+                continue
+            _apply_modifiers(child, recursive=True)
+
 def _join_lods(mesh_geoms, obj_to_geom_part):
     for geom_obj in mesh_geoms:
         for lod_obj in geom_obj:
             _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part)
 
-def _duplicate_object(obj, recursive=True, prefix=TMP_PREFIX):
+def _duplicate_lod(obj, recursive=True, prefix=TMP_PREFIX):
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.select_all(action='DESELECT')
     hide = obj.hide_get()
@@ -911,34 +906,25 @@ def _duplicate_object(obj, recursive=True, prefix=TMP_PREFIX):
         for child_obj in obj.children:
             if _is_colmesh_dummy(child_obj):
                 continue
-            new_child = _duplicate_object(child_obj, recursive=recursive)
+            new_child = _duplicate_lod(child_obj, recursive=recursive)
             new_child.parent = new_obj
     return new_obj
 
-def _eval_cols(geom_parts):
-    depsgraph = bpy.context.evaluated_depsgraph_get()
-    new_geom_parts = list()
-    for geoms in geom_parts:
-        new_geom_obj = list()
-        new_geom_parts.append(new_geom_obj)
-        for cols in geoms:
-            new_cols = dict()
-            new_geom_obj.append(new_cols)
-            for col_idx, col_obj in cols.items():
-                new_cols[col_idx] = col_obj.evaluated_get(depsgraph)
-    return new_geom_parts
-
-def _duplicate_lods(mesh_geoms):
+def _make_temp_lods(mesh_geoms, apply_modifiers=True):
     new_mesh_geoms = list()
     for geom_obj in mesh_geoms:
         new_geom_obj = list()
         new_mesh_geoms.append(new_geom_obj)
         for lod_obj in geom_obj:
-            new_lod_obj = _duplicate_object(lod_obj)
+            new_lod_obj = _duplicate_lod(lod_obj)
+            # have to apply modifiers now because mesh might be modified later
+            # e.g. when vertices are linked to child objects
+            if apply_modifiers:
+                _apply_modifiers(lod_obj, recursive=True)
             new_geom_obj.append(new_lod_obj)
     return new_mesh_geoms
 
-def _delete_lods(mesh_geoms):
+def _delete_temp_lods(mesh_geoms):
     for geom_obj in mesh_geoms:
         for lod_obj in geom_obj:
             delete_object(lod_obj, recursive=True)
@@ -972,19 +958,3 @@ def _matrix_to_yaw_pitch_roll(m):
     pitch = math.asin(-m[2][1])
     roll = math.atan2(m[2][0], m[2][2])
     return tuple(map(math.degrees, (yaw, pitch, roll)))
-
-def _apply_modifiers(obj, context=None, recursive=False):
-    if context is None:
-        context = bpy.context
-
-    bpy.ops.object.select_all(action='DESELECT')
-    hide = obj.hide_get()
-    obj.hide_set(False)
-    obj.select_set(True)
-    context.view_layer.objects.active = obj
-    bpy.ops.object.convert()
-    obj.hide_set(hide)
-
-    if recursive:
-        for child in obj.children:
-            _apply_modifiers(child, recursive=True)
