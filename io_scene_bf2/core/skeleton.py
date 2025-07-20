@@ -81,11 +81,12 @@ def _create_camera(context, rig):
     if 'Camerabone' in armature.bones:
         # remove old one
         delete_object_if_exists(CAMER_OBJECT_NAME)
-        
+
         # create camera
         camera_data = bpy.data.cameras.new(name=CAMER_OBJECT_NAME)
         camera_data.lens_unit = 'FOV'
         camera_data.angle = math.radians(75)
+        camera_data.clip_start = 0.001
         camera_object = bpy.data.objects.new(CAMER_OBJECT_NAME, camera_data)
 
         # position to bone
