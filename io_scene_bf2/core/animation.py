@@ -36,7 +36,7 @@ def get_bones_for_export(rig):
 def save_bones_for_export(rig, bones_to_export):
     rig['bones_to_export'] = bones_to_export
 
-def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, fend=None):
+def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, fend=None, world_space=False):
     scene = context.scene
 
     fstart = scene.frame_start if fstart is None else fstart
@@ -70,7 +70,11 @@ def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, 
             pose_bone = rig.pose.bones[ske_bone]
 
             # convert to parent space and fix rotations
-            parent_matrix = Matrix.Identity(4)
+            if world_space:
+                parent_matrix = rig.matrix_world.inverted()
+            else:
+                parent_matrix = Matrix.Identity(4)
+
             if pose_bone.parent:
                 parent_matrix = pose_bone.parent.matrix @ ske_get_bone_rot(pose_bone.parent.bone).inverted()
             matrix = parent_matrix.inverted() @ pose_bone.matrix

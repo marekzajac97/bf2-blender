@@ -1,7 +1,7 @@
 import bpy # type: ignore
 import os
 import traceback
-from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty # type: ignore
+from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty, EnumProperty # type: ignore
 from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop
 
 from ...core.exceptions import ImportException, ExportException # type: ignore
@@ -73,6 +73,16 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
         maxlen=1024
     ) # type: ignore
 
+    space : EnumProperty(
+        name="Space",
+        description="Space in which bone transformations are evaluated",
+        default=0,
+        items=[
+            ('OBJECT', "Object", "Export bones relative to the Armature object", 0),
+            ('WORLD', "World", "Export bones relative to the World origin", 1),
+        ]
+    ) # type: ignore
+
     bones_for_export: CollectionProperty(type=BoneExportCollection) # type: ignore
 
     @classmethod
@@ -82,6 +92,7 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
 
     def draw(self, context):
         layout = self.layout
+        layout.prop(self, 'space', text="Space:")
 
         layout.label(text="Bones to export:")
         for prop in self.bones_for_export:
@@ -108,7 +119,9 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
         save_bones_for_export(self.rig, {i.name: i.included for i in self.bones_for_export})
 
         try:
-           export_animation(context, self.rig, self.filepath, bones_to_export=bones_to_export)
+           export_animation(context, self.rig, self.filepath,
+                            bones_to_export=bones_to_export,
+                            world_space=self.space == 'WORLD')
         except ExportException as e:
             self.report({"ERROR"}, str(e))
             return {'CANCELLED'}
