@@ -283,3 +283,8 @@ def are_backfaces(face1, face2):
             return False # face is a duplicate just with verts in different order
 
     return True
+
+def show_error(context, title, text=''):
+    def draw(self, context):
+        self.layout.label(text=text)
+    context.window_manager.popup_menu(draw, title=title, icon='ERROR')

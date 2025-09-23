@@ -259,6 +259,8 @@ class MeshImporter:
                 texture_map_types = TEXTURE_MAPS[material.bf2_shader]
                 texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
                 for map_type, map_file in texture_maps.items():
+                    if os.path.isabs(map_file):
+                        raise ImportException(f"Invalid material texture map path: '{map_file}' must be a relative path, got absolute path")
                     type_index = texture_map_types.index(map_type)
                     material[f"texture_slot_{type_index}"] = map_file
 
@@ -697,6 +699,9 @@ class MeshExporter:
         return geoms
 
     def _export_mesh_lod(self, bf2_lod, lod_obj):
+        # must get rig before modifiers are applied
+        rig = find_rig_attached_to_object(lod_obj)
+
         if self.apply_modifiers:
             apply_modifiers(lod_obj)
         if self.triangulate:
@@ -762,7 +767,6 @@ class MeshExporter:
         elif mesh_type == BF2SkinnedMesh:
             bone_to_matrix = dict()
             bone_to_id = dict()
-            rig = find_rig_attached_to_object(lod_obj)
             if rig is None:
                 raise ExportException(f"{lod_obj.name}: does not have 'Armature' modifier or 'Object' in the modifier settings does not point to a BF2 skeleton")
             ske_bones = rig['bf2_bones']

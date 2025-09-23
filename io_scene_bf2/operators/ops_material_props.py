@@ -7,7 +7,7 @@ from bpy.types import Mesh, Material # type: ignore
 from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
 from .. import get_mod_dir
 
-from ..core.utils import Reporter
+from ..core.utils import Reporter, show_error
 from ..core.mesh_material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
 
 MATERIAL_TYPES = [
@@ -180,11 +180,16 @@ def on_texture_map_update(self, context, index):
         if mod_path:
             try:
                 self[prop] = Path(self[prop]).relative_to(mod_path).as_posix().lower()
-            except ValueError as e:
-                self[prop] = f'ERROR: Texture path is not relative to MOD path defined in add-on preferences: "{mod_path}"'
+            except ValueError:
+                show_error(context,
+                           title='Invalid texture path!',
+                           text=f'Given path: "{self[prop]}" is not relative to MOD path defined in add-on preferences ("{mod_path}")')
+                self[prop] = ''
         else:
-            # TODO don't know how to trigger a warning here
-            self[prop] = 'ERROR: MOD path not defined in add-on preferences!'
+            show_error(context,
+                       title='MOD path not set!',
+                       text='To set texture paths, MOD path must be defined in add-on\'s preferences! Read the manual')
+            self[prop] = ''
     else:
         pass # relative path probably typed manually, dunno what could check here  
 

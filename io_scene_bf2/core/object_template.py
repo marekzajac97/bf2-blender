@@ -1,7 +1,6 @@
 import bpy # type: ignore
 import os
 import math
-import bmesh
 
 from getpass import getuser
 from mathutils import Matrix, Vector, Euler # type: ignore
@@ -65,19 +64,19 @@ def import_object_template(context, con_filepath, import_collmesh=True,
     if not root_template.geom:
         ImportException(f"The imported object '{root_template.name}' has no geometry set")
 
-    _verify_template(root_template)
+    _sanitize_template(root_template, reporter)
 
     geometry_template_name = root_template.geom.lower()
     if geometry_template_name not in geom_template_manager.templates:
-        raise ImportException(f"Geometry '{geometry_template_name}' is not defined")
+        raise ImportException(f"Geometry '{geometry_template_name}' definition via `GeometryTemplate.create` not found, must be in the same .con file")
 
     geometry_template = geom_template_manager.templates[geometry_template_name]
 
     collmesh_template = None
-    if root_template.collmesh:
+    if root_template.collmesh and import_collmesh:
         collmesh_template_name = root_template.collmesh.lower()
         if collmesh_template_name not in col_template_manager.templates:
-            raise ImportException(f"Collision mesh '{collmesh_template_name}' is not defined")
+            raise ImportException(f"Collision mesh '{collmesh_template_name}' definition via `CollisionManager.createTemplate` not found, must be in the same .con file")
         collmesh_template = col_template_manager.templates[collmesh_template_name]
 
     con_dir = os.path.dirname(con_filepath)
@@ -98,7 +97,7 @@ def import_object_template(context, con_filepath, import_collmesh=True,
     root_geometry_obj.name = f'{geometry_type}_{root_template.name}'
 
     coll_parts = None
-    if collmesh_template and import_collmesh:
+    if collmesh_template:
         collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{collmesh_template.name}.collisionmesh')
 
         collmesh_importer = CollMeshImporter(collmesh_filepath, name=root_template.name, reload=reload)
@@ -479,15 +478,28 @@ def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_
             raise ImportException(f'Unhandled import_rig_mode {import_rig_mode}')
         return geom_to_ske
 
-def _verify_template(root_obj_template):
+def _sanitize_template(root_obj_template, reporter):
+    templates_to_delete = list()
     part_id_to_obj_template = dict()
+
     def _check_geom_part_unique(obj_template):
         if obj_template.geom_part in part_id_to_obj_template:
-            raise ImportException(f"'{obj_template.name}' has the same ObjectTemplate.geometryPart index as '{part_id_to_obj_template[obj_template.geom_part].name}'")
-        part_id_to_obj_template[obj_template.geom_part] = obj_template
+            reporter.warning(f"Ignoring '{obj_template.name}' as it has the same geometryPart index as '{part_id_to_obj_template[obj_template.geom_part].name}'")
+            templates_to_delete.append(obj_template)
+        else:
+            part_id_to_obj_template[obj_template.geom_part] = obj_template
         for child in obj_template.children:
             _check_geom_part_unique(child.template)
+
     _check_geom_part_unique(root_obj_template)
+    for obj_template in templates_to_delete:
+        parent = obj_template.parent
+        if not parent:
+            continue
+        for child in parent.children:
+            if child.template == obj_template:
+                parent.children.remove(child)
+                break
 
 
 ################################
@@ -553,19 +565,12 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     temp_mesh_geoms = _duplicate_lods(mesh_geoms)
     try:
         if apply_modifiers:
-            lod_rigs = list()
             for geom_obj in temp_mesh_geoms:
                 for lod_obj in geom_obj:
-                    # backup rigs in LOD's Armature modifier data
+                    # preserve rigs in LOD's Armature modifier data
                     # MeshExporter needs it
                     rig = find_rig_attached_to_object(lod_obj)
-                    lod_rigs.append(rig)
                     _apply_modifiers(lod_obj, recursive=True)
-
-            # re-add Armature modifiers
-            for geom_obj in temp_mesh_geoms:
-                for lod_obj in geom_obj:
-                    rig = lod_rigs.pop(0)
                     if rig:
                         modifier = lod_obj.modifiers.new(type='ARMATURE', name="Armature")
                         modifier.object = rig
