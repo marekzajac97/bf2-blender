@@ -2,6 +2,7 @@ import bpy # type: ignore
 import bmesh # type: ignore
 import math
 import re
+import enum
 
 from mathutils import Matrix, Vector # type: ignore
 from .utils import DEFAULT_REPORTER, delete_object_if_exists
@@ -19,6 +20,38 @@ POLE_OFFSET = 0.5
 # constatnts
 ONES_VEC = Vector((1, 1, 1))
 ZERO_VEC = Vector((0, 0, 0))
+
+SUPPORTS_ACTION_SLOTS = bpy.app.version[0] >= 4 and bpy.app.version[1] >= 4
+
+class Mode(enum.IntEnum):
+    ALL = 0
+    MAKE_CTRLS_ONLY = 1
+    APPLY_ANIMATION_ONLY = 2
+
+class AnimationContext():
+    """Used for save and restore the animation related context of the scene and object"""
+    def __init__(self, scene, obj=None):
+        self.scene = scene
+        self.obj = obj
+    def __enter__(self):
+        self._frame = self.scene.frame_current
+        if self.obj and self.obj.animation_data:
+            self._action = self.obj.animation_data.action
+            if SUPPORTS_ACTION_SLOTS:
+                self._action_slot = self.obj.animation_data.action_slot
+            else:
+                self._action_slot = None
+        else:
+            self._action = self._action_slot = None
+        return self
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        self.scene.frame_set(self._frame)
+        if self.obj and self.obj.animation_data:
+            if self._action:
+                self.obj.animation_data.action = self._action
+            if self._action_slot:
+                self.obj.animation_data.action_slot = self._action_slot
+
 
 def _create_ctrl_bone_from(armature, source_bone, name=''):
     name = name if name else source_bone
@@ -166,44 +199,63 @@ def _get_mesh_bone_ctrls(rig):
             mesh_bone_ctrls.add(ske_bone + '.CTRL')
     return mesh_bone_ctrls
 
-def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
-    saved_frame = context.scene.frame_current
-    keyframes_to_delete = {}
-    for (target, offset) in ctrl_bone_to_offset:
-        source_name = _is_ctrl_of(target.bone)
-        source = rig.pose.bones[source_name]
+def _get_actions(obj):
+    if SUPPORTS_ACTION_SLOTS:
+        for action in bpy.data.actions:
+            for slot in action.slots:
+                if slot.identifier == 'OB' + obj.name:
+                    yield(action, slot)
+                    continue
+    elif obj.animation_data:
+        yield (obj.animation_data.action, None)
 
-        keyframes = _keyframes_as_dict(source)
-        for frame_idx, frame_data in sorted(keyframes.items()):
-            context.scene.frame_set(frame_idx)
-            context.view_layer.update()
-
-            target_pos = offset.normalized()
-            target_pos.rotate(source.matrix @ BONE_ROT_FIX)
-            target_pos *= offset.length
-            target_pos += source.matrix.translation
-
-            m = source.matrix.copy()
-            m.translation = target_pos
-            target.matrix = m
-
-            for data_path in ('location', 'rotation_quaternion'):
-                for data_index, _ in frame_data.get(data_path, {}).items():
-                    target.keyframe_insert(data_path=data_path, index=data_index, frame=frame_idx)
-
-                    # delete all keyframes for orignal mesh bones
-                    # otherwise the CHILD_OF constraint will mess them up
-                    if source_name in mesh_bones:
-                        to_delete = keyframes_to_delete.setdefault(source_name, [])
-                        to_delete.append({'data_path': data_path, 'index': data_index, 'frame': frame_idx})
-
-    context.scene.frame_set(saved_frame)
+def _apply_action(context, obj, action, slot):
+    if obj.animation_data is None:
+        obj.animation_data_create()
+    obj.animation_data.action = action
+    if slot:
+        obj.animation_data.action_slot = slot
     context.view_layer.update()
 
-    for source_name, to_delete in keyframes_to_delete.items():
-        source = rig.pose.bones[source_name]
-        for kwargs in to_delete:
-            source.keyframe_delete(**kwargs)
+def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
+    with AnimationContext(context.scene, rig):
+        for action, slot in _get_actions(rig):
+            _apply_action(context, rig, action, slot)
+            keyframes_to_delete = dict()
+            for (target, offset) in ctrl_bone_to_offset:
+                source_name = _is_ctrl_of(target.bone)
+                source = rig.pose.bones[source_name]
+                keyframes = _keyframes_as_dict(source)
+                for frame_idx, frame_data in sorted(keyframes.items()):
+                    context.scene.frame_set(frame_idx)
+                    context.view_layer.update()
+
+                    target_pos = offset.normalized()
+                    target_pos.rotate(source.matrix @ BONE_ROT_FIX)
+                    target_pos *= offset.length
+                    target_pos += source.matrix.translation
+
+                    m = source.matrix.copy()
+                    m.translation = target_pos
+                    target.matrix = m
+
+                    for data_path in ('location', 'rotation_quaternion'):
+                        for data_index, _ in frame_data.get(data_path, {}).items():
+                            target.keyframe_insert(data_path=data_path, index=data_index, frame=frame_idx)
+
+                            # delete all keyframes for orignal mesh bones
+                            # otherwise the CHILD_OF constraint will mess them up
+                            if source_name in mesh_bones:
+                                to_delete = keyframes_to_delete.setdefault(source_name, [])
+                                to_delete.append({'data_path': data_path, 'index': data_index, 'frame': frame_idx})
+
+            context.view_layer.update()
+            for source_name, to_delete in keyframes_to_delete.items():
+                source = rig.pose.bones[source_name]
+                for kwargs in to_delete:
+                    source.keyframe_delete(**kwargs)
+
+    context.view_layer.update()
 
 def _rollback_controllers(context, rig):
     armature = rig.data
@@ -227,9 +279,9 @@ def _rollback_controllers(context, rig):
     bpy.ops.object.mode_set(mode='OBJECT')
     context.view_layer.update()
 
-def setup_controllers(context, rig, step=0):
+def setup_controllers(context, rig, step=Mode.ALL):
     # cleanup previuous
-    if step != 2:
+    if step != Mode.APPLY_ANIMATION_ONLY:
         _rollback_controllers(context, rig)
     else:
         _remove_mesh_mask(rig)
@@ -240,7 +292,7 @@ def setup_controllers(context, rig, step=0):
     elif rig.name.lower() == '1p_setup':
         _setup_1p_controllers(context, rig, step)
 
-    if step == 1:
+    if step == Mode.MAKE_CTRLS_ONLY:
         rig.show_in_front = True
         # keep only mesh CTRL bones visible
         _set_hide_bones_in_em(context, rig, hide=True, blacklist=_get_mesh_bone_ctrls(rig))
@@ -249,7 +301,7 @@ def _setup_3p_controllers(context, rig, step):
     armature = rig.data
     context.view_layer.objects.active = rig
 
-    if step != 2:
+    if step != Mode.APPLY_ANIMATION_ONLY:
         bpy.ops.object.mode_set(mode='EDIT')
 
         # Create new bones
@@ -304,7 +356,7 @@ def _setup_3p_controllers(context, rig, step):
     else:
         mesh_bones = _get_active_mesh_bones(rig)
 
-    if step == 1:
+    if step == Mode.MAKE_CTRLS_ONLY:
         return
 
     bpy.ops.object.mode_set(mode='POSE')
@@ -480,7 +532,7 @@ def _setup_1p_controllers(context, rig, step):
     armature = rig.data
     context.view_layer.objects.active = rig
 
-    if step != 2:
+    if step != Mode.APPLY_ANIMATION_ONLY:
         bpy.ops.object.mode_set(mode='EDIT')
 
         # Create new bones
@@ -514,7 +566,7 @@ def _setup_1p_controllers(context, rig, step):
     else:
         mesh_bones = _get_active_mesh_bones(rig)
 
-    if step == 1:
+    if step == Mode.MAKE_CTRLS_ONLY:
         return
 
     bpy.ops.object.mode_set(mode='POSE')
@@ -688,11 +740,25 @@ def toggle_mesh_mask_mesh_for_active_bone(context, rig):
         _set_hide_bones_in_em(context, rig, hide=True, blacklist=_get_mesh_bone_ctrls(rig))
 
 def _get_bone_fcurves(pose_bone, data_path):
-    armature_obj = pose_bone.id_data
+    obj = pose_bone.id_data
     path = f'pose.bones["{bpy.utils.escape_identifier(pose_bone.name)}"].{data_path}'
-    if armature_obj.animation_data is None:
+
+    if obj.animation_data is None:
         return
-    fcurves = armature_obj.animation_data.action.fcurves
+
+    action = obj.animation_data.action
+    if not SUPPORTS_ACTION_SLOTS: # < Blender 4.4, use legacy API
+        fcurves = action.fcurves
+    else:
+        slot = obj.animation_data.action_slot
+        if slot is None:
+            return
+        # TODO: update to support layers in 5.0
+        channelbag = action.layers[0].strips[0].channelbag(slot)
+        if channelbag is None:
+            return
+        fcurves = channelbag.fcurves
+
     for fcu in fcurves:
         if fcu.data_path.startswith(path):
             yield fcu
@@ -707,44 +773,47 @@ def _keyframes_as_dict(pose_bone):
                 frame_data[fcurve.array_index] = kp
     return keyframes
 
-def _reparent_keyframes(pose_bone, parent):
-    _frame = bpy.context.scene.frame_current
-    keyframes = _keyframes_as_dict(pose_bone)
-    for frame_idx, frame_data in sorted(keyframes.items()):
-        bpy.context.scene.frame_set(frame_idx)
-        bpy.context.view_layer.update()
+def _reparent_keyframes(context, pose_bone, parent):
+    rig = pose_bone.id_data
+    with AnimationContext(context.scene, rig):
+        for action, slot in _get_actions(rig):
+            _apply_action(context, rig, action, slot)
+            keyframes = _keyframes_as_dict(pose_bone)
+            for frame_idx, frame_data in sorted(keyframes.items()):
+                context.scene.frame_set(frame_idx)
+                context.view_layer.update()
 
-        if parent:
-            matrix_basis = pose_bone.bone.convert_local_to_pose(
+                if parent:
+                    matrix_basis = pose_bone.bone.convert_local_to_pose(
+                                pose_bone.matrix,
+                                pose_bone.bone.matrix_local,
+                                parent_matrix=parent.matrix,
+                                parent_matrix_local=parent.bone.matrix_local,
+                                invert=True
+                            )
+                else:
+                    matrix_basis = pose_bone.bone.convert_local_to_pose(
                         pose_bone.matrix,
                         pose_bone.bone.matrix_local,
-                        parent_matrix=parent.matrix,
-                        parent_matrix_local=parent.bone.matrix_local,
                         invert=True
                     )
-        else:
-            matrix_basis = pose_bone.bone.convert_local_to_pose(
-                pose_bone.matrix,
-                pose_bone.bone.matrix_local,
-                invert=True
-            )
 
-        pos, rot, _ = matrix_basis.decompose()
-        for data_path, new_data, in [('location', pos), ('rotation_quaternion', rot)]:
-            for data_index, kp in frame_data.get(data_path, {}).items():
-                delta = new_data[data_index] - kp.co[1]
-                kp.handle_right[1] += delta
-                kp.handle_left[1] += delta
-                kp.co[1] += delta
+                pos, rot, _ = matrix_basis.decompose()
+                for data_path, new_data, in [('location', pos), ('rotation_quaternion', rot)]:
+                    for data_index, kp in frame_data.get(data_path, {}).items():
+                        delta = new_data[data_index] - kp.co[1]
+                        kp.handle_right[1] += delta
+                        kp.handle_left[1] += delta
+                        kp.co[1] += delta
 
-    bpy.context.scene.frame_set(_frame)
+    context.view_layer.update()
 
-def reparent_bones(rig, target_bones, parent_bone, reporter=DEFAULT_REPORTER):
+def reparent_bones(context, rig, target_bones, parent_bone, reporter=DEFAULT_REPORTER):
     for target_bone in target_bones:
         if target_bone == parent_bone:
             continue
 
-        bpy.context.view_layer.objects.active = rig
+        context.view_layer.objects.active = rig
         bpy.ops.object.mode_set(mode='POSE')
         target_pose_bone = rig.pose.bones[target_bone]
         if parent_bone:
@@ -755,7 +824,7 @@ def reparent_bones(rig, target_bones, parent_bone, reporter=DEFAULT_REPORTER):
         if target_bone in rig['bf2_bones']:
             reporter.warning("Chaning parent of the BF2 skeleton bone, this will mess up your export!")
 
-        _reparent_keyframes(target_pose_bone, parent_pose_bone)
+        _reparent_keyframes(context, target_pose_bone, parent_pose_bone)
 
         bpy.ops.object.mode_set(mode='EDIT')
         target_edit_bone = rig.data.edit_bones[target_bone]

@@ -71,6 +71,15 @@ After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add
 - TIP: If you plan to edit an imported animation, you can delete redundant keyframes using [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) option
 - When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
 
+## Batch Animation import/export
+The add-on's Python API enables importing many `.baf` animations as separate actions as well as exporting all actions (which contain a slot with the skeleton name) as separate `.baf` animations.
+
+Prerequisites:
+- Blender 4.4 or above
+- [Action To Scene Range] Add-on(https://extensions.blender.org/add-ons/action-to-scene-range/)
+
+Copy & paste the [Batch Import](../scripts/anim_batch_import.py) or [Batch Export](../scripts/anim_batch_export.py) example into a new script in the `Scripting` area, adjust settings and execute it.
+
 ## Known issues
 - Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions.
 - Blender does not support mesh deformations when using Object Space normal maps. This means most SkinnedMeshes will have shading issues when deformed/animated, no workaround found yet.

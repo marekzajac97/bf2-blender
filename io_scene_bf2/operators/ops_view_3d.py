@@ -4,7 +4,11 @@ import traceback
 
 from bpy.props import IntProperty, BoolProperty # type: ignore
 from ..core.utils import Reporter
-from ..core.anim_utils import toggle_mesh_mask_mesh_for_active_bone, setup_controllers, reparent_bones
+from ..core.anim_utils import (
+    toggle_mesh_mask_mesh_for_active_bone,
+    setup_controllers,
+    reparent_bones,
+    Mode)
 from ..core.skeleton import is_bf2_skeleton
 from ..core.utils import flip_uv, find_root
 from ..core.mesh import AnimUv
@@ -67,7 +71,7 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            setup_controllers(context, self.rig, step=1)
+            setup_controllers(context, self.rig, step=Mode.MAKE_CTRLS_ONLY)
             _bf2_setup_started(context, self.rig)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
@@ -88,7 +92,7 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            setup_controllers(context, self.rig, step=2)
+            setup_controllers(context, self.rig, step=Mode.APPLY_ANIMATION_ONLY)
             _bf2_setup_finished(context)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
@@ -254,7 +258,7 @@ class POSE_OT_bf2_change_parent(bpy.types.Operator):
         rig = context.view_layer.objects.active
         parent_bone = context.active_pose_bone.name
         bones = list(filter(lambda b: b != parent_bone, map(lambda b: b.name, context.selected_pose_bones_from_active_object)))
-        reparent_bones(rig, bones, parent_bone, reporter=Reporter(self.report))
+        reparent_bones(context, rig, bones, parent_bone, reporter=Reporter(self.report))
         return {'FINISHED'}
 
 
@@ -271,7 +275,7 @@ class POSE_OT_bf2_clear_parent(bpy.types.Operator):
     def execute(self, context):
         rig = context.view_layer.objects.active
         bones = list(map(lambda b: b.name, context.selected_pose_bones_from_active_object))
-        reparent_bones(rig, bones, None, reporter=Reporter(self.report))
+        reparent_bones(context, rig, bones, None, reporter=Reporter(self.report))
         return {'FINISHED'}
 
 def menu_func_edit_mesh(self, context):
