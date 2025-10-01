@@ -7,6 +7,7 @@
     + [BundledMesh/SkinnedMesh](#bundledmesh-skinnedmesh)
 - [Initial Add-on setup](#initial-add-on-setup)
 - [Animating](#animating)
+  * [Batch Animation import/export](#batch-animation-importexport)
 - [ObjectTemplate vs Mesh import/export](#objecttemplate-vs-mesh-importexport)
 - [ObjectTemplate export guide](#objecttemplate-export-guide)
   * [The object hierarchy](#the-object-hierarchy)
@@ -76,7 +77,7 @@ The add-on's Python API enables importing many `.baf` animations as separate act
 
 Prerequisites:
 - Blender 4.4 or above
-- [Action To Scene Range] Add-on(https://extensions.blender.org/add-ons/action-to-scene-range/)
+- [Action to Scene Range](https://extensions.blender.org/add-ons/action-to-scene-range/) Add-on
 
 Copy & paste the [Batch Import](../scripts/anim_batch_import.py) or [Batch Export](../scripts/anim_batch_export.py) example into a new script in the `Scripting` area, adjust settings and execute it.
 
