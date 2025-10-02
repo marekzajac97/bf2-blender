@@ -37,7 +37,7 @@ class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
 class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
     bl_idname= "bf2_object.import"
     bl_description = 'Battlefield 2 ObjectTemplate'
-    bl_label = "Import BF2 ObjectTemplate"
+    bl_label = "Import ObjectTemplate"
     filter_glob: StringProperty(default="*.con", options={'HIDDEN'}) # type: ignore
 
     import_collmesh: BoolProperty(
@@ -204,7 +204,7 @@ SAMPLES_MIN_SIZE = 8
 
 class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
     bl_idname = "bf2_object.export"
-    bl_label = "Export BF2 ObjectTemplate"
+    bl_label = "Export ObjectTemplate"
     filename_ext = ".con"
     filter_glob: StringProperty(default="*.con", options={'HIDDEN'}) # type: ignore
     FILE_DESC = "ObjectTemplate (.con)"
