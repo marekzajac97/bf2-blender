@@ -812,7 +812,7 @@ def _reparent_keyframes(context, pose_bone, parent):
 
     context.view_layer.update()
 
-def reparent_bones(context, rig, target_bones, parent_bone, reporter=DEFAULT_REPORTER):
+def reparent_bones(context, rig, target_bones, parent_bone, as_child_of=True, reporter=DEFAULT_REPORTER):
     for target_bone in target_bones:
         if target_bone == parent_bone:
             continue
@@ -830,11 +830,12 @@ def reparent_bones(context, rig, target_bones, parent_bone, reporter=DEFAULT_REP
 
         _reparent_keyframes(context, target_pose_bone, parent_pose_bone)
 
-        bpy.ops.object.mode_set(mode='EDIT')
-        target_edit_bone = rig.data.edit_bones[target_bone]
-        if parent_bone:
-            parent_edit_bone = rig.data.edit_bones[parent_bone]
-        else:
-            parent_edit_bone = None
-        target_edit_bone.parent = parent_edit_bone
-        bpy.ops.object.mode_set(mode='POSE') 
+        if not as_child_of:
+            bpy.ops.object.mode_set(mode='EDIT')
+            target_edit_bone = rig.data.edit_bones[target_bone]
+            if parent_bone:
+                parent_edit_bone = rig.data.edit_bones[parent_bone]
+            else:
+                parent_edit_bone = None
+            target_edit_bone.parent = parent_edit_bone
+            bpy.ops.object.mode_set(mode='POSE') 

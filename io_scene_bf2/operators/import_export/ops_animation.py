@@ -184,7 +184,7 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
         save_bones_for_export(self.rig, {i.name: i.included for i in self.bones_for_export})
         try:
             if not self.multi_action:
-                self._execute(context)
+                self._export(context, self.filepath)
             else:
                 with AnimationContext(context.scene, self.rig):
                     if not os.path.isdir(self.filepath):

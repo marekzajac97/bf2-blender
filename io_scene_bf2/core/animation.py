@@ -127,7 +127,10 @@ def import_animation(context, rig, baf_file, insert_at_frame=0):
             pos = frame.pos.copy()
             rot = frame.rot.copy()
             pos, rot = conv_bf2_to_blender(pos, rot)
-            ske_bone = ske_bones[bone_idx]
+            try:
+                ske_bone = ske_bones[bone_idx]
+            except IndexError as e:
+                raise ImportException(f"Bone index {bone_idx} from the animation file does not exist in the skeleton")
             pose_bone = rig.pose.bones[ske_bone]
 
             # bone transforms in .baf are in parent bone space

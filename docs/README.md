@@ -80,6 +80,7 @@ To import an animation you will generally need these four things imported into y
 When importing soldier or weapon meshes, select only Geom0/Lod0 (First Person Animating) or Geom1/Lod0 (Third Person Animating) in the import settings. **IMPORTANT**: DO NOT use `Import -> BF2 -> ObjecTemplate (.con)` for that purpose!
 
 TIP: Imported animations are baked so you might need to delete redundant keyframes if you want to edit them, use [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) for that.
+TIP: If the animation preview looks noisy in the viewport disable [Temporal Reprojection](https://docs.blender.org/manual/en/latest/render/eevee/render_settings/sampling.html#viewport) (it's trash)
 
 ## Rig Setup
 The skeleton will be imported as Blender's Armature object and before you start animating you might need to create a rig for it. You can do that either:
