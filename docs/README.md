@@ -7,7 +7,10 @@
     + [BundledMesh/SkinnedMesh](#bundledmesh-skinnedmesh)
 - [Initial Add-on setup](#initial-add-on-setup)
 - [Animating](#animating)
-  * [Batch Animation import/export](#batch-animation-importexport)
+  * [Animation Import](#animation-import)
+  * [Rig setup](#rig-setup)
+  * [Animation Export](#animation-export)
+  * [Recommended Extensions](#recommended-extensions)
 - [ObjectTemplate vs Mesh import/export](#objecttemplate-vs-mesh-importexport)
 - [ObjectTemplate export guide](#objecttemplate-export-guide)
   * [The object hierarchy](#the-object-hierarchy)
@@ -65,21 +68,38 @@ For BundledMesh, the roughness map is embeded into the alpha channel of either t
 After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (optional but needed to load textures) Then you can use the `BF2` submenu in the `File -> Import/Export` or drag-and-drop any supported BF2 file.
 
 # Animating
-- The import order of things does matter! The skeleton (`.ske`) needs to be loaded first, followed by the soldier/kit mesh (`.skinnedMesh`), the animated weapon (`.bundledMesh`) and the animation (`.baf`) loaded at the very end (**IMPORTANT**: DO NOT use `Import -> ObjecTemplate (.con)` for importing soldiers, kit meshes or weapons for animating).
-- When importing weapon or soldier meshes, select only Geom0 Lod0 (First Person Animating) or Geom1 Lod0 (Third Person Animating) in the import settings. Each part of the weapon mesh will be automatically assigned to a vertex group from `mesh1` to `mesh16` and their respective bones.
-- The skeleton will be imported as Blender's Armature object. The armature can be freely extended e.g. by adding helper bones for animating, but **DO NOT** modify imported bones! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. Instead, create additional helper bones and set up constraints like `Child Of` and/or `Copy Transforms` on the original bones.
-- You can use other add-ons such as `Rigify` to create the rig for animating, but you can also use the add-on's built-in automated rig setup using the `Pose -> BF2 -> Setup Controllers` option. This option can also be used after animation import for easier editing of existing animations (NOTE: importing an animation **AFTER** setting up the controllers will not work). By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing position/rotation keyframes.
-- TIP: If you plan to edit an imported animation, you can delete redundant keyframes using [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) option
-- When exporting, you can select/deselect bones for export in the export menu (matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
+The add-on ships with extensive toolset for creating BF2 animations including batch import/export, automated rig setup and more. This section contains all the info you need to get started.
 
-## Batch Animation import/export
-The add-on's Python API enables importing many `.baf` animations as separate actions as well as exporting all actions (which contain a slot with the skeleton name) as separate `.baf` animations.
+## Animation Import
+To import an animation you will generally need these four things imported into your scene in this exact order!
+ 1. The skeleton (`.ske`)
+ 2. The soldier mesh (and optionally a kit mesh) (`.skinnedMesh`)
+ 3. The weapon mesh (`.bundledMesh`)
+ 4. The animation (`.baf`)
 
-Prerequisites:
-- Blender 4.4 or above
-- [Action to Scene Range](https://extensions.blender.org/add-ons/action-to-scene-range/) Add-on
+When importing soldier or weapon meshes, select only Geom0/Lod0 (First Person Animating) or Geom1/Lod0 (Third Person Animating) in the import settings. **IMPORTANT**: DO NOT use `Import -> BF2 -> ObjecTemplate (.con)` for that purpose!
 
-Copy & paste the [Batch Import](../scripts/anim_batch_import.py) or [Batch Export](../scripts/anim_batch_export.py) example into a new script in the `Scripting` area, adjust settings and execute it.
+TIP: Imported animations are baked so you might need to delete redundant keyframes if you want to edit them, use [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) for that.
+
+## Rig Setup
+The skeleton will be imported as Blender's Armature object and before you start animating you might need to create a rig for it. You can do that either:
+### Manually
+The armature can be freely extended by appending more bones to it which can act as helpers (constrain targets), but imported bones **MUST NOT** be modified! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. To alter their relations you can set up constraints (such as [Child Of](https://docs.blender.org/manual/en/latest/animation/constraints/relationship/child_of.html) and/or [Copy Transforms](https://docs.blender.org/manual/en/latest/animation/constraints/transform/copy_transforms.html) to other helper bones) on them instead.
+### Automatically
+- Using external add-ons such as [Rigify](https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html)
+- Using this add-on's built-in option found under `Pose -> BF2 -> Setup Controllers`. This option can also be used after animations have been imported for easier editing of existing animations. By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing animation data. NOTE: importing animations **AFTER** `Setup Controllers` has been run is not supported and will not work!
+
+## Animation Export
+Export settings allow you to choose:
+- whether to export in Armature space or World space
+- which [Actions](https://docs.blender.org/manual/en/latest/animation/actions.html) to export (each Action can be exported as a separate `.baf` file). NOTE: Blender 4.4 or above required
+- which bones to export (mostly matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
+
+## Recommended Extensions:
+Some very useful 3rd party add-ons for animating:
+  * [Action to Scene Range](https://extensions.blender.org/add-ons/action-to-scene-range/) automatically applies [Action frame range](https://docs.blender.org/manual/en/latest/animation/actions.html#action-properties) to Scene frame range (makes life easier when working with multiple animations)
+  * [Unlooped](https://extensions.blender.org/add-ons/unlooped/) prevents Blender from looping scene playback (useful for e.g. checking how smooth your fade outs to base pose are)
+  * [Animation Auto Offset](https://extensions.blender.org/add-ons/anim-auto-offset/) works like auto-keying but transform changes affect the whole animation (3ds Max like behaviour)
 
 ## Known issues
 - Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions.

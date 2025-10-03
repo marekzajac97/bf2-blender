@@ -21,7 +21,7 @@ POLE_OFFSET = 0.5
 ONES_VEC = Vector((1, 1, 1))
 ZERO_VEC = Vector((0, 0, 0))
 
-SUPPORTS_ACTION_SLOTS = bpy.app.version[0] >= 4 and bpy.app.version[1] >= 4
+SUPPORTS_ACTION_SLOTS = hasattr(bpy.types, "ActionSlot")
 
 class Mode(enum.IntEnum):
     ALL = 0
@@ -217,11 +217,12 @@ def _apply_action(context, obj, action, slot):
         obj.animation_data.action_slot = slot
     context.view_layer.update()
 
-def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
-    with AnimationContext(context.scene, rig):
-        for action, slot in _get_actions(rig):
+def _reapply_animation_to_ctrls_impl(context, rig, mesh_bones, ctrl_bone_to_offset):
+    # rig.animation_data.action = bpy.data.actions['1p_m1garand_reload']
+    for action, slot in _get_actions(rig):
+        keyframes_to_delete = dict()
+        with AnimationContext(context.scene):
             _apply_action(context, rig, action, slot)
-            keyframes_to_delete = dict()
             for (target, offset) in ctrl_bone_to_offset:
                 source_name = _is_ctrl_of(target.bone)
                 source = rig.pose.bones[source_name]
@@ -249,12 +250,15 @@ def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
                                 to_delete = keyframes_to_delete.setdefault(source_name, [])
                                 to_delete.append({'data_path': data_path, 'index': data_index, 'frame': frame_idx})
 
-            context.view_layer.update()
-            for source_name, to_delete in keyframes_to_delete.items():
-                source = rig.pose.bones[source_name]
-                for kwargs in to_delete:
-                    source.keyframe_delete(**kwargs)
+        context.view_layer.update()
+        for source_name, to_delete in keyframes_to_delete.items():
+            source = rig.pose.bones[source_name]
+            for kwargs in to_delete:
+                source.keyframe_delete(**kwargs)
 
+def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
+    with AnimationContext(context.scene, rig):
+        _reapply_animation_to_ctrls_impl(context, rig, mesh_bones, ctrl_bone_to_offset)
     context.view_layer.update()
 
 def _rollback_controllers(context, rig):

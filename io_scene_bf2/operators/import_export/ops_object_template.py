@@ -264,7 +264,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     gen_lightmap_uv: BoolProperty(
         name="Generate lightmap UVs",
-        description="Generate StaticMesh Lightmap UVs for each Lod (UV4) if not present",
+        description="Generate Lightmap UVs for each Lod (UV4) if not present (for StaticMeshes only)",
         default=True
     ) # type: ignore
 
@@ -347,50 +347,45 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
     def draw(self, context):
         layout = self.layout
-
-        row = layout.row()
-        row.label(text="Tangent UV map:")
-        row.prop(self, "tangent_uv_map", text='')
-
-        if not self.tangent_uv_map:
-            layout.label(text='ERROR: No valid UV map found!', icon='ERROR')
-
         is_sm = self.geom_type == 'StaticMesh'
 
-        row = layout.row()
-        row.prop(self, "gen_lightmap_uv")
-        row.enabled = is_sm
+        header, body = layout.panel("BF2_PT_export_geometry", default_closed=False)
+        header.prop(self, "export_geometry")
+        header.enabled = self.export_geometry
+        if body:
+            row = body.row()
+            row.label(text="Tangent UV map:")
+            row.prop(self, "tangent_uv_map", text='')
+
+            if not self.tangent_uv_map:
+                body.label(text='ERROR: No valid UV map found!', icon='ERROR')
+
+            row = body.row()
+            row.prop(self, "gen_lightmap_uv")
+            row.enabled = is_sm
+            body.enabled = self.export_geometry
+            body.prop(self, "save_backfaces") 
+            body.prop(self, "normal_weld_threshold")
+            body.prop(self, "tangent_weld_threshold")
 
         header, body = layout.panel("BF2_PT_export_samples", default_closed=True)
-        header.label(text="Samples")
+        header.prop(self, "export_samples")
+        header.enabled = is_sm and self.export_geometry
         if body:
-            ex_smp = self.export_samples and self.export_geometry
-            col = layout.column()
-            col.prop(self, "export_samples")
-            col.enabled = is_sm and self.export_geometry
-            row = layout.row()
+            body.enabled = header.enabled and self.export_samples
+            row = body.row()
             row.prop(self, "samples_size", text="Size")
-            row.enabled = is_sm and ex_smp
             col = row.column()
             col.prop(self, "link_samples_size", text="")
-            col.enabled = is_sm and ex_smp
-            col = layout.column()
-            col.prop(self, "use_edge_margin")
-            col.enabled = is_sm and ex_smp
-            col = layout.column()
-            col.prop(self, "sample_padding")
-            col.enabled = is_sm and ex_smp
+            body.prop(self, "use_edge_margin")
+            body.prop(self, "sample_padding")
 
-        layout.prop(self, "export_geometry")
         layout.prop(self, "export_collmesh")
         if not NATIVE_BSP_EXPORT and self.export_collmesh:
             layout.label(text='WARNING: Native BSP export module could not be loaded!', icon='ERROR')
             layout.label(text='The add-on might be incompatible with this Blender version or platform')
             layout.label(text='CollisionMesh export may take a while to complete for complex meshes')
         layout.prop(self, "apply_modifiers")
-        layout.prop(self, "normal_weld_threshold")
-        layout.prop(self, "tangent_weld_threshold")
-        layout.prop(self, "save_backfaces")
 
     @classmethod
     def poll(cls, context):
