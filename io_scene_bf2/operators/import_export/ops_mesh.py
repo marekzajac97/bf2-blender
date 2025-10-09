@@ -1,9 +1,8 @@
 import bpy # type: ignore
-import traceback
 from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty # type: ignore
-from bpy_extras.io_utils import ImportHelper, ExportHelper, poll_file_object_drop # type: ignore
+from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
-from ...core.exceptions import ImportException, ExportException # type: ignore
+from .ops_common import ImporterBase, ExporterBase
 from ...core.mesh import (import_mesh,
                           import_bundledmesh,
                           import_skinnedmesh,
@@ -17,13 +16,7 @@ from ...core.utils import find_root, Reporter
 
 from ... import get_mod_dir
 
-class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
-    bl_idname= "bf2_mesh.import"
-    bl_description = 'Import Battlefield 2 Mesh file'
-    bl_label = "Import mesh"
-    filter_glob: StringProperty(default="*.bundledmesh;*.skinnedmesh;*.staticmesh", options={'HIDDEN'}) # type: ignore
-    IMPORT_FUNC = import_mesh
-    FILE_DESC = "Mesh (.bundledmesh, .skinnedmesh, .staticmesh)"
+class MeshImportBase(ImporterBase):
 
     geom: IntProperty(
         name="Geom",
@@ -60,14 +53,13 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
     def draw(self, context):
         layout = self.layout
 
-        layout.prop(self, "only_selected_lod")
-        col = layout.column()
-        col.prop(self, "geom")
-        col.enabled = self.only_selected_lod
+        header, body = layout.panel("BF2_PT_export_geometry", default_closed=False)
+        header.prop(self, "only_selected_lod")
 
-        col = layout.column()
-        col.prop(self, "lod")
-        col.enabled = self.only_selected_lod
+        if body:
+            body.enabled = self.only_selected_lod
+            body.prop(self, "geom")
+            body.prop(self, "lod")
 
         col = layout.column()
         col.prop(self, "merge_materials")
@@ -76,48 +68,47 @@ class IMPORT_OT_bf2_mesh(bpy.types.Operator, ImportHelper):
         col.prop(self, "load_backfaces")
 
     def invoke(self, context, _event):
-        try:
-            # suggest to load only single LOD whe skeleton got imported previoulsy
-            self.rig = find_active_skeleton(context)
-            if self.rig:
-                self.only_selected_lod = True
-                if self.rig.name in ('1p_setup', '3p_setup'):
-                    self.lod = 0
-                    self.geom = 1 if self.rig.name.lower() == '3p_setup' else 0
-                else:
-                    self.lod = self.geom = 0
-        except Exception as e:
-            print(e)
+        # suggest to load only single LOD when a skeleton got imported previoulsy
+        rig = find_active_skeleton(context)
+        if rig:
+            self.only_selected_lod = True
+            if rig.name in ('1p_setup', '3p_setup'):
+                self.lod = 0
+                self.geom = 1 if rig.name.lower() == '3p_setup' else 0
+            else:
+                self.lod = self.geom = 0
         return super().invoke(context, _event)
 
-    def execute(self, context):
+    def _execute(self, context):
         mod_path = get_mod_dir(context)
-        try:
-            kwargs = {}
-            if self.only_selected_lod:
-                kwargs['geom'] = self.geom
-                kwargs['lod'] = self.lod
+        kwargs = {}
+        if self.only_selected_lod:
+            kwargs['geom'] = self.geom
+            kwargs['lod'] = self.lod
 
-            if self.rig:
-                kwargs['geom_to_ske'] = {-1: self.rig}
+        rig = find_active_skeleton(context)
+        if rig:
+            kwargs['geom_to_ske'] = {-1: rig}
 
+        context.view_layer.objects.active = \
             self.__class__.IMPORT_FUNC(context, self.filepath,
                                        texture_path=mod_path,
                                        merge_materials=self.merge_materials,
                                        load_backfaces=self.load_backfaces,
                                        reporter=Reporter(self.report),
                                        **kwargs)
-        except ImportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        return {'FINISHED'}
+
+class IMPORT_OT_bf2_mesh(bpy.types.Operator, MeshImportBase):
+    bl_idname= "bf2.mesh_import"
+    bl_description = 'Import Battlefield 2 Mesh file'
+    bl_label = "Import mesh"
+    filter_glob: StringProperty(default="*.bundledmesh;*.skinnedmesh;*.staticmesh", options={'HIDDEN'}) # type: ignore
+    IMPORT_FUNC = import_mesh
+    FILE_DESC = "Mesh (.bundledmesh, .skinnedmesh, .staticmesh)"
 
 
-class IMPORT_OT_bf2_staticmesh(IMPORT_OT_bf2_mesh):
-    bl_idname= "bf2_mesh.import_staticmesh"
+class IMPORT_OT_bf2_staticmesh(bpy.types.Operator, MeshImportBase):
+    bl_idname= "bf2.staticmesh_import"
     bl_description = 'Import Battlefield 2 static mesh file'
     bl_label = "Import StaticMesh"
     filter_glob: StringProperty(default="*.staticmesh", options={'HIDDEN'}) # type: ignore
@@ -125,8 +116,8 @@ class IMPORT_OT_bf2_staticmesh(IMPORT_OT_bf2_mesh):
     FILE_DESC = "StaticMesh (.staticmesh)"
 
 
-class IMPORT_OT_bf2_skinnedmesh(IMPORT_OT_bf2_mesh):
-    bl_idname= "bf2_mesh.import_skinnedmesh"
+class IMPORT_OT_bf2_skinnedmesh(bpy.types.Operator, MeshImportBase):
+    bl_idname= "bf2.skinnedmesh_import"
     bl_description = 'Import Battlefield 2 skinned mesh file'
     bl_label = "Import SkinnedMesh"
     filter_glob: StringProperty(default="*.skinnedmesh", options={'HIDDEN'}) # type: ignore
@@ -134,8 +125,8 @@ class IMPORT_OT_bf2_skinnedmesh(IMPORT_OT_bf2_mesh):
     FILE_DESC = "SkinnedMesh (.skinnedmesh)"
 
 
-class IMPORT_OT_bf2_bundledmesh(IMPORT_OT_bf2_mesh):
-    bl_idname= "bf2_mesh.import_bundledmesh"
+class IMPORT_OT_bf2_bundledmesh(bpy.types.Operator, MeshImportBase):
+    bl_idname= "bf2.bundledmesh_import"
     bl_description = 'Import Battlefield 2 bundled mesh file'
     bl_label = "Import BundledMesh"
     filter_glob: StringProperty(default="*.bundledmesh", options={'HIDDEN'}) # type: ignore
@@ -143,8 +134,8 @@ class IMPORT_OT_bf2_bundledmesh(IMPORT_OT_bf2_mesh):
     FILE_DESC = "BundledMesh (.bundledmesh)"
 
 
-class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
-    bl_idname = "bf2_mesh.export_mesh"
+class MeshExportBase(ExporterBase):
+    bl_idname = "bf2.mesh_export"
     bl_label = "Export Mesh"
     EXPORT_FUNC = None
     FILE_DESC = None
@@ -198,36 +189,25 @@ class EXPORT_OT_bf2_mesh(bpy.types.Operator, ExportHelper):
         cls.poll_message_set("No object active")
         return context.view_layer.objects.active is not None
 
-    def execute(self, context):
+    def _execute(self, context):
         mod_path = get_mod_dir(context)
-        try:
-           self.__class__.EXPORT_FUNC(self.root, self.filepath,
-                                      texture_path=mod_path,
-                                      tangent_uv_map=self.tangent_uv_map,
-                                      save_backfaces=self.save_backfaces,
-                                      apply_modifiers=self.apply_modifiers,
-                                      triangulate=True,
-                                      reporter=Reporter(self.report))
-        except ExportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        self.report({"INFO"}, 'Export complete')
-        return {'FINISHED'}
+        root = find_root(context.view_layer.objects.active)
+        self.__class__.EXPORT_FUNC(root, self.filepath,
+                                   texture_path=mod_path,
+                                   tangent_uv_map=self.tangent_uv_map,
+                                   save_backfaces=self.save_backfaces,
+                                   apply_modifiers=self.apply_modifiers,
+                                   triangulate=True,
+                                   reporter=Reporter(self.report))
 
     def invoke(self, context, _event):
-        active_obj = context.view_layer.objects.active
-        self.root = find_root(active_obj)
-        self.filepath = self.root.name + self.filename_ext
-        result = super().invoke(context, _event)
-        context.view_layer.objects.active = active_obj # restore
-        return result
+        root = find_root(context.view_layer.objects.active)
+        self.filepath = root.name + self.filename_ext
+        return super().invoke(context, _event)
 
 
-class EXPORT_OT_bf2_staticmesh(EXPORT_OT_bf2_mesh):
-    bl_idname = "bf2_mesh.export_staticmesh"
+class EXPORT_OT_bf2_staticmesh(bpy.types.Operator, MeshExportBase):
+    bl_idname = "bf2.staticmesh_export"
     bl_label = "Export Static Mesh"
     filename_ext = ".staticmesh"
     filter_glob: StringProperty(default="*.staticmesh", options={'HIDDEN'}) # type: ignore
@@ -247,8 +227,8 @@ class IMPORT_EXPORT_FH_staticmesh(bpy.types.FileHandler):
         return poll_file_object_drop(context)
 
 
-class EXPORT_OT_bf2_bundledmesh(EXPORT_OT_bf2_mesh):
-    bl_idname= "bf2_mesh.export_bundledmesh"
+class EXPORT_OT_bf2_bundledmesh(bpy.types.Operator, MeshExportBase):
+    bl_idname= "bf2.bundledmesh_export"
     bl_label = "Export BundledMesh"
     filename_ext = ".bundledmesh"
     filter_glob: StringProperty(default="*.bundledmesh", options={'HIDDEN'}) # type: ignore
@@ -268,8 +248,8 @@ class IMPORT_EXPORT_FH_bundledmesh(bpy.types.FileHandler):
         return poll_file_object_drop(context)
 
 
-class EXPORT_OT_bf2_skinnedmesh(EXPORT_OT_bf2_mesh):
-    bl_idname= "bf2_mesh.export_skinnedmesh"
+class EXPORT_OT_bf2_skinnedmesh(bpy.types.Operator, MeshExportBase):
+    bl_idname= "bf2.skinnedmesh_export"
     bl_label = "Export SkinnedMesh"
     filename_ext = ".skinnedmesh"
     filter_glob: StringProperty(default="*.skinnedmesh", options={'HIDDEN'}) # type: ignore

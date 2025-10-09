@@ -1,14 +1,13 @@
 import bpy # type: ignore
-import traceback
 from bpy.props import StringProperty, BoolProperty # type: ignore
-from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
+from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
-from ...core.exceptions import ImportException, ExportException # type: ignore
+from .ops_common import ImporterBase, ExporterBase
 from ...core.collision_mesh import import_collisionmesh, export_collisionmesh
 from ...core.utils import find_root, Reporter
 
-class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
-    bl_idname= "bf2_collisionmesh.import"
+class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImporterBase):
+    bl_idname= "bf2.collisionmesh_import"
     bl_description = 'Battlefield 2 collision mesh file'
     bl_label = "Import Collision Mesh"
     filter_glob: StringProperty(default="*.collisionmesh", options={'HIDDEN'}) # type: ignore
@@ -19,21 +18,17 @@ class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImportHelper):
         default=True
     ) # type: ignore
 
-    def execute(self, context):
-        try:
-            import_collisionmesh(context, self.filepath,
-                                 load_backfaces=self.load_backfaces,
-                                 reporter=Reporter(self.report))
-        except ImportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        return {'FINISHED'}
+    def _execute(self, context):
+        context.view_layer.objects.active = \
+            import_collisionmesh(context,
+                self.filepath,
+                load_backfaces=self.load_backfaces,
+                reporter=Reporter(self.report))
 
-class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
-    bl_idname = "bf2_collisionmesh.export"
+
+class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExporterBase):
+    bl_idname = "bf2.collisionmesh_export"
+    bl_description = 'Battlefield 2 collision mesh file'
     bl_label = "Export Collision Mesh"
 
     filename_ext = ".collisionmesh"
@@ -56,29 +51,18 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExportHelper):
         cls.poll_message_set("No object active")
         return context.view_layer.objects.active is not None
 
-    def execute(self, context):
-        try:
-           export_collisionmesh(self.root, self.filepath,
-                                save_backfaces=self.save_backfaces,
-                                apply_modifiers=self.apply_modifiers,
-                                triangulate=True,
-                                reporter=Reporter(self.report))
-        except ExportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        self.report({"INFO"}, 'Export complete')
-        return {'FINISHED'}
+    def _execute(self, context):
+        root = find_root(context.view_layer.objects.active)
+        export_collisionmesh(root, self.filepath,
+                             save_backfaces=self.save_backfaces,
+                             apply_modifiers=self.apply_modifiers,
+                             triangulate=True,
+                             reporter=Reporter(self.report))
 
     def invoke(self, context, _event):
-        active_obj = context.view_layer.objects.active
-        self.root = find_root(active_obj)
-        self.filepath = self.root.name + self.filename_ext
-        result = super().invoke(context, _event)
-        context.view_layer.objects.active = active_obj # restore
-        return result
+        root = find_root(context.view_layer.objects.active)
+        self.filepath = root.name + self.filename_ext
+        return super().invoke(context, _event)
 
 
 class IMPORT_EXPORT_FH_collisionmesh(bpy.types.FileHandler):

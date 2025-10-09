@@ -1,31 +1,24 @@
 import bpy # type: ignore
-import traceback
 from bpy.props import StringProperty # type: ignore
-from bpy_extras.io_utils import ImportHelper, ExportHelper, poll_file_object_drop # type: ignore
+from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
-from ...core.exceptions import ImportException, ExportException # type: ignore
+from .ops_common import ImporterBase, ExporterBase
 from ...core.occluders import import_occluders, export_occluders
 
-class IMPORT_OT_bf2_occluders(bpy.types.Operator, ImportHelper):
-    bl_idname= "bf2_occluders.import"
+class IMPORT_OT_bf2_occluders(bpy.types.Operator, ImporterBase):
+    bl_idname= "bf2.occ_import"
     bl_description = 'Battlefield 2 occluder planes file'
     bl_label = "Import occluder planes"
 
     filter_glob: StringProperty(default="*.occ", options={'HIDDEN'}) # type: ignore
 
-    def execute(self, context):
-        try:
-           import_occluders(context, self.filepath)
-        except ImportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        return {'FINISHED'}
+    def _execute(self, context):
+        context.view_layer.objects.active = \
+            import_occluders(context, self.filepath)
 
-class EXPORT_OT_bf2_occluders(bpy.types.Operator, ExportHelper):
-    bl_idname = "bf2_occluders.export"
+class EXPORT_OT_bf2_occluders(bpy.types.Operator, ExporterBase):
+    bl_idname = "bf2.occ_export"
+    bl_description = 'Battlefield 2 occluder planes file'
     bl_label = "Export occluder planes"
 
     filename_ext = ".occ"
@@ -36,18 +29,8 @@ class EXPORT_OT_bf2_occluders(bpy.types.Operator, ExportHelper):
         active_obj = context.view_layer.objects.active
         return active_obj and isinstance(active_obj.data, bpy.types.Mesh)
 
-    def execute(self, context):
-        active_obj = context.view_layer.objects.active
-        try:
-           export_occluders(active_obj, self.filepath)
-        except ExportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        self.report({"INFO"}, 'Export complete')
-        return {'FINISHED'}
+    def _execute(self, context):
+        export_occluders(context.view_layer.objects.active, self.filepath)
 
     def invoke(self, context, _event):
         self.filepath = context.view_layer.objects.active.name + self.filename_ext

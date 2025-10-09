@@ -1,20 +1,19 @@
 import bpy # type: ignore
 import os
-import traceback
 from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty, EnumProperty # type: ignore
-from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop
+from bpy_extras.io_utils import poll_file_object_drop # type: ignore
+from .ops_common import ImporterBase, ExporterBase
 
-from ...core.exceptions import ImportException, ExportException # type: ignore
 from ...core.animation import import_animation, export_animation, get_bones_for_export, save_bones_for_export
 from ...core.skeleton import find_active_skeleton
 from ...core.anim_utils import SUPPORTS_ACTION_SLOTS, AnimationContext
 
 # -------------------------- Import --------------------------
 
-class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
+class IMPORT_OT_bf2_animation(bpy.types.Operator, ImporterBase):
     bl_description = "Battlefield 2 animation"
     bl_label = "Import animation"
-    bl_idname= "bf2_animation.import"
+    bl_idname= "bf2.baf_import"
     filename_ext = ".baf"
 
     filter_glob: StringProperty(default="*.baf", options={'HIDDEN'}) # type: ignore
@@ -34,7 +33,7 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
 
     insert_at_frame: IntProperty(
         name="Insert at frame",
-        description="Frame index to import the keyframes",
+        description="Frame index to import the keyframes at",
         default=0
     ) # type: ignore
 
@@ -43,40 +42,43 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImportHelper):
         cls.poll_message_set("No active skeleton found")
         return find_active_skeleton(context) is not None
 
-    def invoke(self, context, _event):
-        self.rig = find_active_skeleton(context)
-        if self.rig.animation_data is None:
-            self.rig.animation_data_create()
-        return super().invoke(context, _event)
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, 'to_new_action')
+        layout.prop(self, 'setup_ctrls')
+        layout.prop(self, 'insert_at_frame')
 
-    def execute(self, context):
-        try:
-            dirpath = os.path.dirname(self.filepath)
-            frame = self.insert_at_frame
+    def _get_files(self):
+        if not self.files:
+            yield os.path.basename(self.filepath)
+        else:
             for file in self.files:
-                filepath = os.path.join(dirpath, file.name)
-                if self.to_new_action:
-                    action = bpy.data.actions.new(os.path.splitext(file.name)[0])
-                    self.rig.animation_data.action = action
-                    import_animation(context, self.rig, filepath, insert_at_frame=self.insert_at_frame)
-                    action.use_fake_user = True # prevent Actions from getting deleted
-                    action.use_frame_range = True
-                else:
-                    import_animation(context, self.rig, filepath, insert_at_frame=frame)
-                    frame += context.scene.frame_end - frame + 1
-                    # TODO: add a marker
-            if not self.to_new_action:
-                context.scene.frame_start = self.insert_at_frame
-            if self.setup_ctrls:
-                context.view_layer.objects.active = self.rig
-                bpy.ops.bf2_animation.anim_ctrl_setup_begin('INVOKE_DEFAULT')
-        except ImportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        return {'FINISHED'}  
+                yield file.name
+
+    def _execute(self, context):
+        rig = find_active_skeleton(context)
+        if rig.animation_data is None:
+            rig.animation_data_create()
+
+        dirpath = os.path.dirname(self.filepath)
+        frame = self.insert_at_frame
+        for file in self._get_files():
+            filepath = os.path.join(dirpath, file)
+            if self.to_new_action:
+                action = bpy.data.actions.new(os.path.splitext(file)[0])
+                rig.animation_data.action = action
+                import_animation(context, rig, filepath, insert_at_frame=self.insert_at_frame)
+                action.use_fake_user = True # prevent Actions from getting deleted
+                action.use_frame_range = True
+            else:
+                import_animation(context, rig, filepath, insert_at_frame=frame)
+                frame += context.scene.frame_end - frame + 1
+                # TODO: add a marker
+        if not self.to_new_action:
+            context.scene.frame_start = self.insert_at_frame
+        if self.setup_ctrls:
+            context.view_layer.objects.active = rig
+            bpy.ops.bf2.anim_setup_begin('INVOKE_DEFAULT')
 
 
 def multi_action_update(self, context):
@@ -91,11 +93,13 @@ class SelectableItemCollection(bpy.types.PropertyGroup):
     name: StringProperty(name="", default="") # type: ignore
     included: BoolProperty(name="", default=True) # type: ignore
 
-class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
+class EXPORT_OT_bf2_animation(bpy.types.Operator, ExporterBase):
     bl_description = "Battlefield 2 animation file"
     bl_label = "Export Animation"
-    bl_idname = "bf2_animation.export"
+    bl_idname = "bf2.baf_export"
     bl_options = {'PRESET'}
+
+    ALLOW_DIRS = True
 
     filename_ext = ".baf"
     filter_glob: StringProperty(default="*.baf", options={'HIDDEN'}) # type: ignore
@@ -122,9 +126,9 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
 
     bones_for_export: CollectionProperty(type=SelectableItemCollection) # type: ignore
 
-    def _export(self, context, file, fstart=None, fend=None):
+    def _export(self, context, rig, file, fstart=None, fend=None):
         selected_bones = [i.name for i in self.bones_for_export if i.included]
-        export_animation(context, self.rig, file,
+        export_animation(context, rig, file,
                          bones_to_export=selected_bones,
                          world_space=self.space == 'WORLD',
                          fstart=fstart, fend=fend)
@@ -150,20 +154,20 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
             for prop in self.bones_for_export:
                 body.prop(prop, "included", text=prop["name"])
 
-    def _update_actions_for_export(self):
+    def _update_actions_for_export(self, rig):
         unselected_actions = set([i.name for i in self.actions_for_export if not i.included])
         self.actions_for_export.clear()
         for action in bpy.data.actions:
             for slot in action.slots:
-                if slot.identifier != 'OB' + self.rig.name:
+                if slot.identifier != 'OB' + rig.name:
                     continue
                 item = self.actions_for_export.add()
                 item.name = action.name
                 item.included = False if action.name in unselected_actions else True
 
-    def _update_bones_for_export(self):
+    def _update_bones_for_export(self, rig):
         try:
-            bones = get_bones_for_export(self.rig)
+            bones = get_bones_for_export(rig)
         except Exception as e:
             print(e)
             bones = dict()
@@ -175,12 +179,10 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
             item.included = inc
 
     def invoke(self, context, _event):
-        self.rig = find_active_skeleton(context)
-        if self.rig.animation_data is None:
-            self.rig.animation_data_create()
-        self._update_bones_for_export()
+        rig = find_active_skeleton(context)
+        self._update_bones_for_export(rig)
         if SUPPORTS_ACTION_SLOTS:
-            self._update_actions_for_export()
+            self._update_actions_for_export(rig)
         else:
             self.multi_action = False
 
@@ -189,36 +191,30 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExportHelper):
             self.filepath = ''
         return res
 
-    def execute(self, context):
-        save_bones_for_export(self.rig, {i.name: i.included for i in self.bones_for_export})
-        try:
-            if not self.multi_action:
-                if os.path.isdir(self.filepath):
-                    raise ExportException(f"Choosen path '{self.filepath}' is a directory!")
-                self._export(context, self.filepath)
-            else:
-                with AnimationContext(context.scene, self.rig):
-                    if not os.path.isdir(self.filepath):
-                        raise ExportException("For batch export select a directory, not a file!")
-                    selected_actions = [i.name for i in self.actions_for_export if i.included]
-                    if not selected_actions:
-                        self.report({"WARNING"}, "No actions selected, nothing to export")
-                        return {'CANCELLED'}
-                    for action_name in selected_actions:
-                        action = bpy.data.actions[action_name]
-                        self.rig.animation_data.action = action
-                        self.rig.animation_data.action_slot = action.slots['OB' + self.rig.name]
-                        frame_start, frame_end = action.frame_range
-                        fpath = os.path.join(self.filepath, action.name + '.baf')
-                        self._export(context, fpath, fstart=int(frame_start), fend=int(frame_end))
-        except ExportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        self.report({"INFO"}, 'Export complete')
-        return {'FINISHED'}
+    def _execute(self, context):
+        rig = find_active_skeleton(context)
+        save_bones_for_export(rig, {i.name: i.included for i in self.bones_for_export})
+        if rig.animation_data is None:
+            rig.animation_data_create()
+
+        if not self.multi_action:
+            if os.path.isdir(self.filepath):
+                self.abort(f"Choosen path '{self.filepath}' is a directory!")
+            self._export(context, rig, self.filepath)
+        else:
+            with AnimationContext(context.scene, rig):
+                if not os.path.isdir(self.filepath):
+                    self.abort("For multi-action export choose a directory, not a file!")
+                selected_actions = [i.name for i in self.actions_for_export if i.included]
+                if not selected_actions:
+                    self.abort("No actions selected, nothing to export")
+                for action_name in selected_actions:
+                    action = bpy.data.actions[action_name]
+                    rig.animation_data.action = action
+                    rig.animation_data.action_slot = action.slots['OB' + rig.name]
+                    frame_start, frame_end = action.frame_range
+                    fpath = os.path.join(self.filepath, action.name + '.baf')
+                    self._export(context, rig, fpath, fstart=int(frame_start), fend=int(frame_end))
 
 
 class IMPORT_EXPORT_FH_baf(bpy.types.FileHandler):

@@ -27,7 +27,7 @@ INSENSITIVE_ALPHA_TEST = re.compile(re.escape('alpha_test'), re.IGNORECASE)
 INSENSITIVE_ALPHA = re.compile(re.escape('alpha'), re.IGNORECASE)
 
 class MESH_OT_bf2_apply_material(bpy.types.Operator):
-    bl_idname = "bf2_material.add"
+    bl_idname = "bf2.material_apply"
     bl_label = "Apply Material"
     bl_description = "Create Shader Nodes that mimic the BF2 material with the selected material settings"
 

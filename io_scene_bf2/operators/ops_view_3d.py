@@ -26,21 +26,17 @@ def _bf2_setup_finished(context):
 
 
 class VIEW3D_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
-    bl_idname = "bf2_animation.anim_ctrl_setup_mask"
+    bl_idname = "bf2.anim_setup_mask"
     bl_label = "Mask mesh for bone"
     bl_description = "Toggle mask for weapon part that corresponds to the active bone"
 
     def execute(self, context):
+        rig = bpy.data.objects[_bf2_is_setup(context)]
         try:
-            toggle_mesh_mask_mesh_for_active_bone(context, self.rig)
+            toggle_mesh_mask_mesh_for_active_bone(context, rig)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        rig_name = _bf2_is_setup(context)
-        self.rig = bpy.data.objects[rig_name]
-        return self.execute(context)
 
     @classmethod
     def poll(cls, context):
@@ -48,7 +44,7 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_mask(bpy.types.Operator):
 
 
 class VIEW3D_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
-    bl_idname = "bf2_animation.anim_ctrl_setup_begin"
+    bl_idname = "bf2.anim_setup_begin"
     bl_label = "Setup controllers"
     bl_description = "Setup animation controller bones and basic IK constraints"
 
@@ -70,38 +66,34 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
         return rig and is_bf2_skeleton(rig)
 
     def execute(self, context):
+        rig = context.view_layer.objects.active
         try:
-            setup_controllers(context, self.rig, step=Mode.MAKE_CTRLS_ONLY)
-            _bf2_setup_started(context, self.rig)
+            setup_controllers(context, rig, step=Mode.MAKE_CTRLS_ONLY)
+            _bf2_setup_started(context, rig)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
     def invoke(self, context, event):
-        self.rig = context.view_layer.objects.active
         return context.window_manager.invoke_props_dialog(self, width=500)
 
     def cancel(self, context):
-        bpy.ops.bf2_animation.anim_ctrl_setup_begin('INVOKE_DEFAULT')
+        bpy.ops.bf2.anim_setup_begin('INVOKE_DEFAULT')
 
 
 class VIEW3D_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
-    bl_idname = "bf2_animation.anim_ctrl_setup_end"
+    bl_idname = "bf2.anim_setup_end"
     bl_label = "Finish setup"
     bl_description = "Finish animation controller setup"
 
     def execute(self, context):
+        rig = bpy.data.objects[_bf2_is_setup(context)]
         try:
-            setup_controllers(context, self.rig, step=Mode.APPLY_ANIMATION_ONLY)
+            setup_controllers(context, rig, step=Mode.APPLY_ANIMATION_ONLY)
             _bf2_setup_finished(context)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        rig_name = _bf2_is_setup(context)
-        self.rig = bpy.data.objects[rig_name]
-        return self.execute(context)
 
     @classmethod
     def poll(cls, context):
@@ -127,7 +119,7 @@ class VIEW3D_PT_bf2_Panel(bpy.types.Panel):
 # --------------------------------------------------------------------
 
 class EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix(bpy.types.Operator):
-    bl_idname = "bf2_mesh.select_uv_matrix"
+    bl_idname = "bf2.mesh_select_uv_matrix"
     bl_label = "Select Animated UV Matrix"
     bl_description = "Selects all elements with the common matrix index of the animated UVs"
 
@@ -183,7 +175,7 @@ def _get_2d_cursor_location(context):
             return area.spaces.active.cursor_location
 
 class EDIT_MESH_OT_bf2_set_anim_uv_rotation_center(bpy.types.Operator):
-    bl_idname = "bf2_mesh.set_uv_rotation_center"
+    bl_idname = "bf2.mesh_set_uv_rotation_center"
     bl_label = "Set Animated UV Roation Center"
     bl_description = "Sets the center of UV rotation for the selected elements to the 2D cursor"
 
@@ -199,7 +191,7 @@ class EDIT_MESH_OT_bf2_set_anim_uv_rotation_center(bpy.types.Operator):
         return {'FINISHED'}
 
 class EDIT_MESH_OT_bf2_set_anim_uv_matrix(bpy.types.Operator):
-    bl_idname = "bf2_mesh.set_uv_matrix"
+    bl_idname = "bf2.mesh_set_uv_matrix"
     bl_label = "Assign Animated UV Matrix"
     bl_description = "Assign the matrix index for the the animated UVs"
 
@@ -238,7 +230,7 @@ class EDIT_MESH_MT_bf2_submenu(bpy.types.Menu):
 # --------------------------------------------------------------------
 
 class POSE_OT_bf2_change_parent(bpy.types.Operator):
-    bl_idname = "bf2_armature.change_parent"
+    bl_idname = "bf2.pose_change_parent"
     bl_label = "Change Parent"
     bl_description = "Parents all selected bones to the active bone while also adjusting all position/rotation keyframes"
 
@@ -263,7 +255,7 @@ class POSE_OT_bf2_change_parent(bpy.types.Operator):
 
 
 class POSE_OT_bf2_clear_parent(bpy.types.Operator):
-    bl_idname = "bf2_armature.clear_parent"
+    bl_idname = "bf2.pose_clear_parent"
     bl_label = "Clear Parent"
     bl_description = "Clears parent of all selected bones while also adjusting all position/rotation keyframes"
 
@@ -296,7 +288,7 @@ def menu_func_pose(self, context):
 # --------------------------------------------------------------------
 
 class OBJECT_SHOWHIDE_OT_bf2_show_hide(bpy.types.Operator):
-    bl_idname = "bf2_object.hide_col"
+    bl_idname = "bf2.object_hide_col"
     bl_label = "Show/Hide Collision Meshes"
     bl_description = "Show/Hide all Collision Meshes"
 
@@ -316,15 +308,12 @@ class OBJECT_SHOWHIDE_OT_bf2_show_hide(bpy.types.Operator):
             self._exec(child)
 
     def execute(self, context):
+        root = find_root(context.view_layer.objects.active)
         try:
-            self._exec(self.root)
+            self._exec(root)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
-
-    def invoke(self, context, event):
-        self.root = find_root(context.view_layer.objects.active)
-        return self.execute(context)
 
     @classmethod
     def poll(cls, context):

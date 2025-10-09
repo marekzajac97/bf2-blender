@@ -297,18 +297,20 @@ import bpy
 from os import path
 from bl_ext.user_default.io_scene_bf2 import *
 
-MOD_PATH = get_mod_dir(bpy.context)
+def get_filepath(rel_path):
+    mod_dir = get_mod_dir(bpy.context)
+    return path.join(mod_dir, rel_path)
 
-SOLDIER = path.join(MOD_PATH, 'Objects/Soldiers/BA/Meshes/ba_light_soldier.skinnedmesh')
-KITS = path.join(MOD_PATH, 'Objects/Kits/BA/Meshes/ba_kits.skinnedmesh')
-WEAPON = path.join(MOD_PATH, 'Objects/Weapons/Handheld/m91carcano/Meshes/m91carcano.bundledmesh')
-SKELETON_1P = path.join(MOD_PATH, 'Objects/Soldiers/Common/Animations/1p_setup.ske')
-SKELETON_3P = path.join(MOD_PATH, 'Objects/Soldiers/Common/Animations/3p_setup.ske')
-ANIM_3P_SOLDIER = path.join(MOD_PATH, 'Objects/Soldiers/Common/Animations/3P/3p_reload.baf')
-ANIM_3P_WEAPON = path.join(MOD_PATH, 'Objects/Weapons/Handheld/m91carcano/Animations/3P/3p_m91carcano_reload.baf')
-ANIM_1P = path.join(MOD_PATH, 'Objects/Weapons/Handheld/m91carcano/Animations/1P/1p_m91_reload.baf')
-OBJ_TEMP_STATIC = path.join(MOD_PATH, 'Objects/StaticObjects/France/la_horgne/horgne_church/horgne_church.con')
-OBJ_TEMP_VEHICLE = path.join(MOD_PATH, 'Objects/vehicles/land/DE/sdkfz251_d/sdkfz251_d.con')
+SOLDIER = get_filepath('Objects/Soldiers/BA/Meshes/ba_light_soldier.skinnedmesh')
+KITS = get_filepath('Objects/Kits/BA/Meshes/ba_kits.skinnedmesh')
+WEAPON = get_filepath('Objects/Weapons/Handheld/m91carcano/Meshes/m91carcano.bundledmesh')
+SKELETON_1P = get_filepath('Objects/Soldiers/Common/Animations/1p_setup.ske')
+SKELETON_3P = get_filepath('Objects/Soldiers/Common/Animations/3p_setup.ske')
+ANIM_3P_SOLDIER = get_filepath('Objects/Soldiers/Common/Animations/3P/3p_reload.baf')
+ANIM_3P_WEAPON = get_filepath('Objects/Weapons/Handheld/m91carcano/Animations/3P/3p_m91carcano_reload.baf')
+ANIM_1P = get_filepath('Objects/Weapons/Handheld/m91carcano/Animations/1P/1p_m91_reload.baf')
+OBJ_TEMP_STATIC = get_filepath('Objects/StaticObjects/France/la_horgne/horgne_church/horgne_church.con')
+OBJ_TEMP_VEHICLE = get_filepath('Objects/vehicles/land/DE/sdkfz251_d/sdkfz251_d.con')
 
 # ---------- Import & export 3P animation ----------
 ske = import_skeleton(bpy.context, SKELETON_3P)

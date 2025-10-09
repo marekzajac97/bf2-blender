@@ -513,11 +513,9 @@ class MeshImporter:
 
                 material_bone_count = mat_data['geom_to_bone_count'].setdefault(geom_index, 0)
                 if material_bone_count + bone_count > MAX_BONE_LIMIT:
-                    self.reporter.warning(f"Geom{geom_index} Lod{lod_index}: cannot merge material {material_index}, bone limit has been reached")
+                    self.reporter.info(f"Geom{geom_index} Lod{lod_index}: material {material_index} won't be merged, bone limit has been reached")
                     break
                 mat_data['geom_to_bone_count'][geom_index] += bone_count
-
-                # self.reporter.warning(f"Geom{geom_index} Lod{lod_index}: material {material_index} has been merged")
                 return mat_idx
 
         mat_idx = len(self.mesh_materials)

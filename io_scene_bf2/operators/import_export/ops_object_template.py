@@ -1,13 +1,13 @@
 import bpy # type: ignore
 import traceback
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, IntVectorProperty, FloatProperty, CollectionProperty # type: ignore
-from bpy_extras.io_utils import ExportHelper, ImportHelper, poll_file_object_drop # type: ignore
+from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
+from .ops_common import ImporterBase, ExporterBase
 from ...core.object_template import (import_object_template, export_object_template,
                                      parse_geom_type, NATIVE_BSP_EXPORT)
 from ...core.mesh import collect_uv_layers
 from ...core.skeleton import find_all_skeletons
-from ...core.exceptions import ImportException, ExportException
 from ...core.utils import Reporter, find_root
 
 from ... import get_mod_dir
@@ -34,8 +34,8 @@ class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
         items=get_skeletons
     ) # type: ignore
 
-class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
-    bl_idname= "bf2_object.import"
+class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase):
+    bl_idname = "bf2.con_import"
     bl_description = 'Battlefield 2 ObjectTemplate'
     bl_label = "Import ObjectTemplate"
     filter_glob: StringProperty(default="*.con", options={'HIDDEN'}) # type: ignore
@@ -108,7 +108,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
         col = layout.column()
         col.prop(self, "load_backfaces")
 
-    def execute(self, context):
+    def _execute(self, context):
         mod_path = get_mod_dir(context)
 
         geom_to_ske = None
@@ -117,7 +117,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
             for prop in self.skeletons_to_link:
                 geom_to_ske[prop.geom_idx] = prop.skeleton
 
-        try:
+        context.view_layer.objects.active = \
             import_object_template(context, self.filepath,
                 import_collmesh=self.import_collmesh,
                 import_rig_mode=self.import_rig_mode,
@@ -127,20 +127,13 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImportHelper):
                 weld_verts=self.weld_verts,
                 load_backfaces=self.load_backfaces,
                 reporter=Reporter(self.report))
-        except ImportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        return {'FINISHED'}
 
     def invoke(self, context, _event):
         IMPORT_OT_bf2_object.instance=self
         return super().invoke(context, _event)
 
 class IMPORT_OT_bf2_object_skeleton_add(bpy.types.Operator):
-    bl_idname = "bf2_object.skeleton_add"
+    bl_idname = "bf2.con_skeleton_add"
     bl_label = "Add armature mapping"
 
     def execute(self, context):
@@ -165,7 +158,7 @@ class IMPORT_OT_bf2_object_skeleton_add(bpy.types.Operator):
 
 
 class IMPORT_OT_bf2_object_skeleton_remove(bpy.types.Operator):
-    bl_idname = "bf2_object.skeleton_remove"
+    bl_idname = "bf2.con_skeleton_remove"
     bl_label = "Remove armature mapping"
 
     def execute(self, context):
@@ -202,8 +195,8 @@ def prev_power_of_2(n):
 SAMPLES_MAX_SIZE = 4096
 SAMPLES_MIN_SIZE = 8
 
-class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
-    bl_idname = "bf2_object.export"
+class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
+    bl_idname = "bf2.con_export"
     bl_label = "Export ObjectTemplate"
     filename_ext = ".con"
     filter_glob: StringProperty(default="*.con", options={'HIDDEN'}) # type: ignore
@@ -351,8 +344,8 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
 
         header, body = layout.panel("BF2_PT_export_geometry", default_closed=False)
         header.prop(self, "export_geometry")
-        header.enabled = self.export_geometry
         if body:
+            body.enabled = self.export_geometry
             row = body.row()
             row.label(text="Tangent UV map:")
             row.prop(self, "tangent_uv_map", text='')
@@ -363,7 +356,6 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
             row = body.row()
             row.prop(self, "gen_lightmap_uv")
             row.enabled = is_sm
-            body.enabled = self.export_geometry
             body.prop(self, "save_backfaces") 
             body.prop(self, "normal_weld_threshold")
             body.prop(self, "tangent_weld_threshold")
@@ -400,48 +392,34 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExportHelper):
             cls.poll_message_set(str(e))
             return False
 
-    def execute(self, context):
+    def _execute(self, context):
         mod_path = get_mod_dir(context)
+        root = find_root(context.view_layer.objects.active)
+        samples_size = self.samples_size if self.export_samples else None
 
-        samples_size = self.samples_size
-        if not self.export_samples:
-            samples_size = None
-
-        try:
-           export_object_template(self.root, self.filepath,
-                geom_export=self.export_geometry,
-                colmesh_export=self.export_collmesh,
-                apply_modifiers=self.apply_modifiers,
-                gen_lightmap_uv=self.gen_lightmap_uv,
-                texture_path=mod_path,
-                tangent_uv_map=self.tangent_uv_map,
-                normal_weld_thres=self.normal_weld_threshold,
-                tangent_weld_thres=self.tangent_weld_threshold,
-                samples_size=samples_size,
-                use_edge_margin=self.use_edge_margin,
-                sample_padding=self.sample_padding,
-                save_backfaces=self.save_backfaces,
-                reporter=Reporter(self.report))
-        except ExportException as e:
-            self.report({"ERROR"}, str(e))
-            return {'CANCELLED'}
-        except Exception as e:
-            self.report({"ERROR"}, traceback.format_exc())
-            return {'CANCELLED'}
-        self.report({"INFO"}, 'Export complete')
-        return {'FINISHED'}
+        export_object_template(root, self.filepath,
+            geom_export=self.export_geometry,
+            colmesh_export=self.export_collmesh,
+            apply_modifiers=self.apply_modifiers,
+            gen_lightmap_uv=self.gen_lightmap_uv,
+            texture_path=mod_path,
+            tangent_uv_map=self.tangent_uv_map,
+            normal_weld_thres=self.normal_weld_threshold,
+            tangent_weld_thres=self.tangent_weld_threshold,
+            samples_size=samples_size,
+            use_edge_margin=self.use_edge_margin,
+            sample_padding=self.sample_padding,
+            save_backfaces=self.save_backfaces,
+            reporter=Reporter(self.report))
 
     def invoke(self, context, _event):
-        active_obj = context.view_layer.objects.active
-        self.root = find_root(active_obj)
-        geom_type, obj_name = parse_geom_type(self.root)
+        root = find_root(context.view_layer.objects.active)
+        geom_type, obj_name = parse_geom_type(root)
+        self.geom_type = geom_type # for draw()
         self.filepath = obj_name + self.filename_ext
-        self.geom_type = geom_type
         op = context.window_manager.operator_properties_last(EXPORT_OT_bf2_object.bl_idname)
         self.samples_size = op.samples_size
-        result = super().invoke(context, _event)
-        context.view_layer.objects.active = active_obj # restore
-        return result
+        return super().invoke(context, _event)
 
 
 class IMPORT_EXPORT_FH_con(bpy.types.FileHandler):
