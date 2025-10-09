@@ -217,7 +217,7 @@ def _apply_action(context, obj, action, slot):
         obj.animation_data.action_slot = slot
     context.view_layer.update()
 
-def _reapply_animation_to_ctrls_impl(context, rig, mesh_bones, ctrl_bone_to_offset):
+def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
     # rig.animation_data.action = bpy.data.actions['1p_m1garand_reload']
     for action, slot in _get_actions(rig):
         keyframes_to_delete = dict()
@@ -256,10 +256,6 @@ def _reapply_animation_to_ctrls_impl(context, rig, mesh_bones, ctrl_bone_to_offs
             for kwargs in to_delete:
                 source.keyframe_delete(**kwargs)
 
-def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
-    with AnimationContext(context.scene, rig):
-        _reapply_animation_to_ctrls_impl(context, rig, mesh_bones, ctrl_bone_to_offset)
-    context.view_layer.update()
 
 def _rollback_controllers(context, rig):
     armature = rig.data

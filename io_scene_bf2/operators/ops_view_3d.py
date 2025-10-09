@@ -8,7 +8,8 @@ from ..core.anim_utils import (
     toggle_mesh_mask_mesh_for_active_bone,
     setup_controllers,
     reparent_bones,
-    Mode)
+    Mode,
+    AnimationContext)
 from ..core.skeleton import is_bf2_skeleton
 from ..core.utils import flip_uv, find_root
 from ..core.mesh import AnimUv
@@ -89,7 +90,8 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
     def execute(self, context):
         rig = bpy.data.objects[_bf2_is_setup(context)]
         try:
-            setup_controllers(context, rig, step=Mode.APPLY_ANIMATION_ONLY)
+            with AnimationContext(context.scene, rig):
+                setup_controllers(context, rig, step=Mode.APPLY_ANIMATION_ONLY)
             _bf2_setup_finished(context)
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
