@@ -79,13 +79,14 @@ To import an animation you will generally need these four things imported into y
 
 When importing soldier or weapon meshes, select only Geom0/Lod0 (First Person Animating) or Geom1/Lod0 (Third Person Animating) in the import settings. **IMPORTANT**: DO NOT use `Import -> BF2 -> ObjecTemplate (.con)` for that purpose!
 
-TIP: Imported animations are baked so you might need to delete redundant keyframes if you want to edit them, use [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) for that.
-TIP: If the animation preview looks noisy in the viewport disable [Temporal Reprojection](https://docs.blender.org/manual/en/latest/render/eevee/render_settings/sampling.html#viewport) (it's trash)
+Tips:
+- Imported animations are baked so you might need to delete redundant keyframes if you want to edit them, use [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) for that.
+- If the animation preview looks noisy in the viewport disable [Temporal Reprojection](https://docs.blender.org/manual/en/latest/render/eevee/render_settings/sampling.html#viewport) (it's trash)
 
 ## Rig Setup
 The skeleton will be imported as Blender's Armature object and before you start animating you might need to create a rig for it. You can do that either:
 ### Manually
-The armature can be freely extended by appending more bones to it which can act as helpers (constrain targets), but imported bones **MUST NOT** be modified! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. To alter their relations you can set up constraints (such as [Child Of](https://docs.blender.org/manual/en/latest/animation/constraints/relationship/child_of.html) and/or [Copy Transforms](https://docs.blender.org/manual/en/latest/animation/constraints/transform/copy_transforms.html) to other helper bones) on them instead.
+The armature can be freely extended by appending more bones to it which can act as helpers (constraint targets), but imported bones **MUST NOT** be modified! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. To alter their relations you can set up constraints (such as [Child Of](https://docs.blender.org/manual/en/latest/animation/constraints/relationship/child_of.html) and/or [Copy Transforms](https://docs.blender.org/manual/en/latest/animation/constraints/transform/copy_transforms.html) to other helper bones) on them instead.
 ### Automatically
 - Using external add-ons such as [Rigify](https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html)
 - Using this add-on's built-in option found under `Pose -> BF2 -> Setup Controllers`. This option can also be used after animations have been imported for easier editing of existing animations. By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing animation data. NOTE: importing animations **AFTER** `Setup Controllers` has been run is not supported and will not work!
