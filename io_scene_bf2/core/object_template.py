@@ -508,11 +508,7 @@ def _sanitize_template(root_obj_template, reporter):
 
 TMP_PREFIX = 'TMP__' # prefix for temporary object copy
 
-def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=True,
-                           apply_modifiers=False, samples_size=None, sample_padding=6,
-                           use_edge_margin=True, save_backfaces=True, reporter=DEFAULT_REPORTER, **kwargs):
-    geometry_type, obj_name = parse_geom_type(mesh_obj)
-
+def collect_anchor_geoms_lods(mesh_obj):
     # find anchor
     anchor_obj = None
     for child in mesh_obj.children:
@@ -531,7 +527,14 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     finally:
         if anchor_obj:
             anchor_obj.parent = mesh_obj
+    
+    return anchor_obj, mesh_geoms
 
+def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=True,
+                           apply_modifiers=False, samples_size=None, sample_padding=6,
+                           use_edge_margin=True, save_backfaces=True, reporter=DEFAULT_REPORTER, **kwargs):
+    geometry_type, obj_name = parse_geom_type(mesh_obj)
+    anchor_obj, mesh_geoms = collect_anchor_geoms_lods(mesh_obj)
     obj_to_geom_part = _find_geom_parts(mesh_geoms)
 
     for obj_name, geom_part in obj_to_geom_part.items():

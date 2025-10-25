@@ -8,7 +8,7 @@ from ...core.object_template import (import_object_template, export_object_templ
                                      parse_geom_type, NATIVE_BSP_EXPORT)
 from ...core.mesh import collect_uv_layers
 from ...core.skeleton import find_all_skeletons
-from ...core.utils import Reporter, find_root
+from ...core.utils import Reporter, find_root, next_power_of_2, prev_power_of_2
 
 from ... import get_mod_dir
 
@@ -173,24 +173,6 @@ class IMPORT_OT_bf2_object_skeleton_remove(bpy.types.Operator):
         self.skeletons_to_link = IMPORT_OT_bf2_object.instance.skeletons_to_link
         return self.execute(context)
 
-
-def next_power_of_2(n):
-    if n == 0:
-        return 1
-    if n & (n - 1) == 0:
-        return n
-    while n & (n - 1) > 0:
-        n &= (n - 1)
-    return n << 1
-
-def prev_power_of_2(n):
-    if n == 0:
-        return 1
-    if n & (n - 1) == 0:
-        return n
-    while n & (n - 1) > 0:
-        n &= (n - 1)
-    return n
 
 SAMPLES_MAX_SIZE = 4096
 SAMPLES_MIN_SIZE = 8

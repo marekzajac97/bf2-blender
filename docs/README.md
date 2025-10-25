@@ -20,6 +20,7 @@
   * [Skinning (BundledMesh)](#skinning-bundledmesh)
   * [Animated UVs (BundledMesh)](#animated-uvs-bundledmesh)
   * [Skinning (SkinnedMesh)](#skinning-skinnedmesh)
+  * [Overgrowth LOD Generation](#overgrowth-lod-generation)
 - [Video Tutorials](#video-tutorials)
 - [Scripting](#scripting)
 
@@ -282,6 +283,9 @@ In order to skin your model, you must import the BF2 skeleton into your scene. W
   4. In `Weight Paint Mode` click on [Weights -> Assign Automatic From Bones](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#assign-automatic-from-bone).
 
 Bare in mind that to export properly, each vertex must have at most two weights (be assigned to a maximum of two vertex groups), and all those weights have to be normalized (add-up to one). You can limit the number of vertex weights in `Weight Paint Mode` using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) option (make sure it is set to 2). You can normalize weights using [Weights -> Normalize All](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#normalize-all) option. Also, make sure that `Auto Normalize` is enabled in [Weight Paint Tools Settings](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/tool_settings/options.html) when skinning in `Weight Paint Mode`.
+
+## Overgrowth LOD Generation
+The add-on also ships with the OG LOD generation tool which can create a low quality OG mesh variant from the base mesh. The tool can be found under `Object` -> `BF2` submenu and its usage is quite straightforward. NOTE: You need to have the base OG imported as `ObjectTempalte (.con)`, not as `StaticMesh (.staticmesh)` for it to work. 
 
 # Video Tutorials
 - [Animation - rig setup, export, import and editing (by Ekiso)](https://youtu.be/xO1848HzetQ)

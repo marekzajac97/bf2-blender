@@ -22,5 +22,6 @@ Download the latest `io_scene_bf2` package from [Releases](https://github.com/ma
 
 ## Credits
 - [rpoxo](https://github.com/rpoxo) for the [BF2 mesh file parser](https://github.com/rpoxo/bf2mesh) (MIT License)
+- [matyalatte](https://github.com/rpoxo) for the [Texconv Custom DLL](https://github.com/matyalatte/Texconv-Custom-DLL) with [Python bindings](https://github.com/matyalatte/Blender-DDS-Addon) (MIT License)
 - Remdul for guidance and [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/) (a lot of the stuff is ported over from there)
 - Ason and DeWolfe for testing and feedback

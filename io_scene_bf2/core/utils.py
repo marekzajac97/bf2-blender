@@ -3,6 +3,11 @@ from bpy.types import Mesh, Armature, Camera # type: ignore
 from mathutils import Quaternion, Matrix, Vector # type: ignore
 from .exceptions import ExportException
 from .bf2.bf2_common import Mat4, Quat, Vec3
+import tempfile
+import os
+
+from ..directx.texconv import Texconv
+from ..directx.dxgi_format import DXGI_FORMAT
 
 class Reporter:
     def __init__(self, report_func) -> None:
@@ -288,3 +293,39 @@ def show_error(context, title, text=''):
     def draw(self, context):
         self.layout.label(text=text)
     context.window_manager.popup_menu(draw, title=title, icon='ERROR')
+
+def next_power_of_2(n):
+    if n == 0:
+        return 1
+    if n & (n - 1) == 0:
+        return n
+    while n & (n - 1) > 0:
+        n &= (n - 1)
+    return n << 1
+
+def prev_power_of_2(n):
+    if n == 0:
+        return 1
+    if n & (n - 1) == 0:
+        return n
+    while n & (n - 1) > 0:
+        n &= (n - 1)
+    return n
+
+FOURCC_TO_DXGI = {
+    'DXT1': 'BC1_UNORM',
+    'DXT3': 'BC2_UNORM',
+    'DXT5': 'BC3_UNORM',
+    'NONE': 'R8G8B8A8_UNORM'
+}
+
+def save_img_as_dds(img, outfile, compression='DXT5'):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_file = os.path.join(tmp_dir, os.path.splitext(os.path.basename(outfile))[0] + '.png')
+        img.file_format = 'PNG'
+        img.filepath_raw = tmp_file
+        img.alpha_mode = 'STRAIGHT'
+        img.save(filepath=tmp_file)
+        dds_fmt = FOURCC_TO_DXGI[compression]
+        texconv = Texconv()
+        texconv.convert_to_dds(tmp_file, dds_fmt, out=os.path.dirname(outfile))

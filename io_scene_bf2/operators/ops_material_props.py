@@ -34,6 +34,7 @@ class MESH_OT_bf2_apply_material(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         material = context.material
+        print('material', material)
         if material and material.is_bf2_material:
             if material.bf2_shader == 'STATICMESH':
                 return material.bf2_technique

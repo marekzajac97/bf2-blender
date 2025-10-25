@@ -2,3 +2,6 @@
 	path = bsp_builder/pybind11
 	url = ../../pybind/pybind11
 	branch = stable
+[submodule "external/texconv_dll"]
+	path = external/texconv_dll
+	url = https://github.com/matyalatte/Texconv-Custom-DLL.git
