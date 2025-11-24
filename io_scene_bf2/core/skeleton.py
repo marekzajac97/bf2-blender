@@ -13,13 +13,10 @@ MAX_ITEMS_1P = 16
 MAX_ITEMS_3P = 8
 
 def ske_set_bone_rot(bone, deg, axis):
-    bone['bf2_rot_fix'] = Matrix.Rotation(math.radians(deg), 4, axis)
+    bone['bf2_rot_fix'] = list(Matrix.Rotation(math.radians(deg), 4, axis))
 
 def ske_get_bone_rot(bone):
-    if 'bf2_rot_fix' in bone:
-        return Matrix(bone['bf2_rot_fix'])
-    else:
-        return Matrix.Identity(4)
+    return Matrix(bone.get('bf2_rot_fix', Matrix.Identity(4)))
 
 def ske_weapon_part_ids(rig):
     ske_bones = rig['bf2_bones']

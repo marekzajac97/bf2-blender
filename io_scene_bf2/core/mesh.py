@@ -244,17 +244,15 @@ class MeshImporter:
                 material = bpy.data.materials[mat_name]
             else:
                 material = bpy.data.materials.new(mat_name)
-                material.is_bf2_material = True
                 try:
-                    SHADER_ENUM = ['STATICMESH', 'BUNDLEDMESH', 'SKINNEDMESH']
-                    material['bf2_shader'] = SHADER_ENUM.index(bf2_mat.fxfile[:-3].upper()) # XXX needs to be enum val
-                except KeyError:
-                    raise ImportError(f"Bad shader '{bf2_mat.fxfile}'")
+                    material.bf2_shader = bf2_mat.fxfile[:-3].upper()
+                except TypeError:
+                    raise ImportError(f"Unsupported shader '{bf2_mat.fxfile}'")
 
-                material['bf2_technique'] = bf2_mat.technique
+                material.bf2_technique= bf2_mat.technique
                 if material.bf2_shader == 'STATICMESH' and 'parallaxdetail' in material.bf2_technique:
                     self.reporter.warning(f"Ignoring technique 'parallaxdetail', (not supported)")
-                    material['bf2_technique'] = material['bf2_technique'].replace('parallaxdetail', '')
+                    material.bf2_technique = material.bf2_technique.replace('parallaxdetail', '')
 
                 texture_map_types = TEXTURE_MAPS[material.bf2_shader]
                 texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
@@ -262,16 +260,17 @@ class MeshImporter:
                     if os.path.isabs(map_file):
                         raise ImportException(f"Invalid material texture map path: '{map_file}' must be a relative path, got absolute path")
                     type_index = texture_map_types.index(map_type)
-                    material[f"texture_slot_{type_index}"] = map_file
+                    setattr(material, f'texture_slot_{type_index}', map_file)
 
                 if isinstance(bf2_mat, MaterialWithTransparency):
-                    material['bf2_alpha_mode'] = bf2_mat.alpha_mode
+                    material.bf2_alpha_mode = bf2_mat.alpha_mode.name
                 else:
-                    material['bf2_alpha_mode'] = MaterialWithTransparency.AlphaMode.NONE
+                    material.bf2_alpha_mode = 'NONE'
 
                 if isinstance(bf2_mesh, BF2StaticMesh):
-                    material['is_bf2_vegitation'] = self.is_vegitation
+                    material.is_bf2_vegitation = self.is_vegitation
 
+                material.is_bf2_material = True # MUST be set last!
                 setup_material(material, uvs=uvs.keys(), texture_path=self.texture_path, reporter=self.reporter)
 
             try:

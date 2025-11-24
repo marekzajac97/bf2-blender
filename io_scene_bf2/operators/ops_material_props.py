@@ -9,6 +9,7 @@ from .. import get_mod_dir
 
 from ..core.utils import Reporter, show_error
 from ..core.mesh_material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
+from ..core.mesh import MaterialWithTransparency
 
 MATERIAL_TYPES = [
     ('STATICMESH', 'StaticMesh', "", 0),
@@ -16,12 +17,25 @@ MATERIAL_TYPES = [
     ('SKINNEDMESH', 'SkinnedMesh', "", 2)
 ]
 
-# XXX: must correspond with MaterialWithTransparency.AlphaMode enum
+def to_blender_enum(e, visible_name):
+    return (e.name, visible_name, "", e.value)
+
 ALPHA_MODES = [
-    ('NONE', 'None', "", 0),
-    ('ALPHA_BLEND', 'Alpha Blend', "", 1),
-    ('ALPHA_TEST', 'Alpha Test', "", 2),
+    to_blender_enum(MaterialWithTransparency.AlphaMode.NONE, 'None'),
+    to_blender_enum(MaterialWithTransparency.AlphaMode.ALPHA_BLEND, 'Alpha Blend'),
+    to_blender_enum(MaterialWithTransparency.AlphaMode.ALPHA_TEST, 'Alpha Test')
 ]
+
+class SkipMaterialUpdateCallback():
+    def __init__(self, material):
+        self.material = material
+
+    def __enter__(self):
+        self.is_bf2_material = False
+        return self
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        self.is_bf2_material = True
 
 INSENSITIVE_ALPHA_TEST = re.compile(re.escape('alpha_test'), re.IGNORECASE)
 INSENSITIVE_ALPHA = re.compile(re.escape('alpha'), re.IGNORECASE)
@@ -139,72 +153,87 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
 
 def _update_techinique_default_value(material):
     if not material.is_bf2_material:
-        material['bf2_technique'] = ''
         return
 
     if material.bf2_shader == 'STATICMESH':
-        material['bf2_technique'] = get_staticmesh_technique_from_maps(material)
+        material.bf2_technique = get_staticmesh_technique_from_maps(material)
     elif material.bf2_shader == 'BUNDLEDMESH':
         if material.bf2_alpha_mode == 'ALPHA_BLEND':
-            if 'alpha' not in material['bf2_technique'].lower():
-                material['bf2_technique'] += 'Alpha' # XXX: Remdul says this is wrong/not used anyway
+            if 'alpha' not in material.bf2_technique.lower():
+                material.bf2_technique += 'Alpha' # XXX: Remdul says this is wrong/not used anyway
         elif material.bf2_alpha_mode == 'ALPHA_TEST':
-            if 'alpha_test' not in material['bf2_technique'].lower():
-                material['bf2_technique'] += 'Alpha_Test'
-        elif material['bf2_technique'] == '':
-            material['bf2_technique'] = 'ColormapGloss'
+            if 'alpha_test' not in material.bf2_technique.lower():
+                material.bf2_technique += 'Alpha_Test'
+        elif material.bf2_technique == '':
+            material.bf2_technique = 'ColormapGloss'
     elif material.bf2_shader == 'SKINNEDMESH':
-        if material['bf2_technique'] == '':
-            material['bf2_technique'] = 'Humanskin'
+        if material.bf2_technique == '':
+            material.bf2_technique = 'Humanskin'
 
 def on_shader_update(self, context):
-    self['bf2_technique'] = ''
-    if self.bf2_shader != 'STATICMESH':
-        self['is_bf2_vegitation'] = False
+    if not self.is_bf2_material:
+        return
+
+    with SkipMaterialUpdateCallback(self):
+        self.bf2_technique = ''
+        if self.bf2_shader != 'STATICMESH':
+            self.is_bf2_vegitation = False
     _update_techinique_default_value(self)
 
 def on_alpha_mode_update(self, context):
-    self['bf2_technique'] = INSENSITIVE_ALPHA_TEST.sub('', self['bf2_technique'])
-    self['bf2_technique'] = INSENSITIVE_ALPHA.sub('', self['bf2_technique'])
+    self.bf2_technique = INSENSITIVE_ALPHA_TEST.sub('', self.bf2_technique)
+    self.bf2_technique = INSENSITIVE_ALPHA.sub('', self.bf2_technique)
     _update_techinique_default_value(self)
 
 def on_texture_map_update(self, context, index):
+    if not self.is_bf2_material:
+        return
+
     mod_path = get_mod_dir(context)
-    prop = f'texture_slot_{index}'
+    prop_name = f'texture_slot_{index}'
+    prop_val = getattr(self, prop_name)
 
-    if self[prop].startswith('//'): # path relative to current blend file
-        self[prop] = bpy.path.abspath(self[prop])
+    if prop_val.startswith('//'): # path relative to current blend file
+        prop_val = bpy.path.abspath(prop_val)
 
-    if os.path.isabs(self[prop]):
-        self[prop] = os.path.normpath(self[prop])
+    if os.path.isabs(prop_val):
+        prop_val = os.path.normpath(prop_val)
         if mod_path:
             try:
-                self[prop] = Path(self[prop]).relative_to(mod_path).as_posix().lower()
+                prop_val = Path(prop_val).relative_to(mod_path).as_posix().lower()
             except ValueError:
                 show_error(context,
                            title='Invalid texture path!',
-                           text=f'Given path: "{self[prop]}" is not relative to MOD path defined in add-on preferences ("{mod_path}")')
-                self[prop] = ''
+                           text=f'Given path: "{prop_val}" is not relative to MOD path defined in add-on preferences ("{mod_path}")')
+                prop_val = ''
         else:
             show_error(context,
                        title='MOD path not set!',
                        text='To set texture paths, MOD path must be defined in add-on\'s preferences! Read the manual')
-            self[prop] = ''
+            prop_val = ''
     else:
         pass # relative path probably typed manually, dunno what could check here  
+
+    with SkipMaterialUpdateCallback(self):
+        setattr(self, prop_name, prop_val)
 
     if self.bf2_shader == 'STATICMESH':
         _update_techinique_default_value(self)
 
 def on_is_vegitation_update(self, context):
+    if not self.is_bf2_material:
+        return
+
     if self.bf2_shader != 'STATICMESH':
         return
     if not self.is_bf2_vegitation:
         return
+    
     # clear Dirt, Crack, NCrack
-    self['texture_slot_2'] = ''
-    self['texture_slot_3'] = ''
-    self['texture_slot_5'] = ''
+    with SkipMaterialUpdateCallback(self):
+        self.texture_slot_2 = ''
+        self.texture_slot_3 = ''
+        self.texture_slot_5 = ''
     _update_techinique_default_value(self)
 
 def _create_texture_slot(index):

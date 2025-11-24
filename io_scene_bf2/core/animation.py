@@ -1,5 +1,4 @@
 import bpy # type: ignore
-import math
 
 from mathutils import Matrix # type: ignore
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame, BF2AnimationException
@@ -103,7 +102,7 @@ def import_animation(context, rig, baf_file, insert_at_frame=0):
 
     armature = rig.data
     context.view_layer.objects.active = rig
-    
+
     bpy.ops.object.mode_set(mode='POSE')
     armature.pose_position = "POSE"
 
@@ -119,20 +118,16 @@ def import_animation(context, rig, baf_file, insert_at_frame=0):
         rest_bone = armature.bones[ske_bone]
         bone_to_rest_matrix[rest_bone.name] = rest_bone.matrix_local @ ske_get_bone_rot(rest_bone).inverted()
 
-    # for each frame...
-    for frame_idx in range(baf.frame_num):
-        # for each bone...
-        for bone_idx, frames in baf.bones.items():
-            frame = frames[frame_idx]
-            pos = frame.pos.copy()
-            rot = frame.rot.copy()
-            pos, rot = conv_bf2_to_blender(pos, rot)
-            try:
-                ske_bone = ske_bones[bone_idx]
-            except IndexError as e:
-                raise ImportException(f"Bone index {bone_idx} from the animation file does not exist in the skeleton")
-            pose_bone = rig.pose.bones[ske_bone]
+    for bone_idx, frames in baf.bones.items():
+        try:
+            ske_bone = ske_bones[bone_idx]
+        except IndexError as e:
+            raise ImportException(f"Bone index {bone_idx} from the animation file does not exist in the skeleton")
+        pose_bone = rig.pose.bones[ske_bone]
 
+        for frame_idx in range(baf.frame_num):
+            frame = frames[frame_idx]
+            pos, rot = conv_bf2_to_blender(frame.pos, frame.rot)
             # bone transforms in .baf are in parent bone space
             # bone transforms in blender are in parent and 'rest' pose space (wtf seriously)
 

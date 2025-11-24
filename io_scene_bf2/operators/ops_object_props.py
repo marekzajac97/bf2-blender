@@ -5,11 +5,11 @@ from ..core.bf2.bf2_engine import BF2_OBJECT_TEMPLATE_TYPES
 BF2_OBJECTS_ENUM = [(n, n, "", i) for i, n in enumerate(BF2_OBJECT_TEMPLATE_TYPES)]
 
 def on_bf2_obj_type_update(self, context):
-    self['bf2_object_type'] = self.bf2_object_type_enum
+    self.bf2_object_type = self.bf2_object_type_enum
 
 def on_bf2_obj_type_manual_mode_update(self, context):
     if not self.bf2_object_type_manual_mode:
-        self['bf2_object_type'] = self.bf2_object_type_enum
+        self.bf2_object_type = self.bf2_object_type_enum
 
 class OBJECT_PT_bf2_object(bpy.types.Panel):
     bl_label = "Battlefield 2"

@@ -147,7 +147,7 @@ def is_staticmesh_map_allowed(material, mapname):
         if map_type == mapname:
             technique += map_type
             continue
-        map_filepath = material.get(f"texture_slot_{i}", '')
+        map_filepath = getattr(material, f"texture_slot_{i}")
         if map_filepath:
             technique += map_type
     return technique in STATICMESH_TECHNIQUES
@@ -155,7 +155,7 @@ def is_staticmesh_map_allowed(material, mapname):
 def get_material_maps(material):
     texture_maps = OrderedDict()
     for i, map_type in enumerate(TEXTURE_MAPS[material.bf2_shader]):
-        map_filepath = material.get(f"texture_slot_{i}", '')
+        map_filepath = getattr(material, f"texture_slot_{i}")
         if map_filepath:
             texture_maps[map_type] = map_filepath
     return texture_maps

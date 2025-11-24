@@ -487,7 +487,6 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
             # apply material
             material = bpy.data.materials.new(obj_name + '_material')
             lod0.data.materials.append(material)
-            material.is_bf2_material = True
             material.bf2_shader = 'STATICMESH'
             material.is_bf2_vegitation = True
             material.bf2_alpha_mode = 'ALPHA_TEST'
@@ -495,6 +494,7 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
                 material.texture_slot_0 = out_path
             else:
                 material.texture_slot_1 = out_path
+            material.is_bf2_material = True
             setup_material(material, texture_path=mod_path, reporter=Reporter(self.report))
 
             # build hierarchy
