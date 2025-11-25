@@ -107,15 +107,15 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                     item_layout.enabled = material.bf2_shader != 'SKINNEDMESH'
                 elif identifier == 'ALPHA_BLEND':
                     item_layout.enabled = material.bf2_shader == 'BUNDLEDMESH'
-
             row.enabled = enabled
 
-            col = self.layout.column()
             if material.bf2_shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
+                col = self.layout.column()
                 col.prop(material, "texture_slot_0", text="Diffuse")
                 col.prop(material, "texture_slot_1", text="Normal")
                 if material.bf2_shader == 'BUNDLEDMESH':
                     col.prop(material, "texture_slot_2", text="Wreck")
+                col.enabled = enabled
             else:
                 is_vegitation = material.is_bf2_vegitation
 
