@@ -716,6 +716,7 @@ class Object:
         self.is_overgrowth = False
         self.absolute_pos = (0, 0, 0)
         self.rot = (0, 0, 0)
+        self.transform = None
         self.light_source_mask = 0
         self._layer = 0
 
@@ -730,6 +731,12 @@ class Object:
     @instancemethod
     def absolutePosition(self, pos):
         self.absolute_pos = _str_to_vec(pos, 3)
+
+    @instancemethod
+    def absoluteTransformation(self, matrix_str):
+        self.transform = list()
+        for row in matrix_str.strip('[]').split(']['):
+            self.transform.append(_str_to_vec(row, 4))
 
     @instancemethod
     def rotation(self, rot):
@@ -749,6 +756,11 @@ class Object:
             s += f'Object.absolutePosition {_vec_to_str(self.absolute_pos)}\n'
         if self.rot != (0, 0, 0):
             s += f'Object.rotation {_vec_to_str(self.rot)}\n'
+        if self.transform:
+            matrix_str = ""
+            for row in self.transform:
+                matrix_str += '[' + _vec_to_str(row) + ']'
+            s += f'Object.absoluteTransformation {matrix_str}\n'
         if self._layer:
             s += f'Object.layer {self._layer}\n'
         if self.is_overgrowth:

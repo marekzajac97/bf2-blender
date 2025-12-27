@@ -9,10 +9,11 @@ from .utils import file_name
 
 def make_water_plane(context, heightmap_size, water_level, name='WaterPlane'):
     bm = bmesh.new()
-    bm.verts.new((0, 0, water_level))
-    bm.verts.new((0, heightmap_size, water_level))
-    bm.verts.new((heightmap_size, heightmap_size, water_level))
-    bm.verts.new((heightmap_size, 0, water_level))
+    off = heightmap_size / 2
+    bm.verts.new((-off, -off, water_level))
+    bm.verts.new((-off, off, water_level))
+    bm.verts.new((off, off, water_level))
+    bm.verts.new((off, -off, water_level))
     bm.verts.ensure_lookup_table()
     bm.verts.index_update()
     bm.faces.new(bm.verts[i] for i in ((0, 1, 2, 3)))
