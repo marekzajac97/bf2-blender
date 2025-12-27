@@ -15,6 +15,7 @@ from .mod_loader import ModLoader
 from .mesh import MeshImporter
 from .utils import DEFAULT_REPORTER, swap_zy, file_name, _convert_pos, _convert_rot, to_matrix
 from .heightmap import import_heightmap_from, make_water_plane
+from .exceptions import ImportException
 
 MESH_TYPES = {
     'StaticMesh': BF2StaticMesh,
@@ -34,7 +35,8 @@ def _get_templates(template, templates=None):
     templates.append(template)
     template.add_bundle_childs()
     for child in template.children:
-        _get_templates(child.template, templates)
+        if child.template is not None:
+            _get_templates(child.template, templates)
     return templates
 
 def load_level(context, mod_dir, level_name, use_cache=True,
@@ -85,17 +87,10 @@ def load_level(context, mod_dir, level_name, use_cache=True,
     obj_manager = BF2Engine().get_manager(Object)
     for obj in obj_manager.objects:
         template = obj.template
-
-        if 'horgne_church' != template.name:
-            continue
-
         for temp in _get_templates(template):
             geom = _get_geom(temp)
             if not geom:
                 continue
-
-            print(temp.name)
-
             objects = template_to_objects.setdefault(temp.name.lower(), list())
             objects.append(obj)
             templates[temp.name.lower()] = temp
@@ -128,7 +123,10 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         bf2_mesh = template_to_mesh[template_name]
         # TODO: texture load from FileManager if not load_unpacked!
         importer = MeshImporter(context, geom.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
-        obj = importer.import_mesh(geom=0, lod=0)
+        try:
+            obj = importer.import_mesh(geom=0, lod=0)
+        except ImportException as e:
+            reporter.warning(f"Failed to import mesh '{geom.location}': {e}")
         mesh = obj.data
         bpy.data.objects.remove(obj, do_unlink=True)
         for bf2_object in bf2_objects:

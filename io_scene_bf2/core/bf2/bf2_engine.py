@@ -110,7 +110,6 @@ class MainConsole():
                 raise e
 
         filepath = filepath.replace('\\', '/').lstrip('/')
-
         self._stack.append(self.StackFrame(filepath))
 
         for i, arg in enumerate(args, start=1):
@@ -344,7 +343,7 @@ class TemplateManager(Manager):
             self.active_obj = temp
         else:
             self.active_obj = None
-            return 'Activating non exisiting template {}'.format(template)
+            BF2Engine().main_console.report('Activating non exisiting template {}'.format(template))
 
 
 BF2_OBJECT_TEMPLATE_TYPES  = [
@@ -460,9 +459,12 @@ class ObjectTemplate(Template):
     def add_bundle_childs(self):
         mngr = BF2Engine().get_manager(self.__class__)
         for child in self.children:
-            child.template = mngr.templates[child.template_name.lower()]
-            child.template.parent = self
-            child.template.add_bundle_childs()
+            child.template = mngr.templates.get(child.template_name.lower())
+            if child.template:
+                child.template.parent = self
+                child.template.add_bundle_childs()
+            else:
+                BF2Engine().main_console.report(f"add_bundle_childs: ObjectTemplate {child.template} not found")
 
     def make_script(self, f):
         f.write(f'ObjectTemplate.create {self.type} {self.name}\n')
@@ -507,7 +509,7 @@ class ObjectTemplate(Template):
 
     @classmethod
     def activeSafe(cls, *args):
-        BF2Engine().get_manager(cls).active(*args)
+        BF2Engine().get_manager(cls).activeSafe(*args)
 
     @instancemethod
     def addTemplate(self, template):
@@ -574,7 +576,7 @@ class ObjectTemplateManager(TemplateManager):
 
     def activeSafe(self, object_type, template):
         temp = self.active(template)
-        if not temp or temp.type.lower() != object_type.lower():
+        if temp and temp.type.lower() != object_type.lower():
             self.active_obj = None
 
     def add_bundle_childs(self, object_template):
