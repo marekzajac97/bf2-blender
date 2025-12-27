@@ -2,6 +2,8 @@ import enum
 import types
 import os, glob, string
 import os.path as path
+import io
+from zipfile import ZipFile
 
 def icase(item):
     assert type(item) == str
@@ -79,17 +81,30 @@ class MainConsole():
         self._variables = {}
         self._ignore = False
         self._registered_console_objects = dict()
-    
+
     def register_object(self, cls):
-        self._registered_console_objects[cls.__name__.lower()] = cls
+        if cls.__class__ == type:
+            self._registered_console_objects[cls.__name__.lower()] = cls
+        else:
+            self._registered_console_objects[cls.__class__.__name__.lower()] = cls
 
     def get_active_con_file(self):
         return self._active_root_con_file
 
     def run_file(self, filepath, is_root=True, ignore_includes=False):
-        f = ci_open(filepath, 'r')
-        lines = f.readlines()
-        f.close()
+
+        try:
+            content = BF2Engine().file_manager.readFile(filepath, is_root=is_root)
+            lines = content.decode(errors='ignore').splitlines()
+        except UnicodeDecodeError as e:
+            print(filepath)
+            raise
+        except FileManagerFileNotFound as e:
+            if not is_root:
+                self.report('{} file not found'.format(filepath))
+                return
+            else:
+                raise e
 
         if filepath is not None:
             filepath = filepath.replace('\\', '/').lstrip('/')
@@ -103,7 +118,7 @@ class MainConsole():
 
         for line_no, line in enumerate(lines, start=1):
             self._processed_line = line_no
-            self.exec(line, ignore_includes=ignore_includes)
+            self.exec(line)
         
         if is_root:
             self._active_root_con_file = None
@@ -148,11 +163,11 @@ class MainConsole():
         obj_name = command.split('.')[0].lower()
         method_name = '.'.join(command.split('.')[1:]).lower()
 
-        obj_class = self._registered_console_objects.get(obj_name)
+        obj_class_or_instance = self._registered_console_objects.get(obj_name)
 
         obj_method = None
         try:
-            obj_method = igetattr(obj_class, method_name)
+            obj_method = igetattr(obj_class_or_instance, method_name)
             if not callable(obj_method):
                 obj_method = None
         except AttributeError:
@@ -248,7 +263,7 @@ class InstanceMethod(object):
         self.func = func
 
     def __get__(self, obj, objtype=None):
-        active = BF2Engine().get_manager(objtype or type(obj)).active_template
+        active = BF2Engine().get_manager(objtype or type(obj)).active_obj
         if active:
             return types.MethodType(self.func, active)
 
@@ -258,6 +273,10 @@ class InstanceMethod(object):
 
 def instancemethod(func):
     return InstanceMethod(func)
+
+class Manager:
+    def __init__(self):
+        self.active_obj = None 
 
 class Template:
     MANAGED_TYPE = None
@@ -280,31 +299,31 @@ class Template:
         BF2Engine().get_manager(cls).active(*args)
 
 
-class TemplateManager():
+class TemplateManager(Manager):
     MANAGED_TYPE = Template
 
     def __init__(self):
         self.templates = dict()
-        self.active_template = None
+        self.active_obj = None
 
     def create(self, *args):
         new_template = self.MANAGED_TYPE(*args)
         name = new_template.name.lower()
         if name in self.templates:
             template = self.templates[name]
-            self.active_template = template
+            self.active_obj = template
             return None
         self.templates[name] = new_template
-        self.active_template = new_template
+        self.active_obj = new_template
         return new_template
 
     def active(self, template):
         template_low = template.lower()
         temp = self.templates.get(template_low)
         if temp:
-            self.active_template = temp
+            self.active_obj = temp
         else:
-            self.active_template = None
+            self.active_obj = None
             return 'Activating non exisiting template {}'.format(template)
 
 class GeometryTemplate(Template):
@@ -312,7 +331,10 @@ class GeometryTemplate(Template):
     TYPES = {
         'staticmesh': 'StaticMesh',
         'bundledmesh': 'BundledMesh',
-        'skinnedmesh': 'SkinnedMesh'
+        'skinnedmesh': 'SkinnedMesh',
+        'meshparticlemesh': 'MeshParticleMesh',
+        'roadcompiled': 'RoadCompiled',
+        'debugspheremesh': 'DebugSphereMesh'
     }
 
     def __init__(self, geometry_type, name):
@@ -324,6 +346,9 @@ class GeometryTemplate(Template):
 
         self.nr_of_animated_uv_matrix = 0
 
+        dir = os.path.dirname(BF2Engine().main_console.get_active_con_file().lower())
+        self.location = os.path.join(dir, 'Meshes', f'{name}.{geometry_type.lower()}')
+
     def make_script(self, f):
         f.write(f'GeometryTemplate.create {self.geometry_type} {self.name}\n')
         if self.nr_of_animated_uv_matrix:
@@ -333,6 +358,8 @@ class GeometryTemplate(Template):
 class CollisionMeshTemplate(Template):
     def __init__(self, name):
         super(CollisionMeshTemplate, self).__init__(name)
+        dir = os.path.dirname(BF2Engine().main_console.get_active_con_file().lower())
+        self.location = os.path.join(dir, 'Meshes', f'{name}.collisionmesh')
 
     def make_script(self, f):
         f.write(f'CollisionManager.createTemplate {self.name}\n')
@@ -447,6 +474,13 @@ class ObjectTemplate(Template):
         self.save_in_separate_file = False
         self.anchor_point = None
 
+    def add_bundle_childs(self):
+        mngr = BF2Engine().get_manager(self.__class__)
+        for child in self.children:
+            child.template = mngr.templates[child.template_name.lower()]
+            child.template.parent = self
+            child.template.add_bundle_childs()
+
     def make_script(self, f):
         f.write(f'ObjectTemplate.create {self.type} {self.name}\n')
 
@@ -558,7 +592,7 @@ class ObjectTemplateManager(TemplateManager):
     def activeSafe(self, object_type, template):
         temp = self.active(template)
         if not temp or temp.type.lower() != object_type.lower():
-            self.active_template = None
+            self.active_obj = None
 
     def add_bundle_childs(self, object_template):
         for child in object_template.children:
@@ -580,11 +614,254 @@ class CollisionManager(TemplateManager):
         self.create(name)
 
 
+class Object:
+    def __init__(self, template):
+        self.template = template
+        self.is_overgrowth = False
+        self.absolute_pos = (0, 0, 0)
+        self.rot = (0, 0, 0)
+        self.light_source_mask = 0
+        self._layer = 0
+
+    @classmethod
+    def create(cls, *args):
+        BF2Engine().get_manager(Object).create(*args)
+
+    @instancemethod
+    def isOvergrowth(self, flag):
+        self.is_overgrowth = bool(flag)
+
+    @instancemethod
+    def absolutePosition(self, pos):
+        self.absolute_pos = _str_to_vec(pos, 3)
+
+    @instancemethod
+    def rotation(self, rot):
+        self.rot = _str_to_vec(rot, 3)
+    
+    @instancemethod
+    def layer(self, _layer):
+        self._layer = int(_layer)
+
+    @instancemethod
+    def setLightSourceMask(self, light_source_mask):
+        self.light_source_mask = int(light_source_mask)
+
+    def makeScript(self):
+        s = f'Object.create {self.template.name.lower()}\n'
+        if self.absolute_pos != (0, 0, 0):
+            s += f'Object.absolutePosition {_vec_to_str(self.absolute_pos)}\n'
+        if self.rot != (0, 0, 0):
+            s += f'Object.rotation {_vec_to_str(self.rot)}\n'
+        if self._layer:
+            s += f'Object.layer {self._layer}\n'
+        if self.is_overgrowth:
+            s += f'Object.isOvergrowth {int(self.is_overgrowth)}\n'
+        if self.light_source_mask:
+            s += f'Object.setLightSourceMask {self.light_source_mask}\n'
+        s += f'\n'
+        return s
+
+
+class ObjectManager(Manager):
+    MANAGED_TYPE = Object
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.objects = list()
+        self.active_obj = None
+
+    def create(self, template):
+        obj_temp_manager = BF2Engine().get_manager(ObjectTemplate)
+
+        temp = obj_temp_manager.templates.get(template.lower())
+        if not temp:
+            print(f"WARNING: Object.create {template}, ObjectTemplate does not exitst")
+            return
+            # raise ValueError(f"Object.create {template}, ObjectTemplate does not exitst")
+
+        new_object = Object(temp)
+        self.objects.append(new_object)
+        self.active_obj = new_object
+        return new_object
+
+
+class FileManagerFileNotFound(Exception):
+    pass
+
+
+class FileManager:
+
+    def __init__(self, root_dir='./'):
+        self.root_dir = root_dir
+        self._archive_to_zip = dict()
+        self._mounted_archives = dict()
+        self._mounted_paths = dict()
+
+        self._current_dir = None
+        self._current_dir_archive = None
+        self._current_dir_path = None
+    
+    def __del__(self):
+        for _, archive in self._archive_to_zip.items():
+            archive.close()
+    
+    def getZipFile(self, archive):
+        archive = archive.lower()
+        return self._archive_to_zip[archive]
+
+    def getArchives(self, mount_dir=''):
+        if mount_dir:
+            if mount_dir in self._mounted_archives:
+                return self._mounted_archives[mount_dir]
+            else:
+                return []
+        else:
+            return [item for _, v in self._mounted_archives.items() for item in v]
+    
+    def getPaths(self, mount_dir=''):
+        if mount_dir:
+            if mount_dir in self._mounted_paths:
+                return self._mounted_paths[mount_dir]
+            else:
+                return []
+        else:
+            return [item for _, v in self._mounted_paths.items() for item in v]
+
+    def findInArchive(self, archive, fn):
+        try:
+            self._archive_to_zip[archive].getinfo(fn) # try hashset search first
+            return fn
+        except KeyError:
+            pass
+        for f in self._archive_to_zip[archive].namelist():
+            if f.lower() == fn.lower():
+                return f
+        return None
+
+    def readFile(self, *args, as_stream=False, **kwargs):
+        content = self._readFile(*args, **kwargs)
+        if as_stream:
+            return io.BytesIO(content)
+        return content
+
+    def _readFile(self, filepath, is_root=True):
+
+        if is_root:
+            self._current_dir = None
+            self._current_dir_archive = None
+            self._current_dir_path = None
+
+        filepath = filepath.replace('\\', '/').lstrip('/')
+
+        # check if it's relative path first
+        if self._current_dir:
+            if self._current_dir_archive:
+                real_path = path.normpath(path.join(self._current_dir, filepath)).replace('\\', '/')
+                archived_fname = self.findInArchive(self._current_dir_archive, real_path)
+                if archived_fname is not None:
+                    content = self._archive_to_zip[self._current_dir_archive].read(archived_fname)
+                    self._current_dir = path.dirname(real_path)
+                    return content
+            elif self._current_dir_path:
+                _fpath = path.join(self._current_dir, filepath)
+                real_path = path.normpath(path.join(self._current_dir_path, _fpath))
+                _file = find_file(real_path)
+                if _file:
+                    f = ci_open(_file, 'b')
+                    self._current_dir = path.dirname(_fpath).replace('\\', '/')
+                    content = f.read()
+                    f.close()
+                    return content
+
+        # check if absolute path: e.g. objects/blah/../blah
+
+        for mount_dir, archives in self._mounted_archives.items():
+            if filepath.startswith(mount_dir):
+                fpath = filepath[len(mount_dir):][1:]
+                for archive in archives:                    
+                    archived_fname = self.findInArchive(archive, fpath)
+                    if archived_fname is not None:
+                        content = self._archive_to_zip[archive].read(archived_fname)
+                        self._current_dir = path.dirname(fpath)
+                        self._current_dir_archive = archive
+                        self._current_dir_path = None
+                        return content
+                break
+
+        for mount_dir, paths in self._mounted_paths.items():
+            if filepath.startswith(mount_dir):
+                fpath = filepath[len(mount_dir):][1:]
+                for _path in paths:
+                    _file = find_file(path.join(_path, fpath))
+                    if not _file:
+                        continue
+                    
+                    f = ci_open(_file, 'b')
+                    self._current_dir = path.dirname(fpath)
+                    self._current_dir_archive = None
+                    self._current_dir_path = _path
+                    content = f.read()
+                    f.close()
+                    return content
+                break
+
+        # check is outside of zip
+        abspath = os.path.join(BF2Engine().file_manager.root_dir, filepath)
+        if os.path.isfile(abspath):
+            f = ci_open(abspath, 'rb')
+            content = f.read()
+            f.close()
+            return content
+
+        raise FileManagerFileNotFound("{} not found".format(filepath))
+
+    def mountPath(self, dirpath, mount_dir):
+        dirpathfull = path.join(self.root_dir, dirpath)
+        if not path.isdir(dirpathfull):
+            return
+        # print('[FileManager] Mounting path {}'.format(dirpathfull))
+        k = mount_dir.lower()
+        if k not in self._mounted_paths:
+            self._mounted_paths[k] = list()
+        self._mounted_paths[k].append(dirpathfull)
+
+    def mountArchive(self, archive, mount_dir, mode='r'):
+        archive = archive.lower()
+        zipfullpath = find_file(path.join(self.root_dir, archive))
+        if not zipfullpath:
+            return
+        # print('[FileManager] Mounting archive {}'.format(archive))
+        k = mount_dir.lower()
+        if k not in self._mounted_archives:
+            self._mounted_archives[k] = list()
+        self._mounted_archives[k].append(archive)
+        self._archive_to_zip[archive] = ZipFile(zipfullpath, mode) # keep zips open for better performance
+
+    def unmountArchive(self, archive):
+        zip = self._archive_to_zip[archive]
+        zip.close()
+        del self._archive_to_zip[archive]
+        for archives in self._mounted_archives.values():
+            if archive in archives:
+                archives.remove(archive)
+                break
+        return
+
+    def unmoutAll(self):
+        for zip in self._archive_to_zip.values():
+            zip.close()
+        self._archive_to_zip.clear()
+        self._mounted_archives.clear()
+
+
 class BF2Engine():
     _instance = None
 
     def get_manager(self, _type) -> TemplateManager:
-        for manager in self.managers:
+        for manager in self.singletons:
             if _type == manager.MANAGED_TYPE:
                 return manager
 
@@ -595,14 +872,18 @@ class BF2Engine():
         return cls._instance
 
     def init(self):
-        self.managers = list()
-        self.managers.append(ObjectTemplateManager())
-        self.managers.append(GeometryTemplateManager())
-        self.managers.append(CollisionManager())
+        self.singletons = list()
+        self.singletons.append(ObjectTemplateManager())
+        self.singletons.append(GeometryTemplateManager())
+        self.singletons.append(CollisionManager())
+        self.singletons.append(ObjectManager())
+        self.file_manager : FileManager = FileManager()
         self.main_console : MainConsole = MainConsole(silent=True)
         self.main_console.register_object(ObjectTemplate)
         self.main_console.register_object(GeometryTemplate)
         self.main_console.register_object(CollisionManager)
+        self.main_console.register_object(Object)
+        self.main_console.register_object(self.file_manager)
 
     @classmethod
     def shutdown(cls):

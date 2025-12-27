@@ -4,7 +4,7 @@ from ..core.bf2.bf2_engine import BF2_OBJECT_TEMPLATE_TYPES
 
 BF2_OBJECTS_ENUM = [(n, n, "", i) for i, n in enumerate(BF2_OBJECT_TEMPLATE_TYPES)]
 
-def on_bf2_obj_type_update(self, context):
+def on_bf2_obj_type_enum_update(self, context):
     self.bf2_object_type = self.bf2_object_type_enum
 
 def on_bf2_obj_type_manual_mode_update(self, context):
@@ -47,7 +47,7 @@ def register():
             description="Type of BF2 ObjectTemplate this Blender Object represents",
             default=BF2_OBJECT_TEMPLATE_TYPES.index('SimpleObject'),
             items=BF2_OBJECTS_ENUM,
-            update=on_bf2_obj_type_update
+            update=on_bf2_obj_type_enum_update
         ) # type: ignore
 
     bpy.types.Object.bf2_object_type_manual_mode = BoolProperty(

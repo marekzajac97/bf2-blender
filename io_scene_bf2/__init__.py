@@ -8,6 +8,7 @@ from .core.object_template import import_object_template, export_object_template
 from .core.occluders import import_occluders, export_occluders
 from .core.anim_utils import reparent_bones, setup_controllers as setup_anim_controllers
 from .core.heightmap import import_heightmap, export_heightmap
+from .core.level_loader import load_level
 
 def get_mod_dir(context):
     return context.preferences.addons[__package__].preferences.mod_directory

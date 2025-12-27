@@ -456,6 +456,12 @@ class BF2VisibleMesh():
             if os.fstat(fo.fileno()).st_size != fo.tell():
                 raise BF2MeshException(f"Corrupted {self._FILE_EXT} file? Reading finished and file pointer != filesize")
 
+    @classmethod
+    def load_from(cls, name, data):
+        f = FileUtils(data)
+        mesh = cls(name=name)
+        mesh.load(f)
+        return mesh
 
     def load(self, f : FileUtils):
         version = MeshHeader.load(f)
