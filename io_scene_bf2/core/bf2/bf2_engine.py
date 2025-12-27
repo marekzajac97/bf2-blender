@@ -276,7 +276,10 @@ def instancemethod(func):
 
 class Manager:
     def __init__(self):
-        self.active_obj = None 
+        self.active_obj = None
+
+    def get_nested_manager(self, _type):
+        return None
 
 class Template:
     MANAGED_TYPE = None
@@ -326,43 +329,6 @@ class TemplateManager(Manager):
             self.active_obj = None
             return 'Activating non exisiting template {}'.format(template)
 
-class GeometryTemplate(Template):
-
-    TYPES = {
-        'staticmesh': 'StaticMesh',
-        'bundledmesh': 'BundledMesh',
-        'skinnedmesh': 'SkinnedMesh',
-        'meshparticlemesh': 'MeshParticleMesh',
-        'roadcompiled': 'RoadCompiled',
-        'debugspheremesh': 'DebugSphereMesh'
-    }
-
-    def __init__(self, geometry_type, name):
-        super(GeometryTemplate, self).__init__(name)
-        if geometry_type.lower() in self.TYPES:
-            self.geometry_type = self.TYPES[geometry_type.lower()]
-        else:
-            raise ValueError(f"Unknown geometry type {geometry_type}")
-
-        self.nr_of_animated_uv_matrix = 0
-
-        dir = os.path.dirname(BF2Engine().main_console.get_active_con_file().lower())
-        self.location = os.path.join(dir, 'Meshes', f'{name}.{geometry_type.lower()}')
-
-    def make_script(self, f):
-        f.write(f'GeometryTemplate.create {self.geometry_type} {self.name}\n')
-        if self.nr_of_animated_uv_matrix:
-            f.write(f'GeometryTemplate.nrOfAnimatedUVMatrix {self.nr_of_animated_uv_matrix}\n')
-
-
-class CollisionMeshTemplate(Template):
-    def __init__(self, name):
-        super(CollisionMeshTemplate, self).__init__(name)
-        dir = os.path.dirname(BF2Engine().main_console.get_active_con_file().lower())
-        self.location = os.path.join(dir, 'Meshes', f'{name}.collisionmesh')
-
-    def make_script(self, f):
-        f.write(f'CollisionManager.createTemplate {self.name}\n')
 
 BF2_OBJECT_TEMPLATE_TYPES  = [
     'AirDraftEffectBundle',
@@ -601,8 +567,47 @@ class ObjectTemplateManager(TemplateManager):
             self.add_bundle_childs(child.template)
 
 
+class GeometryTemplate(Template):
+
+    TYPES = {
+        'staticmesh': 'StaticMesh',
+        'bundledmesh': 'BundledMesh',
+        'skinnedmesh': 'SkinnedMesh',
+        'meshparticlemesh': 'MeshParticleMesh',
+        'roadcompiled': 'RoadCompiled',
+        'debugspheremesh': 'DebugSphereMesh'
+    }
+
+    def __init__(self, geometry_type, name):
+        super(GeometryTemplate, self).__init__(name)
+        if geometry_type.lower() in self.TYPES:
+            self.geometry_type = self.TYPES[geometry_type.lower()]
+        else:
+            raise ValueError(f"Unknown geometry type {geometry_type}")
+
+        self.nr_of_animated_uv_matrix = 0
+
+        dir = os.path.dirname(BF2Engine().main_console.get_active_con_file().lower())
+        self.location = os.path.join(dir, 'Meshes', f'{name}.{geometry_type.lower()}')
+
+    def make_script(self, f):
+        f.write(f'GeometryTemplate.create {self.geometry_type} {self.name}\n')
+        if self.nr_of_animated_uv_matrix:
+            f.write(f'GeometryTemplate.nrOfAnimatedUVMatrix {self.nr_of_animated_uv_matrix}\n')
+
+
 class GeometryTemplateManager(TemplateManager):
     MANAGED_TYPE = GeometryTemplate
+
+
+class CollisionMeshTemplate(Template):
+    def __init__(self, name):
+        super(CollisionMeshTemplate, self).__init__(name)
+        dir = os.path.dirname(BF2Engine().main_console.get_active_con_file().lower())
+        self.location = os.path.join(dir, 'Meshes', f'{name}.collisionmesh')
+
+    def make_script(self, f):
+        f.write(f'CollisionManager.createTemplate {self.name}\n')
 
 
 class CollisionManager(TemplateManager):
@@ -612,6 +617,97 @@ class CollisionManager(TemplateManager):
     def createTemplate(cls, name):
         self = BF2Engine().get_manager(cls.MANAGED_TYPE)
         self.create(name)
+
+
+class Heightmap:
+    def __init__(self, _type, offset_x, offset_z):
+        self.type = _type # seems to be always Heightmap, might be Editable?
+        self.cluster_offset = (offset_x, offset_z)
+        # TODO find defaults
+        self.size = (0, 0)
+        self.scale = (1, 1, 1)
+        self.bit_res = 8
+        self.material_scale = 1.0
+        self.raw_file = None
+        self.mat_file = None
+
+    @instancemethod
+    def setSize(self, x, y):
+        self.size = (int(x), int(y))
+
+    @instancemethod
+    def setScale(self, vec):
+        self.scale = _str_to_vec(vec, 3)
+
+    @instancemethod
+    def setBitResolution(self, val):
+        self.bit_res = int(val)
+
+    @instancemethod
+    def setMaterialScale(self, val):
+        self.material_scale = float(val)
+
+    @instancemethod
+    def loadHeightData(self, val):
+        self.raw_file = val
+
+    @instancemethod
+    def loadMaterialData(self, val):
+        self.mat_file = val
+
+
+class HeightmapCluster(Manager):
+    MANAGED_TYPE = Heightmap
+
+    def __init__(self, name):
+        self.name = name # maybe its type?
+        # TODO find defaults
+        self.cluster_size = None
+        self.heightmap_size = None
+        self.heightmaps = list()
+        self.active_obj = None
+        self.water_level = 0
+
+    @classmethod
+    def create(cls, *args):
+        BF2Engine().get_manager(HeightmapCluster).create(*args)
+
+    @instancemethod
+    def setClusterSize(self, size):
+        self.cluster_size = int(size)
+
+    @instancemethod
+    def setHeightmapSize(self, size):
+        self.heightmap_size = int(size)
+
+    @instancemethod
+    def addHeightmap(self, _type, offset_x, offset_z):
+        self.active_obj = Heightmap(_type, int(offset_x), int(offset_z))
+        self.heightmaps.append(self.active_obj)
+
+    @instancemethod
+    def setSeaWaterLevel(self, val):
+        self.water_level = float(val)
+
+class HeightmapClusterManager(Manager):
+    MANAGED_TYPE = HeightmapCluster
+
+    def __init__(self):
+        self.reset()
+
+    def get_nested_manager(self, _type):
+        if _type == HeightmapCluster.MANAGED_TYPE:
+            return self.active_obj
+
+    def reset(self):
+        self.clusters = list()
+        self.active_obj = None
+
+    def create(self, name):
+        new_cluster = HeightmapCluster(name)
+        self.clusters.append(new_cluster)
+        self.active_obj = new_cluster
+        return new_cluster
 
 
 class Object:
@@ -779,7 +875,7 @@ class FileManager:
         # check if absolute path: e.g. objects/blah/../blah
 
         for mount_dir, archives in self._mounted_archives.items():
-            if filepath.startswith(mount_dir):
+            if filepath.lower().startswith(mount_dir):
                 fpath = filepath[len(mount_dir):][1:]
                 for archive in archives:                    
                     archived_fname = self.findInArchive(archive, fpath)
@@ -792,7 +888,7 @@ class FileManager:
                 break
 
         for mount_dir, paths in self._mounted_paths.items():
-            if filepath.startswith(mount_dir):
+            if filepath.lower().startswith(mount_dir):
                 fpath = filepath[len(mount_dir):][1:]
                 for _path in paths:
                     _file = find_file(path.join(_path, fpath))
@@ -860,10 +956,12 @@ class FileManager:
 class BF2Engine():
     _instance = None
 
-    def get_manager(self, _type) -> TemplateManager:
+    def get_manager(self, _type) -> Manager:
         for manager in self.singletons:
             if _type == manager.MANAGED_TYPE:
                 return manager
+            elif nm := manager.get_nested_manager(_type):
+                return nm
 
     def __new__(cls, *args, **kwargs):
         if not isinstance(cls._instance, cls):
@@ -877,12 +975,15 @@ class BF2Engine():
         self.singletons.append(GeometryTemplateManager())
         self.singletons.append(CollisionManager())
         self.singletons.append(ObjectManager())
+        self.singletons.append(HeightmapClusterManager())
         self.file_manager : FileManager = FileManager()
         self.main_console : MainConsole = MainConsole(silent=True)
         self.main_console.register_object(ObjectTemplate)
         self.main_console.register_object(GeometryTemplate)
         self.main_console.register_object(CollisionManager)
         self.main_console.register_object(Object)
+        self.main_console.register_object(HeightmapCluster)
+        self.main_console.register_object(Heightmap)
         self.main_console.register_object(self.file_manager)
 
     @classmethod

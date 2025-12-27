@@ -112,8 +112,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
                  texture_path='', geom_to_ske=None, merge_materials=True,
-                 load_backfaces=True, setup_materials=True,
-                 loader=None, reporter=DEFAULT_REPORTER):
+                 load_backfaces=True, loader=None, reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
 
@@ -132,7 +131,6 @@ class MeshImporter:
         self.mesh_materials = []
         self.merge_materials = merge_materials
         self.load_backfaces = load_backfaces
-        self.setup_materials = setup_materials
 
     def import_mesh(self, name='', geom=None, lod=None):
         try:
@@ -275,8 +273,7 @@ class MeshImporter:
                     material.is_bf2_vegitation = self.is_vegitation
 
                 material.is_bf2_material = True # MUST be set last!
-                if self.setup_materials:
-                    setup_material(material, uvs=uvs.keys(), texture_path=self.texture_path, reporter=self.reporter)
+                setup_material(material, uvs=uvs.keys(), texture_path=self.texture_path, reporter=self.reporter)
 
             try:
                 material_index = mesh_materials.index(material)

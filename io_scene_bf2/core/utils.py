@@ -321,7 +321,7 @@ FOURCC_TO_DXGI = {
 
 def save_img_as_dds(img, outfile, compression='DXT5'):
     with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_file = os.path.join(tmp_dir, os.path.splitext(os.path.basename(outfile))[0] + '.png')
+        tmp_file = os.path.join(tmp_dir, file_name(outfile) + '.png')
         img.file_format = 'PNG'
         img.filepath_raw = tmp_file
         img.alpha_mode = 'STRAIGHT'
@@ -329,3 +329,6 @@ def save_img_as_dds(img, outfile, compression='DXT5'):
         dds_fmt = FOURCC_TO_DXGI[compression]
         texconv = Texconv()
         texconv.convert_to_dds(tmp_file, dds_fmt, out=os.path.dirname(outfile))
+
+def file_name(fname):
+    return os.path.splitext(os.path.basename(fname))[0]

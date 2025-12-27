@@ -2,7 +2,7 @@ import bpy # type: ignore
 import os
 from collections import OrderedDict
 
-from .utils import DEFAULT_REPORTER
+from .utils import DEFAULT_REPORTER, file_name
 from .exceptions import ImportException
 
 NODE_WIDTH = 300
@@ -52,7 +52,7 @@ def get_texture_suffix(texture_type):
     return TEXTURE_TYPE_TO_SUFFIXES[texture_type][0]
 
 def texture_suffix_is_valid(texture_path, texture_type):
-    map_filename = os.path.splitext(os.path.basename(texture_path))[0]
+    map_filename = file_name(texture_path)
     suffixes = TEXTURE_TYPE_TO_SUFFIXES[texture_type]
     return any([map_filename.endswith(sfx) for sfx in suffixes])
 
