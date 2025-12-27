@@ -83,16 +83,20 @@ def load_level(context, mod_dir, level_name, use_cache=True,
     template_to_objects = dict()
 
     obj_manager = BF2Engine().get_manager(Object)
-    skipped_templates = dict()
     for obj in obj_manager.objects:
         template = obj.template
+
+        if 'horgne_church' != template.name:
+            continue
+
         for temp in _get_templates(template):
             geom = _get_geom(temp)
             if not geom:
-                skipped_templates[temp.name.lower()] = temp
                 continue
 
-            objects = template_to_objects.setdefault(template.name.lower(), list())
+            print(temp.name)
+
+            objects = template_to_objects.setdefault(temp.name.lower(), list())
             objects.append(obj)
             templates[temp.name.lower()] = temp
 

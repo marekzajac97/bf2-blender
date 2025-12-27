@@ -890,12 +890,13 @@ class FileManager:
                     content = self._archive_to_zip[self._current_dir_archive].read(archived_fname)
                     self._current_dir = path.dirname(real_path)
                     return content
-            elif self._current_dir_path:
-                _fpath = path.join(self._current_dir, filepath)
-                real_path = path.normpath(path.join(self._current_dir_path, _fpath))
+            else:
+                real_path = _fpath = path.join(self._current_dir, filepath)
+                if self._current_dir_path:
+                    real_path = path.normpath(path.join(self._current_dir_path, _fpath))
                 _file = find_file(real_path)
                 if _file:
-                    f = ci_open(_file, 'b')
+                    f = ci_open(_file, 'rb')
                     self._current_dir = path.dirname(_fpath).replace('\\', '/')
                     content = f.read()
                     f.close()
@@ -924,7 +925,7 @@ class FileManager:
                     if not _file:
                         continue
                     
-                    f = ci_open(_file, 'b')
+                    f = ci_open(_file, 'rb')
                     self._current_dir = path.dirname(fpath)
                     self._current_dir_archive = None
                     self._current_dir_path = _path
@@ -936,6 +937,9 @@ class FileManager:
         # check is outside of zip
         abspath = os.path.join(BF2Engine().file_manager.root_dir, filepath)
         if os.path.isfile(abspath):
+            self._current_dir = path.dirname(abspath)
+            self._current_dir_archive = None
+            self._current_dir_path = None
             f = ci_open(abspath, 'rb')
             content = f.read()
             f.close()
