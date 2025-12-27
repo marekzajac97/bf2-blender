@@ -71,15 +71,19 @@ def igetattr(obj, attr):
 
 class MainConsole():
 
+    class StackFrame:
+        def __init__(self, con_file):
+            self._con_file = con_file
+            self._constants = dict()
+            self._variables = set()
+
     def __init__(self, silent = False):
         self._silent = silent
-        self._active_root_con_file = None
-        self._active_con_file = None
+        self._stack = list()
         self._processed_line = 0
         self._processed_directive = ''
-        self._constants = {}
-        self._variables = {}
         self._ignore = False
+        self._inside_comment = False
         self._registered_console_objects = dict()
 
     def register_object(self, cls):
@@ -89,10 +93,9 @@ class MainConsole():
             self._registered_console_objects[cls.__class__.__name__.lower()] = cls
 
     def get_active_con_file(self):
-        return self._active_root_con_file
+        return self._stack[-1]._con_file if self._stack else None
 
-    def run_file(self, filepath, is_root=True, ignore_includes=False):
-
+    def run_file(self, filepath, is_root=True, ignore_includes=False, args=[]):
         try:
             content = BF2Engine().file_manager.readFile(filepath, is_root=is_root)
             lines = content.decode(errors='ignore').splitlines()
@@ -106,57 +109,52 @@ class MainConsole():
             else:
                 raise e
 
-        if filepath is not None:
-            filepath = filepath.replace('\\', '/').lstrip('/')
+        filepath = filepath.replace('\\', '/').lstrip('/')
 
-        if is_root:
-            self._active_root_con_file = filepath
-        self._active_con_file = filepath
+        self._stack.append(self.StackFrame(filepath))
 
-        self._constants = {} # TODO: preserve scope on include
-        self._variables = {}
+        for i, arg in enumerate(args, start=1):
+            self._stack[-1]._constants[f'v_arg{i}'] = arg
 
         for line_no, line in enumerate(lines, start=1):
             self._processed_line = line_no
-            self.exec(line)
-        
-        if is_root:
-            self._active_root_con_file = None
-        self._active_con_file = None
+            self.exec(line, ignore_includes)
+
+        self._stack.pop()
 
     def exec(self, line, ignore_includes=False):
         args = self._get_args(line)
         if not args: return
-        
+
         op = args[0].lower()
-        if op in ('endrem', 'endif'):
-            self._ignore = False
+        if self._ignore:
+            if op == 'endrem':
+                self._ignore = self._inside_comment = False
+            elif self._inside_comment:
+                return
+            else: # inside inactive branch
+                if op == 'endif':
+                    self._ignore = False
             return
-        if self._ignore or op == 'rem':
+
+        # check comment
+        if self._inside_comment or op == 'rem':
             return
-        if op in ('beginrem', 'if'): # TODO: evaluate ifs?
-            self._ignore = True
+        if op == 'beginrem':
+            self._inside_comment = True
+            return
+
+        # check branch
+        if op in ('if', 'elseif'):
+            self._ignore = not self._eval_condition(args[1:])
             return
 
         if op in ('run', 'include') and not ignore_includes:
-            assert len(args) >= 2
-            assert self._active_con_file is not None, 'missing base for include'
+            if len(args) < 2:
+                return
+            self.run_file(args[1], is_root=False, args=args[2:])
+            return
 
-            _incfilepath = args[1].lstrip('\\/')
-            basedir = path.dirname(self._active_con_file)
-
-            p = path.join(basedir, _incfilepath)
-            incpath = find_file(path.normpath(p))
-            if incpath is None and basedir and not _incfilepath.startswith('.'):
-                incpath = find_file(_incfilepath) # Maybe it's a full path (Objects/bla-bla-bla)?
-
-            if incpath is None:
-                pass # XXX
-            else:
-                con_file_backup = self._active_con_file
-                self.run_file(incpath, is_root=False)
-                self._active_con_file = con_file_backup
-            
         self._process_directive(op, args[1:])
     
     def _execute_object_method(self, command, args):
@@ -210,10 +208,10 @@ class MainConsole():
                 c_value = args[2]
                 if not c_name.startswith('c_'):
                     self.report('Constant name not starting with "c_"')
-                elif c_name.lower() in self._constants:
+                elif c_name.lower() in self._stack[-1]._constants:
                     self.report('Attempted constant redefinition')
                 else:
-                    self._constants[c_name] = c_value
+                    self._stack[-1]._constants[c_name] = c_value
             
             elif command == 'var':
                 if len(args) > 1 and args[1] == '=': # definition + assignment
@@ -223,10 +221,10 @@ class MainConsole():
                 v_name = args[0].lower()
                 if not v_name.startswith('v_'):
                     self.report('Variable name not starting with "v_"')
-                elif v_name.lower() in self._variables:
+                elif v_name.lower() in self._stack[-1]._variables:
                     self.report('Attempted constant redefinition')
                 else:
-                    self._variables[v_name] = v_value
+                    self._stack[-1]._variables[v_name] = v_value
         except IndexError:
             self.report('Wrong syntax')
             return
@@ -239,14 +237,33 @@ class MainConsole():
         self._execute_object_method(command, args)
         self._processed_directive = ''
 
+    def _const_or_var(self, name):
+        sf = self._stack[-1]
+        if name in sf._constants:
+            return sf._constants[name]
+        elif name in sf._variables:
+            sf._variables[name]
+
+    def _eval_condition(self, args):
+        if len(args) == 3:
+            lhs = self._const_or_var(args[0]) or args[0]
+            rhs = self._const_or_var(args[2]) or args[2]
+            if not lhs or not rhs:
+                return False
+            op = args[1].lower()
+            if op in ('equals', '=='):
+                return lhs == rhs
+            if op in ('notequals', '!='):
+                return lhs == rhs
+            # TODO: support non-string operations
+        else:
+            return False # TODO: support logical operators or/and etc
+
     def report(self, *what):
         if self._silent:
             return
         content = ' '.join(map(str, what))
-        if self._active_con_file:
-            print('{} | {}: "{}" {}'.format(self._active_con_file, self._processed_line, self._processed_directive, content))
-        else:
-            print(content)
+        print('{} | {}: "{}" {}'.format(self.get_active_con_file(), self._processed_line, self._processed_directive, content))
 
 def _str_to_vec(str_form, length):
     v = tuple(map(lambda x: float(x), str_form.split('/')))
@@ -786,7 +803,7 @@ class ObjectManager(Manager):
 
         temp = obj_temp_manager.templates.get(template.lower())
         if not temp:
-            print(f"WARNING: Object.create {template}, ObjectTemplate does not exitst")
+            BF2Engine().main_console.report(f"ObjectTemplate does not exitst")
             return
             # raise ValueError(f"Object.create {template}, ObjectTemplate does not exitst")
 

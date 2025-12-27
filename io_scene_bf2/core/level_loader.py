@@ -10,20 +10,23 @@ from .bf2.bf2_engine import (BF2Engine,
                             GeometryTemplate,
                             HeightmapCluster,
                             Object)
-from .bf2.bf2_mesh import BF2StaticMesh
+from .bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh
 from .mod_loader import ModLoader
 from .mesh import MeshImporter
 from .utils import DEFAULT_REPORTER, swap_zy, file_name, _convert_pos, _convert_rot, to_matrix
 from .heightmap import import_heightmap_from, make_water_plane
 
+MESH_TYPES = {
+    'StaticMesh': BF2StaticMesh,
+    'BundledMesh': BF2BundledMesh,
+    'SkinnedMesh': BF2SkinnedMesh
+}
+
 def _get_geom(template):
     if not template.geom:
         return None
     geom_manager = BF2Engine().get_manager(GeometryTemplate)
-    geom = geom_manager.templates[template.geom.lower()]
-    if geom.geometry_type != 'StaticMesh':
-        return None # TODO: bundledmeshes which are sometimes added to bundles as winndows
-    return geom
+    return geom_manager.templates[template.geom.lower()]
 
 def _get_templates(template, templates=None):
     if templates is None:
@@ -35,33 +38,43 @@ def _get_templates(template, templates=None):
     return templates
 
 def load_level(context, mod_dir, level_name, use_cache=True,
-               load_objects=True, load_og=True, load_heightmap='PRIMARY',
+               load_unpacked=True, load_objects=True,
+               load_og=True, load_heightmap='PRIMARY',
                reporter=DEFAULT_REPORTER):
-    mod_loader = ModLoader(mod_dir, use_cache)
-    mod_loader.reload_all()
+    if not load_unpacked:
+        mod_loader = ModLoader(mod_dir, use_cache)
+        mod_loader.reload_all()
+    else:
+        BF2Engine().shutdown()
 
     file_manager = BF2Engine().file_manager
     main_console = BF2Engine().main_console
+    file_manager.root_dir = mod_dir
 
     level_dir = f'levels/{level_name}'
+    if load_unpacked:
+        level_dir = path.join(mod_dir, level_dir)
     client_zip_path = path.join(level_dir, 'client.zip')
     server_zip_path = path.join(level_dir, 'server.zip')
 
     # mount level archives
-    file_manager.mountArchive(client_zip_path, level_dir)
-    file_manager.mountArchive(server_zip_path, level_dir)
+    if not load_unpacked:
+        file_manager.mountArchive(client_zip_path, level_dir)
+        file_manager.mountArchive(server_zip_path, level_dir)
 
     # load statics & OG
     if load_objects or load_og:
         # load mapside object templates if exist
-        try:
-            main_console.run_file(f'{level_dir}/serverarchives.con')
-            mod_loader.load_objects(levels_only=True)
-        except FileManagerFileNotFound:
-            pass
+        if not load_unpacked:
+            try:
+                main_console.run_file(f'{level_dir}/serverarchives.con')
+                mod_loader.load_objects(levels_only=True)
+            except FileManagerFileNotFound:
+                pass
 
         if load_objects:
-            main_console.run_file(f'{level_dir}/StaticObjects.con')
+            args = ['BF2Editor'] if load_unpacked else []
+            main_console.run_file(f'{level_dir}/StaticObjects.con', args=args)
 
         if load_og:
             main_console.run_file(f'{level_dir}/Overgrowth/OvergrowthCollision.con')
@@ -84,27 +97,32 @@ def load_level(context, mod_dir, level_name, use_cache=True,
             templates[temp.name.lower()] = temp
 
     # load meshes
-    main_console.run_file('clientarchives.con')
-    try:
-        main_console.run_file(f'{level_dir}/clientarchives.con')
-    except FileManagerFileNotFound:
-        pass
+    if not load_unpacked:
+        main_console.run_file('clientarchives.con')
+        try:
+            main_console.run_file(f'{level_dir}/clientarchives.con')
+        except FileManagerFileNotFound:
+            pass
 
     template_to_mesh = dict()
     for template_name, template in templates.items():
         # TODO obj templates can share geom templates
         geom = _get_geom(template)
+        data = file_manager.readFile(geom.location, as_stream=True)
+        mesh_type = MESH_TYPES.get(geom.geometry_type)
+        if not mesh_type:
+            reporter.warning(f"skipping {template_name} as it is not supported mesh type {geom}")
+            continue
         try:
-            data = BF2Engine().file_manager.readFile(geom.location, as_stream=True)
-            template_to_mesh[template_name] = BF2StaticMesh.load_from(template_name, data)
+            template_to_mesh[template_name] = mesh_type.load_from(template_name, data)
         except Exception as e:
-            reporter.warning(f"Failed to load StaticMesh '{geom.location}', the file might be corrupted: {e}")
+            reporter.warning(f"Failed to load mesh '{geom.location}', the file might be corrupted: {e}")
             del template_to_objects[template_name]
 
     for template_name, bf2_objects in template_to_objects.items():
         geom = _get_geom(template)
         bf2_mesh = template_to_mesh[template_name]
-        # TODO: texture load from FileManager!
+        # TODO: texture load from FileManager if not load_unpacked!
         importer = MeshImporter(context, geom.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
         obj = importer.import_mesh(geom=0, lod=0)
         mesh = obj.data
@@ -143,7 +161,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                 elif load_heightmap != 'ALL':
                     continue
                 location = hm_cluster.heightmap_size * Vector(heightmap.cluster_offset)
-                data = BF2Engine().file_manager.readFile(heightmap.raw_file, as_stream=True)
+                data = file_manager.readFile(heightmap.raw_file, as_stream=True)
                 obj = import_heightmap_from(context, data, name=file_name(heightmap.raw_file),
                                             bit_res=heightmap.bit_res, scale=swap_zy(heightmap.scale))
                 obj.location.x = location.x

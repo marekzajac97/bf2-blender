@@ -8,7 +8,7 @@ import os
 class BF2Mesh:
 
     @staticmethod
-    def load(file : str, use_fm=False):
+    def load(file : str):
         ext = os.path.splitext(file)[1].lower()
         if ext == BF2SkinnedMesh._FILE_EXT:
             return BF2SkinnedMesh(file)
