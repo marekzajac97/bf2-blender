@@ -376,6 +376,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
 
         # transparency
         if has_alpha or has_alphatest:
+            diffuse.image.alpha_mode = 'STRAIGHT' # need this to render properly with Cycles
             node_tree.links.new(diffuse.outputs['Alpha'], shader_alpha)
 
         # envmap reflections
@@ -457,6 +458,7 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             detail_out = base.outputs[0]
 
         if crack:
+            crack.image.alpha_mode = 'STRAIGHT' # need this to render properly with Cycles
             # mix detail & crack color based on crack alpha
             mix_crack = node_tree.nodes.new('ShaderNodeMixRGB')
             mix_crack.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
@@ -572,8 +574,10 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
         # ---- transparency ------
         if has_alpha:
             if detail:
+                detail.image.alpha_mode = 'STRAIGHT'
                 alpha_output = detail.outputs['Alpha']
             else:
+                base.image.alpha_mode = 'STRAIGHT'
                 alpha_output = base.outputs['Alpha']
 
             node_tree.links.new(alpha_output, shader_alpha)

@@ -13,7 +13,7 @@ from .bf2.bf2_engine import (BF2Engine,
 from .bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh
 from .mod_loader import ModLoader
 from .mesh import MeshImporter
-from .utils import DEFAULT_REPORTER, swap_zy, file_name, _convert_pos, _convert_rot, to_matrix
+from .utils import DEFAULT_REPORTER, swap_zy, file_name, _convert_pos, _convert_rot, to_matrix, save_img_as_dds
 from .heightmap import import_heightmap_from, make_water_plane
 from .exceptions import ImportException
 
@@ -29,12 +29,6 @@ def _yaw_pitch_roll_to_matrix(rotation):
     pitch = Matrix.Rotation(rotation[1], 4, 'X')
     roll  = Matrix.Rotation(rotation[2], 4, 'Y')
     return (yaw @ pitch @ roll)
-
-def _get_geom(template):
-    if not template.geom:
-        return None
-    geom_manager = BF2Engine().get_manager(GeometryTemplate)
-    return geom_manager.templates[template.geom.lower()]
 
 def _get_templates(template, matrix, templates=None):
     if templates is None:
@@ -63,10 +57,106 @@ def _get_obj_matrix(bf2_object):
         matrix_world.translation = swap_zy(bf2_object.absolute_pos)
         return matrix_world
 
+def _setup_scene_for_baking(context):
+    context.scene.render.engine = 'CYCLES'
+    context.scene.cycles.device = 'GPU'
+    context.scene.cycles.bake_type = 'DIFFUSE'
+    context.scene.render.bake.use_pass_direct = True
+    context.scene.render.bake.use_pass_indirect = True
+    context.scene.render.bake.use_pass_color = False
+
+def _strip_suffix(s):
+    if '.' not in s:
+        return s
+    head, tail = s.rsplit('.', 1)
+    if tail.isnumeric():
+        return head
+    return s
+
+def _gen_lm_key(obj, lod=0):
+    # TODO: warn if objects are too close to each other and generate same key
+    geom_template_name = _strip_suffix(obj.name).lower()
+    x, y, z = [str(int(i)) for i in obj.location]
+    return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
+
+def _setup_object_for_baking(context, obj, lm_size=(512, 512)): # TODO: LM size per object
+    lm_name = _gen_lm_key(obj)
+
+    # create bake image
+    if lm_name in bpy.data.images:
+        bake_image = bpy.data.images[lm_name]
+        bpy.data.images.remove(bake_image)
+
+    bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
+
+    setup_ok = False
+    # add bake lightmap texture for each material
+    for material in obj.data.materials:
+        if not material.is_bf2_material:
+            continue
+        setup_ok = True
+
+        node_tree = material.node_tree
+        # unselect all
+        for node in node_tree.nodes:
+            node.select = False
+
+        # make texture image node
+        texture_node = None
+        for node in node_tree.nodes:
+            if node.type == 'TEX_IMAGE' and node.name == lm_name + '_TXT':
+                texture_node = node
+                break
+        else:
+            texture_node = node_tree.nodes.new(type='ShaderNodeTexImage')
+            texture_node.name = lm_name + '_TXT'
+            texture_node.location = (500, 500)
+
+        texture_node.select = True
+        texture_node.image = bake_image
+
+        # make UV node
+        # TODO: verify has UV4
+        uv_node = None
+        for node in node_tree.nodes:
+            if node.type == 'UV_MAP' and node.name == lm_name + '_UV':
+                texture_node = node
+                break
+        else:
+            uv_node = node_tree.nodes.new('ShaderNodeUVMap')
+            uv_node.name = lm_name + '_UV'
+            texture_node.location = (400, 500)
+
+        uv_node.uv_map = 'UV4'
+        uv_node.select = True
+
+        # link
+        node_tree.links.new(uv_node.outputs['UV'], texture_node.inputs['Vector'])
+        node_tree.nodes.active = texture_node
+
+    if setup_ok:
+        return bake_image
+    else:
+        bpy.data.images.remove(bake_image)
+
+def bake_object_lightmaps(context, output_dir, dds_fmt='DXT1', only_selected=True):
+    _setup_scene_for_baking(context)
+    if only_selected:
+        objects = context.selected_objects
+    else:
+        objects = context.scene.collection.children['StaticObjects'].objects
+    total_cnt = len(objects)
+    for i, obj in enumerate(objects, start=1):
+        print(f"Baking object {obj.name} {i}/{total_cnt}")
+        if image := _setup_object_for_baking(context, obj):
+            bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+            save_img_as_dds(image, path.join(output_dir, image.name + '.dds'), dds_fmt)
+            bpy.data.images.remove(image)
+
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
                obj_geom=0, obj_lod=0, load_og=True,
-               load_heightmap='PRIMARY', load_sun=True,
+               load_heightmap='PRIMARY', load_lights=True,
                reporter=DEFAULT_REPORTER):
 
     if not load_unpacked:
@@ -113,20 +203,23 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         if load_og:
             main_console.run_file(f'{level_dir}/Overgrowth/OvergrowthCollision.con')
 
-    templates : Dict[str, ObjectTemplate] = dict()
+    templates : Dict[str, GeometryTemplate] = dict()
     template_to_instances : Dict[str, List[Matrix]] = dict()
 
     obj_manager = BF2Engine().get_manager(Object)
+    geom_manager = BF2Engine().get_manager(GeometryTemplate)
+
     for obj in obj_manager.objects:
         template = obj.template
-        # TODO: keep obj relations
+        # TODO: check GeometryTemplate.doNotGenerateLightmaps 1
         for temp, matrix_world, in _get_templates(template, _get_obj_matrix(obj)):
-            geom = _get_geom(temp)
-            if not geom:
+            if not temp.geom:
                 continue
-            obj_transforms = template_to_instances.setdefault(temp.name.lower(), list())
+
+            geom = geom_manager.templates[temp.geom.lower()]
+            obj_transforms = template_to_instances.setdefault(geom.name.lower(), list())
             obj_transforms.append(matrix_world)
-            templates[temp.name.lower()] = temp
+            templates[geom.name.lower()] = geom
 
     # load meshes
     if not load_unpacked:
@@ -137,13 +230,12 @@ def load_level(context, mod_dir, level_name, use_cache=True,
             pass
 
     template_to_mesh = dict()
-    for template_name, template in templates.items():
+    for template_name, geom in templates.items():
         # TODO obj templates can share geom templates
-        geom = _get_geom(template)
         data = file_manager.readFile(geom.location, as_stream=True)
         mesh_type = MESH_TYPES.get(geom.geometry_type)
         if not mesh_type:
-            reporter.warning(f"skipping {template_name} as it is not supported mesh type {geom.geometry_type}")
+            reporter.warning(f"skipping '{template_name}' as it is not supported mesh type {geom.geometry_type}")
             continue
         try:
             template_to_mesh[template_name] = mesh_type.load_from(template_name, data)
@@ -151,9 +243,11 @@ def load_level(context, mod_dir, level_name, use_cache=True,
             reporter.warning(f"Failed to load mesh '{geom.location}', the file might be corrupted: {e}")
             del template_to_instances[template_name]
 
+    static_objects = bpy.data.collections.new("StaticObjects")
+    context.scene.collection.children.link(static_objects)
+
     for template_name, obj_transforms in template_to_instances.items():
-        template = templates[template_name]
-        geom = _get_geom(template)
+        geom = templates[template_name]
         bf2_mesh = template_to_mesh[template_name]
         # TODO: texture load from FileManager if not load_unpacked!
         importer = MeshImporter(context, geom.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
@@ -167,7 +261,10 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         for matrix_world in obj_transforms:
             obj = bpy.data.objects.new(mesh.name, mesh)
             obj.matrix_world = matrix_world
-            context.scene.collection.objects.link(obj)
+            static_objects.objects.link(obj)
+
+    heightmaps = bpy.data.collections.new("Heightmaps")
+    context.scene.collection.children.link(heightmaps)
 
     if load_heightmap:
         main_console.run_file(f'{level_dir}/Heightdata.con')
@@ -184,20 +281,37 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                 data = file_manager.readFile(heightmap.raw_file, as_stream=True)
                 obj = import_heightmap_from(context, data, name=file_name(heightmap.raw_file),
                                             bit_res=heightmap.bit_res, scale=swap_zy(heightmap.scale))
+                context.scene.collection.objects.unlink(obj)
+                heightmaps.objects.link(obj)
                 obj.location.x = location.x
                 obj.location.y = location.y
 
-    if load_sun:
+    lights = bpy.data.collections.new("Lights")
+    context.scene.collection.children.link(lights)
+
+    if load_lights:
+        # sun (green channel)
         main_console.run_file(f'{level_dir}/Sky.con')
         sun_dir = Vector(BF2Engine().light_manager.sun_dir)
         _convert_pos(sun_dir)
         light = bpy.data.lights.new(name='Sun', type='SUN')
         obj = bpy.data.objects.new(light.name, light)
-        context.scene.collection.objects.link(obj)
+        lights.objects.link(obj)
         sun_dir.z = -sun_dir.z # points down
         obj.rotation_mode = 'QUATERNION'
         obj.rotation_quaternion = sun_dir.rotation_difference(Vector((0, 0, 1)))
-        print(obj.rotation_quaternion)
 
         sin_alpha = abs(sun_dir.z)
-        light.energy = 1.0 + 0.5 * sin_alpha
+        light.energy = 2 * (1.0 + 0.5 * sin_alpha) # TODO strength
+        light.color = (0, 1, 0)
+
+        # ambient light / soft shadows (blue channel)
+        if "SkyLight" in bpy.data.worlds:
+            world = bpy.data.worlds["SkyLight"]
+            bpy.data.worlds.remove(world)
+        context.scene.world = bpy.data.worlds.new("SkyLight")
+        background = context.scene.world.node_tree.nodes["Background"]
+        background.inputs['Color'].default_value = (0, 0, 1, 1)
+        background.inputs['Strength'].default_value = 0.7 # TODO strength
+
+        # TODO: point lights (red channel)
