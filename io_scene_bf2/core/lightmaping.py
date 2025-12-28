@@ -23,6 +23,17 @@ MESH_TYPES = {
     'SkinnedMesh': BF2SkinnedMesh
 }
 
+def _remove_diffuse_color_from_all_materials():
+    for mesh in bpy.data.meshes:
+        for material in mesh.materials:
+            if not material.is_bf2_material:
+                continue
+            node_tree = material.node_tree
+            for node_link in node_tree.links:
+                if 'Base Color' in node_link.to_node.inputs:
+                    node_tree.links.remove(node_link)
+                    break
+
 def _yaw_pitch_roll_to_matrix(rotation):
     rotation = tuple(map(lambda x: -math.radians(x), rotation))
     yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
@@ -79,7 +90,7 @@ def _gen_lm_key(obj, lod=0):
     x, y, z = [str(int(i)) for i in obj.location]
     return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
 
-def _setup_object_for_baking(context, obj, lm_size=(512, 512)): # TODO: LM size per object
+def _setup_object_for_baking(obj, lm_size=(512, 512)): # TODO: LM size per object
     lm_name = _gen_lm_key(obj)
 
     # create bake image
@@ -148,7 +159,7 @@ def bake_object_lightmaps(context, output_dir, dds_fmt='DXT1', only_selected=Tru
     total_cnt = len(objects)
     for i, obj in enumerate(objects, start=1):
         print(f"Baking object {obj.name} {i}/{total_cnt}")
-        if image := _setup_object_for_baking(context, obj):
+        if image := _setup_object_for_baking(obj):
             bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
             save_img_as_dds(image, path.join(output_dir, image.name + '.dds'), dds_fmt)
             bpy.data.images.remove(image)
@@ -157,6 +168,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
                obj_geom=0, obj_lod=0, load_og=True,
                load_heightmap='PRIMARY', load_lights=True,
+               no_diffuse=False,
                reporter=DEFAULT_REPORTER):
 
     if not load_unpacked:
@@ -285,6 +297,10 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                 heightmaps.objects.link(obj)
                 obj.location.x = location.x
                 obj.location.y = location.y
+
+    # easier to debug/previev the lights
+    if no_diffuse:
+        _remove_diffuse_color_from_all_materials()
 
     lights = bpy.data.collections.new("Lights")
     context.scene.collection.children.link(lights)
