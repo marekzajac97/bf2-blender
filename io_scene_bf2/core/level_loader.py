@@ -1,7 +1,7 @@
 import os.path as path
 import math
 import bpy # type: ignore
-from mathutils import Matrix, Vector # type: ignore
+from mathutils import Matrix, Vector, Euler # type: ignore
 
 from typing import Dict, List
 from .bf2.bf2_engine import (BF2Engine,
@@ -66,7 +66,7 @@ def _get_obj_matrix(bf2_object):
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
                obj_geom=0, obj_lod=0, load_og=True,
-               load_heightmap='PRIMARY',
+               load_heightmap='PRIMARY', load_sun=True,
                reporter=DEFAULT_REPORTER):
 
     if not load_unpacked:
@@ -186,3 +186,18 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                                             bit_res=heightmap.bit_res, scale=swap_zy(heightmap.scale))
                 obj.location.x = location.x
                 obj.location.y = location.y
+
+    if load_sun:
+        main_console.run_file(f'{level_dir}/Sky.con')
+        sun_dir = Vector(BF2Engine().light_manager.sun_dir)
+        _convert_pos(sun_dir)
+        light = bpy.data.lights.new(name='Sun', type='SUN')
+        obj = bpy.data.objects.new(light.name, light)
+        context.scene.collection.objects.link(obj)
+        sun_dir.z = -sun_dir.z # points down
+        obj.rotation_mode = 'QUATERNION'
+        obj.rotation_quaternion = sun_dir.rotation_difference(Vector((0, 0, 1)))
+        print(obj.rotation_quaternion)
+
+        sin_alpha = abs(sun_dir.z)
+        light.energy = 1.0 + 0.5 * sin_alpha

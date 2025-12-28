@@ -818,6 +818,15 @@ class ObjectManager(Manager):
         return new_object
 
 
+class LightManager():
+
+    def __init__(self):
+        self.sun_dir = (0, 0, 0)
+
+    def sunDirection(self, vec):
+        self.sun_dir = _str_to_vec(vec, 3)
+
+
 class FileManagerFileNotFound(Exception):
     pass
 
@@ -1015,6 +1024,8 @@ class BF2Engine():
         self.singletons.append(ObjectManager())
         self.singletons.append(HeightmapClusterManager())
         self.file_manager : FileManager = FileManager()
+        self.light_manager : LightManager = LightManager()
+
         self.main_console : MainConsole = MainConsole(silent=True)
         self.main_console.register_object(ObjectTemplate)
         self.main_console.register_object(GeometryTemplate)
@@ -1023,6 +1034,7 @@ class BF2Engine():
         self.main_console.register_object(HeightmapCluster)
         self.main_console.register_object(Heightmap)
         self.main_console.register_object(self.file_manager)
+        self.main_console.register_object(self.light_manager)
 
     @classmethod
     def shutdown(cls):
