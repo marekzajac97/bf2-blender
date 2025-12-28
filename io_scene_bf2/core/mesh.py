@@ -251,12 +251,12 @@ class MeshImporter:
                 except TypeError:
                     raise ImportError(f"Unsupported shader '{bf2_mat.fxfile}'")
 
-                if _MESH_TYPES[material.bf2_shader] != bf2_mesh:
-                    self.reporter.warning(f"Material shader '{bf2_mat.fxfile}' doesn't match the mesh type")
+                if _MESH_TYPES[material.bf2_shader] != type(bf2_mesh):
+                    self.reporter.warning(f"'{name}': Material shader '{bf2_mat.fxfile}' doesn't match the mesh type")
 
                 material.bf2_technique= bf2_mat.technique
                 if material.bf2_shader == 'STATICMESH' and 'parallaxdetail' in material.bf2_technique:
-                    self.reporter.warning(f"Ignoring technique 'parallaxdetail', (not supported)")
+                    self.reporter.warning(f"'{name}': Ignoring technique 'parallaxdetail', (not supported)")
                     material.bf2_technique = material.bf2_technique.replace('parallaxdetail', '')
 
                 texture_map_types = TEXTURE_MAPS[material.bf2_shader]
@@ -318,7 +318,7 @@ class MeshImporter:
         bm.free()
 
         if fucked_up_faces:
-            self.reporter.warning(f"{name} Skipped {fucked_up_faces} invalid faces")
+            self.reporter.warning(f"'{name}': Skipped {fucked_up_faces} invalid faces")
 
         # mark faces with backfaces
         if double_sided_faces:

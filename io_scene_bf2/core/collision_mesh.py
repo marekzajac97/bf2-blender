@@ -191,7 +191,7 @@ class CollMeshImporter:
                     fucked_up_faces += 1
 
         if fucked_up_faces:
-            self.reporter.warning(f"{name} Skipped {fucked_up_faces} invalid faces")
+            self.reporter.warning(f"'{name}': Skipped {fucked_up_faces} invalid faces")
 
         mesh = bpy.data.meshes.new(name)
         bm.to_mesh(mesh)

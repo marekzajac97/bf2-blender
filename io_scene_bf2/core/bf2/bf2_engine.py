@@ -85,6 +85,7 @@ class MainConsole():
         self._ignore = False
         self._inside_comment = False
         self._registered_console_objects = dict()
+        self.report_cb = None
 
     def register_object(self, cls):
         if cls.__class__ == type:
@@ -259,9 +260,11 @@ class MainConsole():
             return False # TODO: support logical operators or/and etc
 
     def report(self, *what):
+        content = ' '.join(map(str, what))
+        if self.report_cb:
+            self.report_cb(self.get_active_con_file(), self._processed_line, self._processed_directive, content)
         if self._silent:
             return
-        content = ' '.join(map(str, what))
         print('{} | {}: "{}" {}'.format(self.get_active_con_file(), self._processed_line, self._processed_directive, content))
 
 def _str_to_vec(str_form, length):
@@ -464,7 +467,7 @@ class ObjectTemplate(Template):
                 child.template.parent = self
                 child.template.add_bundle_childs()
             else:
-                BF2Engine().main_console.report(f"add_bundle_childs: ObjectTemplate {child.template} not found")
+                BF2Engine().main_console.report(f"child ObjectTemplate '{child.template_name}' not found")
 
     def make_script(self, f):
         f.write(f'ObjectTemplate.create {self.type} {self.name}\n')

@@ -79,6 +79,12 @@ def load_level(context, mod_dir, level_name, use_cache=True,
     main_console = BF2Engine().main_console
     file_manager.root_dir = mod_dir
 
+    def report_cb(con_file, line_no, line, what):
+        if line.lower().startswith('object.create'):
+            reporter.warning(f'{con_file}:{line_no}:{line}: {what}')
+
+    main_console.report_cb = report_cb
+
     level_dir = f'levels/{level_name}'
     if load_unpacked:
         level_dir = path.join(mod_dir, level_dir)
