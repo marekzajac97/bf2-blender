@@ -23,26 +23,52 @@ MESH_TYPES = {
     'SkinnedMesh': BF2SkinnedMesh
 }
 
+def _yaw_pitch_roll_to_matrix(rotation):
+    rotation = tuple(map(lambda x: -math.radians(x), rotation))
+    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
+    pitch = Matrix.Rotation(rotation[1], 4, 'X')
+    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
+    return (yaw @ pitch @ roll)
+
 def _get_geom(template):
     if not template.geom:
         return None
     geom_manager = BF2Engine().get_manager(GeometryTemplate)
     return geom_manager.templates[template.geom.lower()]
 
-def _get_templates(template, templates=None):
+def _get_templates(template, matrix, templates=None):
     if templates is None:
         templates = list()
-    templates.append(template)
+    templates.append((template, matrix))
     template.add_bundle_childs()
     for child in template.children:
         if child.template is not None:
-            _get_templates(child.template, templates)
+            child_matrix = _yaw_pitch_roll_to_matrix(child.rotation)
+            child_matrix.translation = swap_zy(child.position)
+            _get_templates(child.template, matrix @ child_matrix, templates)
     return templates
+
+def _get_obj_matrix(bf2_object):
+    if bf2_object.transform:
+        # OG
+        matrix_world = Matrix(bf2_object.transform)
+        matrix_world.transpose()
+        pos, rot, _ = matrix_world.decompose()
+        _convert_pos(pos)
+        _convert_rot(rot)
+        return to_matrix(pos, rot)
+    else:
+        # statics
+        matrix_world = _yaw_pitch_roll_to_matrix(bf2_object.rot)
+        matrix_world.translation = swap_zy(bf2_object.absolute_pos)
+        return matrix_world
 
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
-               load_og=True, load_heightmap='PRIMARY',
+               obj_geom=0, obj_lod=0, load_og=True,
+               load_heightmap='PRIMARY',
                reporter=DEFAULT_REPORTER):
+
     if not load_unpacked:
         mod_loader = ModLoader(mod_dir, use_cache)
         mod_loader.reload_all()
@@ -81,18 +107,19 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         if load_og:
             main_console.run_file(f'{level_dir}/Overgrowth/OvergrowthCollision.con')
 
-    templates : Dict[str, List[ObjectTemplate]] = dict()
-    template_to_objects = dict()
+    templates : Dict[str, ObjectTemplate] = dict()
+    template_to_instances : Dict[str, List[Matrix]] = dict()
 
     obj_manager = BF2Engine().get_manager(Object)
     for obj in obj_manager.objects:
         template = obj.template
-        for temp in _get_templates(template):
+        # TODO: keep obj relations
+        for temp, matrix_world, in _get_templates(template, _get_obj_matrix(obj)):
             geom = _get_geom(temp)
             if not geom:
                 continue
-            objects = template_to_objects.setdefault(temp.name.lower(), list())
-            objects.append(obj)
+            obj_transforms = template_to_instances.setdefault(temp.name.lower(), list())
+            obj_transforms.append(matrix_world)
             templates[temp.name.lower()] = temp
 
     # load meshes
@@ -110,43 +137,28 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         data = file_manager.readFile(geom.location, as_stream=True)
         mesh_type = MESH_TYPES.get(geom.geometry_type)
         if not mesh_type:
-            reporter.warning(f"skipping {template_name} as it is not supported mesh type {geom}")
+            reporter.warning(f"skipping {template_name} as it is not supported mesh type {geom.geometry_type}")
             continue
         try:
             template_to_mesh[template_name] = mesh_type.load_from(template_name, data)
         except Exception as e:
             reporter.warning(f"Failed to load mesh '{geom.location}', the file might be corrupted: {e}")
-            del template_to_objects[template_name]
+            del template_to_instances[template_name]
 
-    for template_name, bf2_objects in template_to_objects.items():
+    for template_name, obj_transforms in template_to_instances.items():
+        template = templates[template_name]
         geom = _get_geom(template)
         bf2_mesh = template_to_mesh[template_name]
         # TODO: texture load from FileManager if not load_unpacked!
         importer = MeshImporter(context, geom.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
         try:
-            obj = importer.import_mesh(geom=0, lod=0)
+            obj = importer.import_mesh(geom=obj_geom, lod=obj_lod)
         except ImportException as e:
             reporter.warning(f"Failed to import mesh '{geom.location}': {e}")
+            continue
         mesh = obj.data
         bpy.data.objects.remove(obj, do_unlink=True)
-        for bf2_object in bf2_objects:
-            if bf2_object.transform:
-                # OG
-                matrix_world = Matrix(bf2_object.transform)
-                matrix_world.transpose()
-                pos, rot, _ = matrix_world.decompose()
-                _convert_pos(pos)
-                _convert_rot(rot)
-                matrix_world = to_matrix(pos, rot)
-            else:
-                # statics
-                rotation = tuple(map(lambda x: -math.radians(x), bf2_object.rot))
-                yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
-                pitch = Matrix.Rotation(rotation[1], 4, 'X')
-                roll  = Matrix.Rotation(rotation[2], 4, 'Y')
-                matrix_world = yaw @ pitch @ roll
-                matrix_world.translation = swap_zy(bf2_object.absolute_pos)
-
+        for matrix_world in obj_transforms:
             obj = bpy.data.objects.new(mesh.name, mesh)
             obj.matrix_world = matrix_world
             context.scene.collection.objects.link(obj)

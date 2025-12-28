@@ -251,6 +251,9 @@ class MeshImporter:
                 except TypeError:
                     raise ImportError(f"Unsupported shader '{bf2_mat.fxfile}'")
 
+                if _MESH_TYPES[material.bf2_shader] != bf2_mesh:
+                    self.reporter.warning(f"Material shader '{bf2_mat.fxfile}' doesn't match the mesh type")
+
                 material.bf2_technique= bf2_mat.technique
                 if material.bf2_shader == 'STATICMESH' and 'parallaxdetail' in material.bf2_technique:
                     self.reporter.warning(f"Ignoring technique 'parallaxdetail', (not supported)")

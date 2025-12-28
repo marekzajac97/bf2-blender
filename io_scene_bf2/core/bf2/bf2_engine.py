@@ -171,7 +171,7 @@ class MainConsole():
             pass
 
         if not obj_method:
-            self.report('Unknown object or method')
+            # self.report('Unknown object or method')
             return
 
         try:
