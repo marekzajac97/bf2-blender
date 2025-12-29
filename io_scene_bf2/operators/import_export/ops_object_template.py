@@ -257,7 +257,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
 
     samples_size: IntVectorProperty(
         name="Samples size",
-        description="X and Y samples dimentions for Lod0, for consecutive Lods the size is halved",
+        description="Default lightmap dimentions for Lod0, for consecutive Lods the size is halved. Value may be overriden by setting 'Lightmap size' in the Object Properties panel for the individual LODs",
         default=(256, 256),
         size=2,
         set=set_sample_size,
@@ -350,7 +350,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
             row = body.row()
             row.prop(self, "samples_size", text="Size")
             col = row.column()
-            col.prop(self, "link_samples_size", text="")
+            col.prop(self, "link_samples_size", text="", icon='LINKED')
             body.prop(self, "use_edge_margin")
             body.prop(self, "sample_padding")
 

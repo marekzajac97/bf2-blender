@@ -609,8 +609,12 @@ class GeometryTemplate(Template):
 
         self.nr_of_animated_uv_matrix = 0
 
-        dir = os.path.dirname(BF2Engine().main_console.get_active_con_file().lower())
-        self.location = os.path.join(dir, 'Meshes', f'{name}.{geometry_type.lower()}')
+        active_con = BF2Engine().main_console.get_active_con_file()
+        if active_con:
+            dir = os.path.dirname(active_con.lower())
+            self.location = os.path.join(dir, 'Meshes', f'{name}.{geometry_type.lower()}')
+        else:
+            self.location = None
 
     def make_script(self, f):
         f.write(f'GeometryTemplate.create {self.geometry_type} {self.name}\n')
@@ -625,8 +629,13 @@ class GeometryTemplateManager(TemplateManager):
 class CollisionMeshTemplate(Template):
     def __init__(self, name):
         super(CollisionMeshTemplate, self).__init__(name)
-        dir = os.path.dirname(BF2Engine().main_console.get_active_con_file().lower())
-        self.location = os.path.join(dir, 'Meshes', f'{name}.collisionmesh')
+
+        active_con = BF2Engine().main_console.get_active_con_file()
+        if active_con:
+            dir = os.path.dirname(active_con.lower())
+            self.location = os.path.join(dir, 'Meshes', f'{name}.collisionmesh')
+        else:
+            self.location = None
 
     def make_script(self, f):
         f.write(f'CollisionManager.createTemplate {self.name}\n')

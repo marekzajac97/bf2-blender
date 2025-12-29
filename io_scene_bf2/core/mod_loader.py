@@ -11,9 +11,8 @@ CACHE_FILE_NAME = ".io_scene_bf2_cache"
 CACHE_VERSION = "1.0" # must be changed if anything within xxxTemplate data is added/modified
 
 class ModLoader:
-    def __init__(self, mod_dir, level_name, use_cache=True):
+    def __init__(self, mod_dir, use_cache=True):
         self.mod_dir = mod_dir
-        self.level_name = level_name
         self.use_cache = use_cache
 
     def reload_all(self):

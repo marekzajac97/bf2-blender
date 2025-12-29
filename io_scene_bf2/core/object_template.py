@@ -602,12 +602,22 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
                 elif not bf2_mesh.has_uv(4):
                     reporter.error(f"Cannot generate samples, missing ligtmap UV Layer (UV4)")
                 else:
+                    lod0_obj = temp_mesh_geoms[0][0]
+                    if tuple(lod0_obj.bf2_lightmap_size) != (0, 0):
+                        samples_size = tuple(lod0_obj.bf2_lightmap_size) # use LOD0 as default if defined
+
                     for lod_idx, bf2_lod in enumerate(bf2_mesh.geoms[0].lods):
-                        MIN_SAMPLE_SIZE = 8
+                        lod_obj = temp_mesh_geoms[0][lod_idx]
+                        if tuple(lod_obj.bf2_lightmap_size) != (0, 0):
+                            sample_size = tuple(lod_obj.bf2_lightmap_size) # LOD has custom size
+                        elif lod_idx != 0 and tuple(lod0_obj.bf2_lightmap_size) != (0, 0):
+                            reporter.warning(f"Lod{lod_idx} has lightmap size unspecified while Lod0 does, using Lod0 values as base")
+
                         if lod_idx == 0:
                             sample_size = samples_size
                             samples_filename = obj_name + '.samples'
                         else:
+                            MIN_SAMPLE_SIZE = 8
                             sample_size = [max(int(i / (2**lod_idx)), MIN_SAMPLE_SIZE) for i in samples_size]
                             samples_filename = obj_name + f'.samp_{lod_idx:02d}'
 

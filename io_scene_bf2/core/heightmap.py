@@ -28,6 +28,7 @@ def make_water_plane(context, heightmap_size, water_level, name='WaterPlane'):
 
     obj = bpy.data.objects.new(name, mesh)
     context.scene.collection.objects.link(obj)
+    return obj
 
 
 def import_heightmap_from(context, data, name, bit_res=16, scale=(1, 1, 1)):

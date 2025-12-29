@@ -164,6 +164,11 @@ def bake_object_lightmaps(context, output_dir, dds_fmt='DXT1', only_selected=Tru
             save_img_as_dds(image, path.join(output_dir, image.name + '.dds'), dds_fmt)
             bpy.data.images.remove(image)
 
+
+def _find_lm_bitmap_size(geom_temp):
+    pass
+
+
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
                obj_geom=0, obj_lod=0, load_og=True,
@@ -282,7 +287,9 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         main_console.run_file(f'{level_dir}/Heightdata.con')
         hm_cluster = BF2Engine().get_manager(HeightmapCluster).active_obj
         if hm_cluster:
-            make_water_plane(context, hm_cluster.heightmap_size, hm_cluster.water_level)
+            water_plane = make_water_plane(context, hm_cluster.heightmap_size, hm_cluster.water_level)
+            context.scene.collection.objects.unlink(water_plane)
+            heightmaps.objects.link(water_plane)
             for heightmap in hm_cluster.heightmaps:
                 if load_heightmap == 'PRIMARY':
                     if heightmap.cluster_offset != (0, 0):

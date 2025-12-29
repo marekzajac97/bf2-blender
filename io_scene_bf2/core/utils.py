@@ -312,6 +312,9 @@ def prev_power_of_2(n):
         n &= (n - 1)
     return n
 
+def is_pow_two(n):
+    return (n & (n-1) == 0) and n != 0
+
 FOURCC_TO_DXGI = {
     'DXT1': 'BC1_UNORM',
     'DXT3': 'BC2_UNORM',
