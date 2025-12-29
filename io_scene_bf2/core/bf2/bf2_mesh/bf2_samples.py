@@ -174,6 +174,15 @@ class BF2Samples:
         self.sample_padding = sample_padding
         self.uv_chan = uv_chan
 
+    @staticmethod
+    def read_map_size_from(data):
+        samples_file = FileUtils(data)
+        if samples_file.read_raw(4) != b'SMP2': # invalid samples file
+            return None
+        x = samples_file.read_dword()
+        y = samples_file.read_dword()
+        return (x, y)
+
     def export(self, filename):
         samples = self._gen_samples()
         self._gen_sample_padding(samples)

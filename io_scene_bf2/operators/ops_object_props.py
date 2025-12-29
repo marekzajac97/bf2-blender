@@ -72,7 +72,7 @@ class OBJECT_PT_bf2_object(bpy.types.Panel):
 def register():
     bpy.types.Object.bf2_object_type = StringProperty(
             name="BF2 ObjectTemplate Type",
-            description="Type of BF2 ObjectTemplate this Blender Object represents",
+            description="Type of BF2 ObjectTemplate this Blender Object represents, the value is relevant only for the Geom's children",
             default = 'SimpleObject'
         ) # type: ignore
 

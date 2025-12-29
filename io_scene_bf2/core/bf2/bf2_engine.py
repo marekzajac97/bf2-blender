@@ -608,6 +608,7 @@ class GeometryTemplate(Template):
             raise ValueError(f"Unknown geometry type {geometry_type}")
 
         self.nr_of_animated_uv_matrix = 0
+        self.dont_generate_lightmaps = False
 
         active_con = BF2Engine().main_console.get_active_con_file()
         if active_con:
@@ -621,6 +622,9 @@ class GeometryTemplate(Template):
         if self.nr_of_animated_uv_matrix:
             f.write(f'GeometryTemplate.nrOfAnimatedUVMatrix {self.nr_of_animated_uv_matrix}\n')
 
+    @instancemethod
+    def doNotGenerateLightmaps(self, b):
+        self.dont_generate_lightmaps = bool(int(b))
 
 class GeometryTemplateManager(TemplateManager):
     MANAGED_TYPE = GeometryTemplate
@@ -757,7 +761,7 @@ class Object:
 
     @instancemethod
     def isOvergrowth(self, flag):
-        self.is_overgrowth = bool(flag)
+        self.is_overgrowth = bool(int(flag))
 
     @instancemethod
     def absolutePosition(self, pos):

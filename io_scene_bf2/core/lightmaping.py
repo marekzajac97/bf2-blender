@@ -1,6 +1,7 @@
 import os.path as path
 import math
 import bpy # type: ignore
+import bmesh # type: ignore
 from mathutils import Matrix, Vector, Euler # type: ignore
 
 from typing import Dict, List
@@ -10,10 +11,10 @@ from .bf2.bf2_engine import (BF2Engine,
                             GeometryTemplate,
                             HeightmapCluster,
                             Object)
-from .bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh
+from .bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh, BF2Samples
 from .mod_loader import ModLoader
-from .mesh import MeshImporter
-from .utils import DEFAULT_REPORTER, swap_zy, file_name, _convert_pos, _convert_rot, to_matrix, save_img_as_dds
+from .mesh import MeshImporter, MeshExporter
+from .utils import DEFAULT_REPORTER, swap_zy, file_name, _convert_pos, _convert_rot, to_matrix, save_img_as_dds, delete_object, find_root
 from .heightmap import import_heightmap_from, make_water_plane
 from .exceptions import ImportException
 
@@ -23,6 +24,8 @@ MESH_TYPES = {
     'SkinnedMesh': BF2SkinnedMesh
 }
 
+DEBUG = True
+
 def _remove_diffuse_color_from_all_materials():
     for mesh in bpy.data.meshes:
         for material in mesh.materials:
@@ -30,7 +33,8 @@ def _remove_diffuse_color_from_all_materials():
                 continue
             node_tree = material.node_tree
             for node_link in node_tree.links:
-                if 'Base Color' in node_link.to_node.inputs:
+                node = node_link.to_node 
+                if node.type == 'BSDF_PRINCIPLED':
                     node_tree.links.remove(node_link)
                     break
 
@@ -84,14 +88,24 @@ def _strip_suffix(s):
         return head
     return s
 
+def _strip_prefix(s):
+    for char_idx, _ in enumerate(s):
+        if s[char_idx:].startswith('__'):
+            return s[char_idx+2:]
+    raise s
+
 def _gen_lm_key(obj, lod=0):
     # TODO: warn if objects are too close to each other and generate same key
-    geom_template_name = _strip_suffix(obj.name).lower()
+    geom_template_name = _strip_prefix(_strip_suffix(obj.name)).lower()
     x, y, z = [str(int(i)) for i in obj.location]
     return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
 
-def _setup_object_for_baking(obj, lm_size=(512, 512)): # TODO: LM size per object
-    lm_name = _gen_lm_key(obj)
+def _setup_object_for_baking(lod_idx, obj): # TODO: LM size per object
+    lm_name = _gen_lm_key(obj, lod=lod_idx)
+    lm_size = tuple(obj.bf2_lightmap_size)
+
+    if lm_size == (0, 0):
+        return None
 
     # create bake image
     if lm_name in bpy.data.images:
@@ -115,13 +129,13 @@ def _setup_object_for_baking(obj, lm_size=(512, 512)): # TODO: LM size per objec
         # make texture image node
         texture_node = None
         for node in node_tree.nodes:
-            if node.type == 'TEX_IMAGE' and node.name == lm_name + '_TXT':
+            if node.type == 'TEX_IMAGE' and node.name == 'LIGHTMAP_BAKE_TXT':
                 texture_node = node
                 break
         else:
             texture_node = node_tree.nodes.new(type='ShaderNodeTexImage')
-            texture_node.name = lm_name + '_TXT'
-            texture_node.location = (500, 500)
+            texture_node.name = 'LIGHTMAP_BAKE_TXT'
+            texture_node.location = (400, 500)
 
         texture_node.select = True
         texture_node.image = bake_image
@@ -130,13 +144,13 @@ def _setup_object_for_baking(obj, lm_size=(512, 512)): # TODO: LM size per objec
         # TODO: verify has UV4
         uv_node = None
         for node in node_tree.nodes:
-            if node.type == 'UV_MAP' and node.name == lm_name + '_UV':
-                texture_node = node
+            if node.type == 'UVMAP' and node.name == 'LIGHTMAP_BAKE_UV':
+                uv_node = node
                 break
         else:
             uv_node = node_tree.nodes.new('ShaderNodeUVMap')
-            uv_node.name = lm_name + '_UV'
-            texture_node.location = (400, 500)
+            uv_node.name = 'LIGHTMAP_BAKE_UV'
+            uv_node.location = (400, 300)
 
         uv_node.uv_map = 'UV4'
         uv_node.select = True
@@ -150,31 +164,103 @@ def _setup_object_for_baking(obj, lm_size=(512, 512)): # TODO: LM size per objec
     else:
         bpy.data.images.remove(bake_image)
 
+def _select_lod_for_bake(geom, lod):
+    for lod_idx, lod_obj in enumerate(geom):
+        if lod_idx == lod:
+            lod_obj.hide_set(False)
+            lod_obj.select_set(True)
+        else:
+            lod_obj.hide_set(True)
+            lod_obj.select_set(False)
+
 def bake_object_lightmaps(context, output_dir, dds_fmt='DXT1', only_selected=True):
     _setup_scene_for_baking(context)
+    objects = list()
     if only_selected:
-        objects = context.selected_objects
+        for obj in context.selected_objects:
+            root_obj = find_root(obj)
+            if root_obj not in objects:
+                objects.append(root_obj)
     else:
-        objects = context.scene.collection.children['StaticObjects'].objects
+        for obj in context.scene.collection.children['StaticObjects'].objects:
+            if obj.parent is None and obj.data is None:
+                objects.append(root_obj)
+
+    for obj in context.selected_objects:
+        obj.select_set(False)
+
     total_cnt = len(objects)
-    for i, obj in enumerate(objects, start=1):
-        print(f"Baking object {obj.name} {i}/{total_cnt}")
-        if image := _setup_object_for_baking(obj):
-            bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
-            save_img_as_dds(image, path.join(output_dir, image.name + '.dds'), dds_fmt)
-            bpy.data.images.remove(image)
+    for i, root_obj in enumerate(objects, start=1):
+        print(f"Baking object {root_obj.name} {i}/{total_cnt}")
+        geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
+        for geom_idx, geom in enumerate(geoms):
+            if geom_idx != 0: # TODO: Geom1 support
+                continue
+            for lod_idx, lod_obj in enumerate(geom):
+                if image := _setup_object_for_baking(lod_idx, lod_obj):
+                    _select_lod_for_bake(geom, lod_idx)
+                    context.view_layer.update()
+                    bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+                    save_img_as_dds(image, path.join(output_dir, image.name + '.dds'), dds_fmt)
+                    # bpy.data.images.remove(image)
 
+            _select_lod_for_bake(geom, 0)
+            context.view_layer.update()
 
-def _find_lm_bitmap_size(geom_temp):
-    pass
+def _make_collection(context, name):
+    if name in bpy.data.collections:
+        c = bpy.data.collections[name]
+        return c
+    else:
+        c = bpy.data.collections.new(name)
+        context.scene.collection.children.link(c)
+        return c
 
+DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS = [
+    (8, 0),
+    (16, 4),
+    (32, 8),
+    (64, 16),
+    (128, 32),
+    (256, 256),
+    (512, 1024),
+    (1024, 2056)
+]
+
+def _calc_mesh_area(lod_obj):
+    bm = bmesh.new()
+    bm.from_mesh(lod_obj.data)
+    area = sum(f.calc_area() for f in bm.faces)
+    bm.free()
+    return area
+
+def _clone_object(collection, src_root, show_only_lod0=True):
+    geoms = MeshExporter.collect_geoms_lods(src_root, skip_checks=True)
+    root = bpy.data.objects.new(src_root.name, None)
+    collection.objects.link(root)
+    root.hide_set(show_only_lod0)
+    for geom_idx, geom in enumerate(geoms):
+        geom_obj = bpy.data.objects.new(f'G{geom_idx}__' + src_root.name, None)
+        geom_obj.parent = root
+        collection.objects.link(geom_obj)
+        geom_obj.hide_set(show_only_lod0)
+        for lod_idx, src_lod_obj in enumerate(geom):
+            lod_obj = bpy.data.objects.new(f'G{geom_idx}L{lod_idx}__' + src_root.name, src_lod_obj.data)
+            lod_obj.parent = geom_obj
+            lod_obj.bf2_lightmap_size = src_lod_obj.bf2_lightmap_size
+            collection.objects.link(lod_obj)
+            if lod_idx != 0:
+                lod_obj.hide_set(show_only_lod0)
+    return root
 
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
-               obj_geom=0, obj_lod=0, load_og=True,
-               load_heightmap='PRIMARY', load_lights=True,
-               no_diffuse=False,
+               load_og=True, load_heightmap='PRIMARY', load_lights=True,
+               no_diffuse=False, lm_size_thresholds=None,
                reporter=DEFAULT_REPORTER):
+
+    if lm_size_thresholds is None:
+        lm_size_thresholds = DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS
 
     if not load_unpacked:
         mod_loader = ModLoader(mod_dir, use_cache)
@@ -203,6 +289,9 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         file_manager.mountArchive(client_zip_path, level_dir)
         file_manager.mountArchive(server_zip_path, level_dir)
 
+    if DEBUG:
+        print(f"Loading statics")
+
     # load statics & OG
     if load_objects or load_og:
         # load mapside object templates if exist
@@ -228,7 +317,6 @@ def load_level(context, mod_dir, level_name, use_cache=True,
 
     for obj in obj_manager.objects:
         template = obj.template
-        # TODO: check GeometryTemplate.doNotGenerateLightmaps 1
         for temp, matrix_world, in _get_templates(template, _get_obj_matrix(obj)):
             if not temp.geom:
                 continue
@@ -246,42 +334,96 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         except FileManagerFileNotFound:
             pass
 
-    template_to_mesh = dict()
-    for template_name, geom in templates.items():
-        # TODO obj templates can share geom templates
-        data = file_manager.readFile(geom.location, as_stream=True)
-        mesh_type = MESH_TYPES.get(geom.geometry_type)
+    static_objects = _make_collection(context, "StaticObjects")
+    static_objects_skip = _make_collection(context, "StaticObjects_SkipLightmaps")
+
+    for idx, (template_name, geom_temp) in enumerate(templates.items()):
+        if DEBUG:
+            print(f"Importing {geom_temp.name} | {idx}/{len(templates)}")
+
+        data = file_manager.readFile(geom_temp.location, as_stream=True)
+        mesh_type = MESH_TYPES.get(geom_temp.geometry_type)
         if not mesh_type:
-            reporter.warning(f"skipping '{template_name}' as it is not supported mesh type {geom.geometry_type}")
+            reporter.warning(f"skipping '{template_name}' as it is not supported mesh type {geom_temp.geometry_type}")
             continue
         try:
-            template_to_mesh[template_name] = mesh_type.load_from(template_name, data)
+            bf2_mesh = mesh_type.load_from(template_name, data)
         except Exception as e:
-            reporter.warning(f"Failed to load mesh '{geom.location}', the file might be corrupted: {e}")
+            reporter.warning(f"Failed to load mesh '{geom_temp.location}', the file might be corrupted: {e}")
             del template_to_instances[template_name]
-
-    static_objects = bpy.data.collections.new("StaticObjects")
-    context.scene.collection.children.link(static_objects)
-
-    for template_name, obj_transforms in template_to_instances.items():
-        geom = templates[template_name]
-        bf2_mesh = template_to_mesh[template_name]
-        # TODO: texture load from FileManager if not load_unpacked!
-        importer = MeshImporter(context, geom.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
-        try:
-            obj = importer.import_mesh(geom=obj_geom, lod=obj_lod)
-        except ImportException as e:
-            reporter.warning(f"Failed to import mesh '{geom.location}': {e}")
             continue
-        mesh = obj.data
-        bpy.data.objects.remove(obj, do_unlink=True)
-        for matrix_world in obj_transforms:
-            obj = bpy.data.objects.new(mesh.name, mesh)
-            obj.matrix_world = matrix_world
-            static_objects.objects.link(obj)
+    
+        # determine samples size
+        meshes_dir = path.dirname(geom_temp.location)
+        lm_sizes = dict()
+        for lod_idx, _ in enumerate(bf2_mesh.geoms[0].lods): # TODO: Geom1 support
+            if lod_idx == 0:
+                fname = path.join(meshes_dir, geom_temp.name + '.samples')
+            else:
+                fname = path.join(meshes_dir, geom_temp.name + f'.samp_{lod_idx:02d}')
+            
+            lm_size = None
+            if load_unpacked:
+                if path.isfile(fname):
+                    with open(fname, "rb") as f:
+                        lm_size = BF2Samples.read_map_size_from(f)
+            else:
+                raise NotImplementedError() # TODO
+            lm_sizes[lod_idx] = lm_size
 
-    heightmaps = bpy.data.collections.new("Heightmaps")
-    context.scene.collection.children.link(heightmaps)
+        obj_transforms = template_to_instances[template_name]
+
+        # TODO: texture load from FileManager if not load_unpacked!
+        importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
+        try:
+            root_obj = importer.import_mesh()
+        except ImportException as e:
+            reporter.warning(f"Failed to import mesh '{geom_temp.location}': {e}")
+            continue
+
+        geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
+        lod0_lm_size = None
+        MIN_LM_SIZE = 8
+        for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
+            lm_size = lm_sizes[lod_idx]
+            if lm_size is None:
+                # if lm_size is None:
+                #     reporter.warning(f"Cannot determine LM size for mesh '{geom.location}' Lod{lod_idx} from samples file, it may not exist")
+                if lod0_lm_size is not None:
+                    # halve the LOD0 size
+                    lm_size = [max(int(i / (2**lod_idx)), MIN_LM_SIZE) for i in lod0_lm_size]
+                else:
+                    # guess using surface area of the mesh
+                    mesh_area = _calc_mesh_area(lod_obj)
+                    for lms, min_area in reversed(lm_size_thresholds):
+                        if mesh_area >= min_area:
+                            lm_size = (lms, lms)
+                            break
+            if lm_size is None:
+                lm_size = (MIN_LM_SIZE, MIN_LM_SIZE)
+            if lod_idx == 0:
+                lod0_lm_size = lm_size
+            lod_obj.bf2_lightmap_size = lm_size
+
+        # TODO: Geom1 support
+        if 'StaticMesh' == geom_temp.geometry_type:
+            for geom_obj in geoms[1:]:
+                delete_object(geom_obj)
+
+        for matrix_world in obj_transforms:
+            if geom_temp.dont_generate_lightmaps or 'StaticMesh' != geom_temp.geometry_type:
+                obj = _clone_object(static_objects_skip, root_obj)
+            else:
+                obj = _clone_object(static_objects, root_obj)
+            obj.matrix_world = matrix_world
+
+        # delete source instance
+        delete_object(root_obj, remove_data=False)
+
+    heightmaps = _make_collection(context, "Heightmaps")
+
+    if DEBUG:
+        print(f"Loading heightmap")
 
     if load_heightmap:
         main_console.run_file(f'{level_dir}/Heightdata.con')
@@ -309,8 +451,10 @@ def load_level(context, mod_dir, level_name, use_cache=True,
     if no_diffuse:
         _remove_diffuse_color_from_all_materials()
 
-    lights = bpy.data.collections.new("Lights")
-    context.scene.collection.children.link(lights)
+    lights = _make_collection(context, "Lights")
+
+    if DEBUG:
+        print(f"Loading lights")
 
     if load_lights:
         # sun (green channel)

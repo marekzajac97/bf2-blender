@@ -24,6 +24,7 @@ from .utils import (conv_bf2_to_blender,
                     add_backface_modifier,
                     apply_modifiers,
                     triangulate,
+                    compare_val,
                     DEFAULT_REPORTER)
 from .skeleton import (ske_get_bone_rot,
                        ske_weapon_part_ids,
@@ -263,7 +264,8 @@ class MeshImporter:
                 texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
                 for map_type, map_file in texture_maps.items():
                     if os.path.isabs(map_file):
-                        raise ImportException(f"Invalid material texture map path: '{map_file}' must be a relative path, got absolute path")
+                        self.reporter.warning(f"Invalid material texture map path: '{map_file}' is an absolute path, ignoring and converting to relative path...")
+                        map_file = map_file.lstrip('/').lstrip('\\')
                     type_index = texture_map_types.index(map_type)
                     setattr(material, f'texture_slot_{type_index}', map_file)
 
@@ -658,21 +660,21 @@ class MeshExporter:
                 new_lod_obj = self._make_temp_object(lod_obj)
                 new_geom_obj.append(new_lod_obj)
         return new_mesh_geoms
-    
+
     @staticmethod
     def _check_obj_transform(obj):
-        if tuple(obj.scale) != (1, 1, 1):
+        if not compare_val(obj.scale, (1, 1, 1)):
             raise ExportException(f"'{obj.name}' has non-uniform scale: {tuple(obj.scale)}")
-        if tuple(obj.location) != (0, 0, 0):
+        if not compare_val(obj.location, (0, 0, 0)):
             raise ExportException(f"'{obj.name}' has non-zero location: {tuple(obj.location)})")
-        if tuple(obj.rotation_quaternion) != (1, 0, 0, 0):
+        if not compare_val(obj.rotation_quaternion, (1, 0, 0, 0)):
             raise ExportException(f"'{obj.name}' has non-zero rotation (quat): {tuple(obj.rotation_quaternion)}")
 
     @staticmethod
-    def collect_geoms_lods(root_obj):
+    def collect_geoms_lods(root_obj, skip_checks=False):
         if not root_obj.children:
             raise ExportException(f"root object '{root_obj.name}' has no children (geoms)!")
-        if tuple(root_obj.scale) != (1, 1, 1):
+        if not skip_checks and not compare_val(root_obj.scale, (1, 1, 1)):
             raise ExportException(f"'{root_obj.name}' has non-uniform scale: {tuple(root_obj.scale)}")
         geoms = list()
 
@@ -681,7 +683,8 @@ class MeshExporter:
             geom_idx = check_prefix(geom_obj.name, ('G', ))
             if geom_idx in mesh_geoms:
                 raise ExportException(f"root object '{root_obj.name}' has duplicated G{geom_idx}")
-            MeshExporter._check_obj_transform(geom_obj)
+            if not skip_checks:
+                MeshExporter._check_obj_transform(geom_obj)
 
             mesh_geoms[geom_idx] = geom_obj
         for _, geom_obj in sorted(mesh_geoms.items()):
@@ -696,7 +699,8 @@ class MeshExporter:
                 _, lod_idx = check_prefix(lod_obj.name, ('G', 'L'))
                 if lod_idx in mesh_lods:
                     raise ExportException(f"geom '{geom_obj.name}' has duplicated L{lod_idx}")
-                MeshExporter._check_obj_transform(lod_obj)
+                if not skip_checks:
+                    MeshExporter._check_obj_transform(lod_obj)
                 mesh_lods[lod_idx] = lod_obj
             for _, lod_obj in sorted(mesh_lods.items()):
                 if lod_obj.data is None:

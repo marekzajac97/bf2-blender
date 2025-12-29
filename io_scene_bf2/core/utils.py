@@ -5,6 +5,7 @@ from .exceptions import ExportException
 from .bf2.bf2_common import Mat4, Quat, Vec3
 import tempfile
 import os
+import math
 
 from ..directx.texconv import Texconv
 from ..directx.dxgi_format import DXGI_FORMAT
@@ -36,13 +37,13 @@ def to_matrix(pos, rot):
     matrix.translation = pos
     return matrix
 
-def delete_object(obj, recursive=True):
+def delete_object(obj, recursive=True, remove_data=True):
     if recursive:
         for child in obj.children:
-            delete_object(child, recursive=True)
+            delete_object(child, recursive=True, remove_data=remove_data)
     data = obj.data
     bpy.data.objects.remove(obj, do_unlink=True)
-    if data is None:
+    if data is None or not remove_data:
         return
     if isinstance(data, Mesh):
         bpy.data.meshes.remove(data, do_unlink=True)
@@ -53,9 +54,9 @@ def delete_object(obj, recursive=True):
     else:
         raise ValueError(f"unknown object data type {type(data)}")
 
-def delete_object_if_exists(obj_name, recursive=True):
+def delete_object_if_exists(obj_name, recursive=True, remove_data=True):
     if obj_name in bpy.data.objects:
-        delete_object(bpy.data.objects[obj_name], recursive=recursive)
+        delete_object(bpy.data.objects[obj_name], recursive=recursive, remove_data=remove_data)
 
 
 def _delete_if_exists(mesh_name, collection):
@@ -331,7 +332,18 @@ def save_img_as_dds(img, outfile, compression='DXT5'):
         img.save(filepath=tmp_file)
         dds_fmt = FOURCC_TO_DXGI[compression]
         texconv = Texconv()
-        texconv.convert_to_dds(tmp_file, dds_fmt, out=os.path.dirname(outfile))
+        texconv.convert_to_dds(tmp_file, dds_fmt, out=os.path.dirname(outfile), verbose=False)
 
 def file_name(fname):
     return os.path.splitext(os.path.basename(fname))[0]
+
+def compare_seq(a_seq, b_seq):
+    return all([math.isclose(a,b) for a, b in zip(a_seq, b_seq)])
+
+def compare_val(a, b):
+    try:
+        iter(a)
+        iter(b)
+    except TypeError:
+        return math.isclose(a, b)
+    return compare_seq(a, b)

@@ -18,7 +18,7 @@ from .utils import (delete_object, check_suffix,
                     check_prefix, swap_zy,
                     apply_modifiers as _apply_modifiers,
                     triangulate as _triangulate,
-                    DEFAULT_REPORTER)
+                    compare_val, DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
 NONVIS_PRFX = 'NONVIS_'
@@ -750,7 +750,7 @@ def _verify_lods_consistency(root_geom_part, lod_obj):
     if any([c.isspace() for c in lod_obj.name]):
         raise ExportException(f"'{lod_obj.name}' name contain spaces!")
 
-    if tuple(lod_obj.scale) != (1, 1, 1):
+    if not compare_val(lod_obj.scale, (1, 1, 1)):
         raise ExportException(f"'{lod_obj.name}' has non uniform scale: {lod_obj.scale}")
 
     if lod_obj.data is None:
