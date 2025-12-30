@@ -14,7 +14,12 @@ from .bf2.bf2_engine import (BF2Engine,
 from .bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh, BF2Samples
 from .mod_loader import ModLoader
 from .mesh import MeshImporter, MeshExporter
-from .utils import DEFAULT_REPORTER, swap_zy, file_name, _convert_pos, _convert_rot, to_matrix, save_img_as_dds, delete_object, find_root
+from .utils import (DEFAULT_REPORTER,
+                    swap_zy, file_name,
+                    _convert_pos, _convert_rot,
+                    to_matrix, save_img_as_dds,
+                    delete_object, find_root,
+                    is_pow_two, obj_bounds)
 from .heightmap import import_heightmap_from, make_water_plane
 from .exceptions import ImportException
 
@@ -26,51 +31,16 @@ MESH_TYPES = {
 
 DEBUG = False
 
-def _unplug_socket_from_bsdf(socket_name):
-    for mesh in bpy.data.meshes:
-        for material in mesh.materials:
-            if not material.is_bf2_material:
-                continue
-            node_tree = material.node_tree
-            for node_link in node_tree.links:
-                node = node_link.to_node
-                if node.type == 'BSDF_PRINCIPLED' and node_link.to_socket.name == socket_name:
-                    node_tree.links.remove(node_link)
-                    break
+# -------------------
+# baking
+# -------------------
 
-def _yaw_pitch_roll_to_matrix(rotation):
-    rotation = tuple(map(lambda x: -math.radians(x), rotation))
-    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
-    pitch = Matrix.Rotation(rotation[1], 4, 'X')
-    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
-    return (yaw @ pitch @ roll)
-
-def _get_templates(template, matrix, templates=None):
-    if templates is None:
-        templates = list()
-    templates.append((template, matrix))
-    template.add_bundle_childs()
-    for child in template.children:
-        if child.template is not None:
-            child_matrix = _yaw_pitch_roll_to_matrix(child.rotation)
-            child_matrix.translation = swap_zy(child.position)
-            _get_templates(child.template, matrix @ child_matrix, templates)
-    return templates
-
-def _get_obj_matrix(bf2_object):
-    if bf2_object.transform:
-        # OG
-        matrix_world = Matrix(bf2_object.transform)
-        matrix_world.transpose()
-        pos, rot, _ = matrix_world.decompose()
-        _convert_pos(pos)
-        _convert_rot(rot)
-        return to_matrix(pos, rot)
-    else:
-        # statics
-        matrix_world = _yaw_pitch_roll_to_matrix(bf2_object.rot)
-        matrix_world.translation = swap_zy(bf2_object.absolute_pos)
-        return matrix_world
+DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES = {
+    512: (16, 1024),
+    1024: (16, 2048),
+    2048: (64, 2048),
+    4096: (64, 4096)
+}
 
 def _setup_scene_for_baking(context):
     context.scene.render.engine = 'CYCLES'
@@ -100,11 +70,117 @@ def _gen_lm_key(obj, lod=0):
     x, y, z = [str(int(i)) for i in obj.matrix_world.translation]
     return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
 
-def _setup_object_for_baking(lod_idx, obj): # TODO: LM size per object
+
+def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
+    node_tree = material.node_tree
+    # unselect all
+    for node in node_tree.nodes:
+        node.select = False
+
+    # make texture image node
+    texture_node = None
+    for node in node_tree.nodes:
+        if node.type == 'TEX_IMAGE' and node.name == 'LIGHTMAP_BAKE_TXT':
+            texture_node = node
+            break
+    else:
+        texture_node = node_tree.nodes.new(type='ShaderNodeTexImage')
+        texture_node.name = 'LIGHTMAP_BAKE_TXT'
+        texture_node.location = (400, 500)
+
+    texture_node.select = True
+    texture_node.image = bake_image
+
+    # make UV node
+    uv_node = None
+    for node in node_tree.nodes:
+        if node.type == 'UVMAP' and node.name == 'LIGHTMAP_BAKE_UV':
+            uv_node = node
+            break
+    else:
+        uv_node = node_tree.nodes.new('ShaderNodeUVMap')
+        uv_node.name = 'LIGHTMAP_BAKE_UV'
+        uv_node.location = (400, 300)
+
+    uv_node.uv_map = uv
+    uv_node.select = True
+
+    # link
+    node_tree.links.new(uv_node.outputs['UV'], texture_node.inputs['Vector'])
+    node_tree.nodes.active = texture_node
+    return texture_node
+
+# -------------------
+# baking terrain
+# -------------------
+
+def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, patch_size=1024):
+    terrain = context.scene.collection.children['Heightmaps'].objects['HeightmapPrimary'] # FIXME
+
+    for obj in context.selected_objects:
+        obj.select_set(False)
+
+    terrain.select_set(True)
+    terrain.hide_set(False)
+    terrain.hide_render = False
+    context.view_layer.update()
+
+    if patch_count not in (4, 16, 64):
+        raise RuntimeError(f'patch_count must be 4, 16, or 64')
+
+    mesh = terrain.data
+    vert_count = int(math.sqrt(len(mesh.vertices)))
+    if vert_count * vert_count != len(mesh.vertices) or not is_pow_two(vert_count - 1):
+        raise RuntimeError(f'heightmap vert count is invalid')
+
+    # we gon simply scale the UV up so the 0-1 range fits one whole patch
+    # then shift the UV when rendering the grid
+
+    grid_size = int(math.sqrt(patch_count))
+    uv_layer = mesh.uv_layers.new(name='LightmapBakeUV')
+
+    for loop in mesh.loops:
+        loop_uv = uv_layer.data[loop.index]
+        u, v = loop_uv.uv
+        loop_uv.uv = (grid_size * u, 1 - grid_size * v)
+
+    texture_node = _setup_material_for_baking(mesh.materials[0], uv=uv_layer.name)
+
+    col = 0
+    row = 0
+    while col < grid_size:
+        while row < grid_size:
+            name = f'tx{col:02d}x{row:02d}'
+            print(f"Baking terrain patch {name} {(row + 1) * (col + 1)}/{patch_count}")
+            bake_image = bpy.data.images.new(name=f'TerrainLightmapBakeImage', width=patch_size, height=patch_size)
+            texture_node.image = bake_image
+
+            bpy.ops.object.bake(type='DIFFUSE', uv_layer=uv_layer.name)
+
+            save_img_as_dds(bake_image, path.join(output_dir, f'{name}.dds'), dds_fmt)
+            bpy.data.images.remove(bake_image)
+
+            row += 1
+            for loop in mesh.loops:
+                uv_layer.data[loop.index].uv[1] += 1
+        row = 0
+        col += 1
+        for loop in mesh.loops:
+            uv_layer.data[loop.index].uv[0] -= 1
+
+    mesh.uv_layers.remove(uv_layer)
+
+# -------------------
+# baking objects
+# -------------------
+
+def _setup_object_for_baking(lod_idx, obj):
     lm_name = _gen_lm_key(obj, lod=lod_idx)
     lm_size = tuple(obj.bf2_lightmap_size)
 
     if lm_size == (0, 0):
+        return None
+    if 'UV4' not in obj.data.uv_layers:
         return None
 
     # create bake image
@@ -120,44 +196,7 @@ def _setup_object_for_baking(lod_idx, obj): # TODO: LM size per object
         if not material.is_bf2_material:
             continue
         setup_ok = True
-
-        node_tree = material.node_tree
-        # unselect all
-        for node in node_tree.nodes:
-            node.select = False
-
-        # make texture image node
-        texture_node = None
-        for node in node_tree.nodes:
-            if node.type == 'TEX_IMAGE' and node.name == 'LIGHTMAP_BAKE_TXT':
-                texture_node = node
-                break
-        else:
-            texture_node = node_tree.nodes.new(type='ShaderNodeTexImage')
-            texture_node.name = 'LIGHTMAP_BAKE_TXT'
-            texture_node.location = (400, 500)
-
-        texture_node.select = True
-        texture_node.image = bake_image
-
-        # make UV node
-        # TODO: verify has UV4
-        uv_node = None
-        for node in node_tree.nodes:
-            if node.type == 'UVMAP' and node.name == 'LIGHTMAP_BAKE_UV':
-                uv_node = node
-                break
-        else:
-            uv_node = node_tree.nodes.new('ShaderNodeUVMap')
-            uv_node.name = 'LIGHTMAP_BAKE_UV'
-            uv_node.location = (400, 300)
-
-        uv_node.uv_map = 'UV4'
-        uv_node.select = True
-
-        # link
-        node_tree.links.new(uv_node.outputs['UV'], texture_node.inputs['Vector'])
-        node_tree.nodes.active = texture_node
+        _setup_material_for_baking(material, bake_image)
 
     if setup_ok:
         return bake_image
@@ -211,6 +250,66 @@ def bake_object_lightmaps(context, output_dir, dds_fmt='NONE', lods=None, only_s
             _select_lod_for_bake(geom, 0)
             context.view_layer.update()
 
+# -------------------
+# material tweaks
+# -------------------
+
+def _unplug_socket_from_bsdf(socket_name):
+    for mesh in bpy.data.meshes:
+        for material in mesh.materials:
+            if not material.is_bf2_material:
+                continue
+            node_tree = material.node_tree
+            for node_link in node_tree.links:
+                node = node_link.to_node
+                if node.type == 'BSDF_PRINCIPLED' and node_link.to_socket.name == socket_name:
+                    node_tree.links.remove(node_link)
+                    break
+
+def tweak_materials(no_normalmap=True):
+    if no_normalmap:
+        _unplug_socket_from_bsdf('Normal')
+
+    # TODO: add ambient occlusion as an option
+
+# -------------------
+# scene setup
+# -------------------
+
+def _yaw_pitch_roll_to_matrix(rotation):
+    rotation = tuple(map(lambda x: -math.radians(x), rotation))
+    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
+    pitch = Matrix.Rotation(rotation[1], 4, 'X')
+    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
+    return (yaw @ pitch @ roll)
+
+def _get_templates(template, matrix, templates=None):
+    if templates is None:
+        templates = list()
+    templates.append((template, matrix))
+    template.add_bundle_childs()
+    for child in template.children:
+        if child.template is not None:
+            child_matrix = _yaw_pitch_roll_to_matrix(child.rotation)
+            child_matrix.translation = swap_zy(child.position)
+            _get_templates(child.template, matrix @ child_matrix, templates)
+    return templates
+
+def _get_obj_matrix(bf2_object):
+    if bf2_object.transform:
+        # OG
+        matrix_world = Matrix(bf2_object.transform)
+        matrix_world.transpose()
+        pos, rot, _ = matrix_world.decompose()
+        _convert_pos(pos)
+        _convert_rot(rot)
+        return to_matrix(pos, rot)
+    else:
+        # statics
+        matrix_world = _yaw_pitch_roll_to_matrix(bf2_object.rot)
+        matrix_world.translation = swap_zy(bf2_object.absolute_pos)
+        return matrix_world
+
 def _make_collection(context, name):
     if name in bpy.data.collections:
         c = bpy.data.collections[name]
@@ -263,7 +362,7 @@ def _clone_object(collection, src_root):
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
                load_og=True, load_heightmap='PRIMARY', load_lights=True,
-               no_normalmaps=False, lm_size_thresholds=None,
+               lm_size_thresholds=None,
                reporter=DEFAULT_REPORTER):
 
     if lm_size_thresholds is None:
@@ -427,9 +526,6 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         # delete source instance
         delete_object(root_obj, remove_data=False)
 
-    if no_normalmaps:
-        _unplug_socket_from_bsdf('Normal')
-
     heightmaps = _make_collection(context, "Heightmaps")
 
     if DEBUG:
@@ -457,6 +553,12 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                 heightmaps.objects.link(obj)
                 obj.location.x = location.x
                 obj.location.y = location.y
+
+                context.view_layer.objects.active = obj
+                obj.select_set(True)
+                bpy.ops.object.shade_smooth()
+                obj.select_set(False)
+
                 if heightmap.cluster_offset == (0, 0):
                     primary_hightmap = obj
 
@@ -501,7 +603,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         obj.rotation_quaternion = sun_dir.rotation_difference(Vector((0, 0, 1)))
 
         sin_alpha = abs(sun_dir.z)
-        light.energy = 2 * (1.0 + 0.5 * sin_alpha) # TODO strength
+        light.energy = 3 + 2.0 * sin_alpha # TODO strength
         light.color = (0, 1, 0)
 
         # ambient light / soft shadows (blue channel)

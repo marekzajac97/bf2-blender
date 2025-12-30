@@ -347,3 +347,31 @@ def compare_val(a, b):
     except TypeError:
         return math.isclose(a, b)
     return compare_seq(a, b)
+
+class AxisBound:
+    def __init__(self):
+        self.min = None
+        self.max = None
+        self.distance = None
+
+def obj_bounds(obj, local=True):
+    local_coords = obj.bound_box[:]
+    om = obj.matrix_world
+ 
+    if not local:
+        worldify = lambda p: om @ Vector(p[:]) 
+        coords = [worldify(p).to_tuple() for p in local_coords]
+    else:
+        coords = [p[:] for p in local_coords]
+        
+    rotated = zip(*coords[::-1])
+
+    push_axis = []
+    for (axis, _list) in zip('xyz', rotated):
+        info = AxisBound()
+        info.max = max(_list)
+        info.min = min(_list)
+        info.distance = info.max - info.min
+        push_axis.append(info)
+
+    return dict(zip(['x', 'y', 'z'], push_axis))

@@ -7,35 +7,7 @@ import math
 from .. import rectpack
 
 from .object_template import collect_anchor_geoms_lods, parse_geom_type
-from .utils import next_power_of_2
-
-class AxisBound:
-    def __init__(self):
-        self.min = None
-        self.max = None
-        self.distance = None
-
-def bounds(obj, local=True):
-    local_coords = obj.bound_box[:]
-    om = obj.matrix_world
- 
-    if not local:
-        worldify = lambda p: om @ Vector(p[:]) 
-        coords = [worldify(p).to_tuple() for p in local_coords]
-    else:
-        coords = [p[:] for p in local_coords]
-        
-    rotated = zip(*coords[::-1])
-
-    push_axis = []
-    for (axis, _list) in zip('xyz', rotated):
-        info = AxisBound()
-        info.max = max(_list)
-        info.min = min(_list)
-        info.distance = info.max - info.min
-        push_axis.append(info)
-
-    return dict(zip(['x', 'y', 'z'], push_axis))
+from .utils import next_power_of_2, obj_bounds
 
 class PlaneConfig:
     def __init__(self, plane_axes, camera_rot, dir, flip_uv):
@@ -162,7 +134,7 @@ def project_to_plane(obj, plane_name, texture_size):
     scene.collection.objects.link(obj)
     obj.hide_render = False
     try:
-        obj_bounds = bounds(obj)
+        bounds = obj_bounds(obj)
 
         cfg = PLANE_CONFIGS[plane_name]
         plane_axes = cfg.plane_axes
@@ -170,8 +142,8 @@ def project_to_plane(obj, plane_name, texture_size):
         dir = cfg.dir
         flip_uv = cfg.flip_uv
 
-        u_bound = obj_bounds[plane_axes[0]]
-        v_bound = obj_bounds[plane_axes[1]]
+        u_bound = bounds[plane_axes[0]]
+        v_bound = bounds[plane_axes[1]]
         u_offset = u_bound.distance / 2 + u_bound.min
         v_offset = v_bound.distance / 2 + v_bound.min
 
@@ -247,7 +219,7 @@ def project_to_plane(obj, plane_name, texture_size):
         camera.ortho_scale = ortho_scale
 
         depth_axis = [a for a in 'xyz' if a not in plane_axes][0]
-        depth_bound = obj_bounds[depth_axis]
+        depth_bound = bounds[depth_axis]
         depth_offset = depth_bound.max if dir else depth_bound.min
 
         camera_obj.matrix_world = obj.matrix_world

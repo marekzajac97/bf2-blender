@@ -78,8 +78,8 @@ def import_heightmap_from(context, data, name, bit_res=16, scale=(1, 1, 1)):
 
     for loop in mesh.loops:
         vertex = mesh.vertices[loop.vertex_index]
-        x_normalized = (vertex.co[0] + offset_x) / scale[0] / world_dim
-        y_normalized = (vertex.co[1] + offset_y) / scale[1] / world_dim
+        x_normalized = (vertex.co[0] + offset_x) / scale[0] / (world_dim - 1)
+        y_normalized = (vertex.co[1] + offset_y) / scale[1] / (world_dim - 1)
         terrain_uv_layer.data[loop.index].uv = (x_normalized, y_normalized)
 
     obj = bpy.data.objects.new(name, mesh)
