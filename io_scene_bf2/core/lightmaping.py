@@ -24,17 +24,17 @@ MESH_TYPES = {
     'SkinnedMesh': BF2SkinnedMesh
 }
 
-DEBUG = True
+DEBUG = False
 
-def _remove_diffuse_color_from_all_materials():
+def _unplug_socket_from_bsdf(socket_name):
     for mesh in bpy.data.meshes:
         for material in mesh.materials:
             if not material.is_bf2_material:
                 continue
             node_tree = material.node_tree
             for node_link in node_tree.links:
-                node = node_link.to_node 
-                if node.type == 'BSDF_PRINCIPLED':
+                node = node_link.to_node
+                if node.type == 'BSDF_PRINCIPLED' and node_link.to_socket.name == socket_name:
                     node_tree.links.remove(node_link)
                     break
 
@@ -263,7 +263,7 @@ def _clone_object(collection, src_root):
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
                load_og=True, load_heightmap='PRIMARY', load_lights=True,
-               no_diffuse=False, lm_size_thresholds=None,
+               no_normalmaps=False, lm_size_thresholds=None,
                reporter=DEFAULT_REPORTER):
 
     if lm_size_thresholds is None:
@@ -427,6 +427,9 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         # delete source instance
         delete_object(root_obj, remove_data=False)
 
+    if no_normalmaps:
+        _unplug_socket_from_bsdf('Normal')
+
     heightmaps = _make_collection(context, "Heightmaps")
 
     if DEBUG:
@@ -437,6 +440,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         hm_cluster = BF2Engine().get_manager(HeightmapCluster).active_obj
         if hm_cluster:
             water_plane = make_water_plane(context, hm_cluster.heightmap_size, hm_cluster.water_level)
+            primary_hightmap = None
             context.scene.collection.objects.unlink(water_plane)
             heightmaps.objects.link(water_plane)
             for heightmap in hm_cluster.heightmaps:
@@ -453,16 +457,37 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                 heightmaps.objects.link(obj)
                 obj.location.x = location.x
                 obj.location.y = location.y
+                if heightmap.cluster_offset == (0, 0):
+                    primary_hightmap = obj
 
-    # easier to debug/previev the lights
-    if no_diffuse:
-        _remove_diffuse_color_from_all_materials()
+            # load minimap as diffuse texture on primary heightmap and waterplane
 
-    lights = _make_collection(context, "Lights")
+            for obj in (water_plane, primary_hightmap):
+                if not obj:
+                    continue
+                minimap_path = path.join(level_dir, 'Hud', 'Minimap', 'ingameMap.dds')
+                if path.isfile(minimap_path):
+                    material = bpy.data.materials.new('Minimap')     
+                    material.use_nodes = True
+                    obj.data.materials.append(material)
+
+                    tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
+                    try:
+                        tex_node.image = bpy.data.images.load(minimap_path, check_existing=True)
+                        tex_node.image.alpha_mode = 'NONE'
+                    except RuntimeError:
+                        pass # ignore if can't be loaded
+
+                    bsdf = material.node_tree.nodes['Principled BSDF']
+                    bsdf.inputs['Roughness'].default_value = 1
+                    bsdf.inputs['Specular IOR Level'].default_value = 0
+                    bsdf.inputs['IOR'].default_value = 1.1
+                    material.node_tree.links.new(tex_node.outputs['Color'], bsdf.inputs['Base Color'])
 
     if DEBUG:
         print(f"Loading lights")
 
+    lights = _make_collection(context, "Lights")
     if load_lights:
         # sun (green channel)
         main_console.run_file(f'{level_dir}/Sky.con')

@@ -24,7 +24,9 @@ def make_water_plane(context, heightmap_size, water_level, name='WaterPlane'):
     water_uv_layer = mesh.uv_layers.new(name='UVMap')
     for loop in mesh.loops:
         vertex = mesh.vertices[loop.vertex_index]
-        water_uv_layer.data[loop.index].uv = (vertex.co[0] / heightmap_size, vertex.co[1] / heightmap_size)
+        x_normalized = (vertex.co[0] + off) / heightmap_size
+        y_normalized = (vertex.co[1] + off) / heightmap_size
+        water_uv_layer.data[loop.index].uv = (x_normalized, y_normalized)
 
     obj = bpy.data.objects.new(name, mesh)
     context.scene.collection.objects.link(obj)
@@ -76,7 +78,9 @@ def import_heightmap_from(context, data, name, bit_res=16, scale=(1, 1, 1)):
 
     for loop in mesh.loops:
         vertex = mesh.vertices[loop.vertex_index]
-        terrain_uv_layer.data[loop.index].uv = (vertex.co[0], vertex.co[1])
+        x_normalized = (vertex.co[0] + offset_x) / scale[0] / world_dim
+        y_normalized = (vertex.co[1] + offset_y) / scale[1] / world_dim
+        terrain_uv_layer.data[loop.index].uv = (x_normalized, y_normalized)
 
     obj = bpy.data.objects.new(name, mesh)
     context.scene.collection.objects.link(obj)
