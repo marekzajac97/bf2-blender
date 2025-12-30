@@ -97,7 +97,7 @@ def _strip_prefix(s):
 def _gen_lm_key(obj, lod=0):
     # TODO: warn if objects are too close to each other and generate same key
     geom_template_name = _strip_prefix(_strip_suffix(obj.name)).lower()
-    x, y, z = [str(int(i)) for i in obj.location]
+    x, y, z = [str(int(i)) for i in obj.matrix_world.translation]
     return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
 
 def _setup_object_for_baking(lod_idx, obj): # TODO: LM size per object
@@ -169,11 +169,13 @@ def _select_lod_for_bake(geom, lod):
         if lod_idx == lod:
             lod_obj.hide_set(False)
             lod_obj.select_set(True)
+            lod_obj.hide_render = False
         else:
             lod_obj.hide_set(True)
             lod_obj.select_set(False)
+            lod_obj.hide_render = True
 
-def bake_object_lightmaps(context, output_dir, dds_fmt='DXT1', only_selected=True):
+def bake_object_lightmaps(context, output_dir, dds_fmt='NONE', lods=None, only_selected=True):
     _setup_scene_for_baking(context)
     objects = list()
     if only_selected:
@@ -197,12 +199,14 @@ def bake_object_lightmaps(context, output_dir, dds_fmt='DXT1', only_selected=Tru
             if geom_idx != 0: # TODO: Geom1 support
                 continue
             for lod_idx, lod_obj in enumerate(geom):
+                if lods is not None and lod_idx not in lods:
+                    continue
                 if image := _setup_object_for_baking(lod_idx, lod_obj):
                     _select_lod_for_bake(geom, lod_idx)
                     context.view_layer.update()
                     bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
                     save_img_as_dds(image, path.join(output_dir, image.name + '.dds'), dds_fmt)
-                    # bpy.data.images.remove(image)
+                    bpy.data.images.remove(image)
 
             _select_lod_for_bake(geom, 0)
             context.view_layer.update()
@@ -234,23 +238,26 @@ def _calc_mesh_area(lod_obj):
     bm.free()
     return area
 
-def _clone_object(collection, src_root, show_only_lod0=True):
+def _clone_object(collection, src_root):
     geoms = MeshExporter.collect_geoms_lods(src_root, skip_checks=True)
     root = bpy.data.objects.new(src_root.name, None)
+    root.hide_render = True
     collection.objects.link(root)
-    root.hide_set(show_only_lod0)
+    root.hide_set(True)
     for geom_idx, geom in enumerate(geoms):
         geom_obj = bpy.data.objects.new(f'G{geom_idx}__' + src_root.name, None)
         geom_obj.parent = root
+        geom_obj.hide_render = True
         collection.objects.link(geom_obj)
-        geom_obj.hide_set(show_only_lod0)
+        geom_obj.hide_set(True)
         for lod_idx, src_lod_obj in enumerate(geom):
             lod_obj = bpy.data.objects.new(f'G{geom_idx}L{lod_idx}__' + src_root.name, src_lod_obj.data)
             lod_obj.parent = geom_obj
             lod_obj.bf2_lightmap_size = src_lod_obj.bf2_lightmap_size
             collection.objects.link(lod_obj)
             if lod_idx != 0:
-                lod_obj.hide_set(show_only_lod0)
+                lod_obj.hide_render = True
+                lod_obj.hide_set(True)
     return root
 
 def load_level(context, mod_dir, level_name, use_cache=True,
