@@ -35,13 +35,6 @@ DEBUG = False
 # baking
 # -------------------
 
-DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES = {
-    512: (16, 1024),
-    1024: (16, 2048),
-    2048: (64, 2048),
-    4096: (64, 4096)
-}
-
 def _setup_scene_for_baking(context):
     context.scene.render.engine = 'CYCLES'
     context.scene.cycles.device = 'GPU'
@@ -49,27 +42,6 @@ def _setup_scene_for_baking(context):
     context.scene.render.bake.use_pass_direct = True
     context.scene.render.bake.use_pass_indirect = True
     context.scene.render.bake.use_pass_color = False
-
-def _strip_suffix(s):
-    if '.' not in s:
-        return s
-    head, tail = s.rsplit('.', 1)
-    if tail.isnumeric():
-        return head
-    return s
-
-def _strip_prefix(s):
-    for char_idx, _ in enumerate(s):
-        if s[char_idx:].startswith('__'):
-            return s[char_idx+2:]
-    raise s
-
-def _gen_lm_key(obj, lod=0):
-    # TODO: warn if objects are too close to each other and generate same key
-    geom_template_name = _strip_prefix(_strip_suffix(obj.name)).lower()
-    x, y, z = [str(int(i)) for i in obj.matrix_world.translation]
-    return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
-
 
 def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
     node_tree = material.node_tree
@@ -114,16 +86,21 @@ def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
 # baking terrain
 # -------------------
 
+DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES = {
+    512: (16, 1024),
+    1024: (16, 2048),
+    2048: (64, 2048),
+    4096: (64, 4096)
+}
+
 def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, patch_size=1024):
-    terrain = context.scene.collection.children['Heightmaps'].objects['HeightmapPrimary'] # FIXME
-
-    for obj in context.selected_objects:
-        obj.select_set(False)
-
-    terrain.select_set(True)
-    terrain.hide_set(False)
-    terrain.hide_render = False
-    context.view_layer.update()
+    terrain = None
+    for obj in context.scene.collection.children['Heightmaps'].objects:
+        if obj.startswith('Heightmap'):
+            terrain = obj
+            break
+    else:
+        raise RuntimeError(f'Heightmap object not found')
 
     if patch_count not in (4, 16, 64):
         raise RuntimeError(f'patch_count must be 4, 16, or 64')
@@ -132,6 +109,16 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, 
     vert_count = int(math.sqrt(len(mesh.vertices)))
     if vert_count * vert_count != len(mesh.vertices) or not is_pow_two(vert_count - 1):
         raise RuntimeError(f'heightmap vert count is invalid')
+
+    _setup_scene_for_baking(context)
+
+    for obj in context.selected_objects:
+        obj.select_set(False)
+
+    terrain.select_set(True)
+    terrain.hide_set(False)
+    terrain.hide_render = False
+    context.view_layer.update()
 
     # we gon simply scale the UV up so the 0-1 range fits one whole patch
     # then shift the UV when rendering the grid
@@ -173,6 +160,25 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, 
 # -------------------
 # baking objects
 # -------------------
+
+def _strip_suffix(s):
+    if '.' not in s:
+        return s
+    head, tail = s.rsplit('.', 1)
+    if tail.isnumeric():
+        return head
+    return s
+
+def _strip_prefix(s):
+    for char_idx, _ in enumerate(s):
+        if s[char_idx:].startswith('__'):
+            return s[char_idx+2:]
+    raise s
+
+def _gen_lm_key(obj, lod=0):
+    geom_template_name = _strip_prefix(_strip_suffix(obj.name)).lower()
+    x, y, z = [str(int(i)) for i in obj.matrix_world.translation]
+    return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
 
 def _setup_object_for_baking(lod_idx, obj):
     lm_name = _gen_lm_key(obj, lod=lod_idx)
@@ -361,7 +367,7 @@ def _clone_object(collection, src_root):
 
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_objects=True,
-               load_og=True, load_heightmap='PRIMARY', load_lights=True,
+               load_overgrowth=True, load_heightmap=True, load_lights=True,
                lm_size_thresholds=None,
                reporter=DEFAULT_REPORTER):
 
@@ -399,7 +405,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         print(f"Loading statics")
 
     # load statics & OG
-    if load_objects or load_og:
+    if load_objects or load_overgrowth:
         # load mapside object templates if exist
         if not load_unpacked:
             try:
@@ -412,7 +418,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
             args = ['BF2Editor'] if load_unpacked else []
             main_console.run_file(f'{level_dir}/StaticObjects.con', args=args)
 
-        if load_og:
+        if load_overgrowth:
             main_console.run_file(f'{level_dir}/Overgrowth/OvergrowthCollision.con')
 
     templates : Dict[str, GeometryTemplate] = dict()
@@ -442,6 +448,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
 
     static_objects = _make_collection(context, "StaticObjects")
     static_objects_skip = _make_collection(context, "StaticObjects_SkipLightmaps")
+    lm_keys = set()
 
     for idx, (template_name, geom_temp) in enumerate(templates.items()):
         if DEBUG:
@@ -523,6 +530,13 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                 obj = _clone_object(static_objects, root_obj)
             obj.matrix_world = matrix_world
 
+            # check LM key collisions
+            lm_key = _gen_lm_key(obj, lod_idx)
+            if lm_key in lm_keys:
+                reporter.warning(f"GeometryTemplate '{geom_temp.name}' at position {matrix_world.translation} "
+                                 "is too close to another object of the same type which will result in them having the same lightmap filenames!")
+            lm_keys.add(lm_key)
+
         # delete source instance
         delete_object(root_obj, remove_data=False)
 
@@ -535,36 +549,33 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         main_console.run_file(f'{level_dir}/Heightdata.con')
         hm_cluster = BF2Engine().get_manager(HeightmapCluster).active_obj
         if hm_cluster:
+            for heightmap in hm_cluster.heightmaps:
+                if heightmap.cluster_offset == (0, 0): # load primary only
+                    break
+            else:
+                heightmap = None
+
             water_plane = make_water_plane(context, hm_cluster.heightmap_size, hm_cluster.water_level)
-            primary_hightmap = None
             context.scene.collection.objects.unlink(water_plane)
             heightmaps.objects.link(water_plane)
-            for heightmap in hm_cluster.heightmaps:
-                if load_heightmap == 'PRIMARY':
-                    if heightmap.cluster_offset != (0, 0):
-                        continue
-                elif load_heightmap != 'ALL':
-                    continue
-                location = hm_cluster.heightmap_size * Vector(heightmap.cluster_offset)
-                data = file_manager.readFile(heightmap.raw_file, as_stream=True)
-                obj = import_heightmap_from(context, data, name=file_name(heightmap.raw_file),
+
+            location = hm_cluster.heightmap_size * Vector(heightmap.cluster_offset)
+            data = file_manager.readFile(heightmap.raw_file, as_stream=True)
+            terrain = import_heightmap_from(context, data, name=file_name(heightmap.raw_file),
                                             bit_res=heightmap.bit_res, scale=swap_zy(heightmap.scale))
-                context.scene.collection.objects.unlink(obj)
-                heightmaps.objects.link(obj)
-                obj.location.x = location.x
-                obj.location.y = location.y
+            context.scene.collection.objects.unlink(terrain)
+            heightmaps.objects.link(terrain)
+            terrain.location.x = location.x
+            terrain.location.y = location.y
 
-                context.view_layer.objects.active = obj
-                obj.select_set(True)
-                bpy.ops.object.shade_smooth()
-                obj.select_set(False)
-
-                if heightmap.cluster_offset == (0, 0):
-                    primary_hightmap = obj
+            # enable smooth shading for the terrain
+            context.view_layer.objects.active = terrain
+            terrain.select_set(True)
+            bpy.ops.object.shade_smooth()
+            terrain.select_set(False)
 
             # load minimap as diffuse texture on primary heightmap and waterplane
-
-            for obj in (water_plane, primary_hightmap):
+            for obj in (water_plane, terrain):
                 if not obj:
                     continue
                 minimap_path = path.join(level_dir, 'Hud', 'Minimap', 'ingameMap.dds')
