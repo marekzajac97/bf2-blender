@@ -93,7 +93,7 @@ DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES = {
     4096: (64, 4096)
 }
 
-def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, patch_size=1024):
+def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, patch_size=1024, reporter=DEFAULT_REPORTER):
     terrain = None
     for obj in context.scene.collection.children['Heightmaps'].objects:
         if obj.startswith('Heightmap'):
@@ -138,7 +138,7 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, 
     while col < grid_size:
         while row < grid_size:
             name = f'tx{col:02d}x{row:02d}'
-            print(f"Baking terrain patch {name} {(row + 1) * (col + 1)}/{patch_count}")
+            reporter.info(f"Baking terrain patch {name} {(row + 1) * (col + 1)}/{patch_count}")
             bake_image = bpy.data.images.new(name=f'TerrainLightmapBakeImage', width=patch_size, height=patch_size)
             texture_node.image = bake_image
 
@@ -173,20 +173,22 @@ def _strip_prefix(s):
     for char_idx, _ in enumerate(s):
         if s[char_idx:].startswith('__'):
             return s[char_idx+2:]
-    raise s
+    return s
 
 def _gen_lm_key(obj, lod=0):
     geom_template_name = _strip_prefix(_strip_suffix(obj.name)).lower()
     x, y, z = [str(int(i)) for i in obj.matrix_world.translation]
     return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
 
-def _setup_object_for_baking(lod_idx, obj):
+def _setup_object_for_baking(lod_idx, obj, reporter):
     lm_name = _gen_lm_key(obj, lod=lod_idx)
     lm_size = tuple(obj.bf2_lightmap_size)
 
     if lm_size == (0, 0):
+        reporter.warning(f"skipping '{obj.name}' because lightmap size is not set")
         return None
     if 'UV4' not in obj.data.uv_layers:
+        reporter.warning(f"skipping '{obj.name}' because lightmap UV layer (UV4) is missing")
         return None
 
     # create bake image
@@ -196,18 +198,11 @@ def _setup_object_for_baking(lod_idx, obj):
 
     bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
 
-    setup_ok = False
     # add bake lightmap texture for each material
     for material in obj.data.materials:
-        if not material.is_bf2_material:
-            continue
-        setup_ok = True
         _setup_material_for_baking(material, bake_image)
 
-    if setup_ok:
-        return bake_image
-    else:
-        bpy.data.images.remove(bake_image)
+    return bake_image
 
 def _select_lod_for_bake(geom, lod):
     for lod_idx, lod_obj in enumerate(geom):
@@ -220,7 +215,7 @@ def _select_lod_for_bake(geom, lod):
             lod_obj.select_set(False)
             lod_obj.hide_render = True
 
-def bake_object_lightmaps(context, output_dir, dds_fmt='NONE', lods=None, only_selected=True):
+def bake_object_lightmaps(context, output_dir, dds_fmt='NONE', lods=None, only_selected=True, reporter=DEFAULT_REPORTER):
     _setup_scene_for_baking(context)
     objects = list()
     if only_selected:
@@ -238,7 +233,7 @@ def bake_object_lightmaps(context, output_dir, dds_fmt='NONE', lods=None, only_s
 
     total_cnt = len(objects)
     for i, root_obj in enumerate(objects, start=1):
-        print(f"Baking object {root_obj.name} {i}/{total_cnt}")
+        reporter.info(f"Baking object {root_obj.name} {i}/{total_cnt}")
         geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
         for geom_idx, geom in enumerate(geoms):
             if geom_idx != 0: # TODO: Geom1 support
@@ -246,7 +241,7 @@ def bake_object_lightmaps(context, output_dir, dds_fmt='NONE', lods=None, only_s
             for lod_idx, lod_obj in enumerate(geom):
                 if lods is not None and lod_idx not in lods:
                     continue
-                if image := _setup_object_for_baking(lod_idx, lod_obj):
+                if image := _setup_object_for_baking(lod_idx, lod_obj, reporter=reporter):
                     _select_lod_for_bake(geom, lod_idx)
                     context.view_layer.update()
                     bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
@@ -366,7 +361,7 @@ def _clone_object(collection, src_root):
     return root
 
 def load_level(context, mod_dir, level_name, use_cache=True,
-               load_unpacked=True, load_objects=True,
+               load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
                lm_size_thresholds=None,
                reporter=DEFAULT_REPORTER):
@@ -390,7 +385,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
 
     main_console.report_cb = report_cb
 
-    level_dir = f'levels/{level_name}'
+    level_dir = path.join('levels', level_name)
     if load_unpacked:
         level_dir = path.join(mod_dir, level_dir)
     client_zip_path = path.join(level_dir, 'client.zip')
@@ -405,21 +400,21 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         print(f"Loading statics")
 
     # load statics & OG
-    if load_objects or load_overgrowth:
+    if load_static_objects or load_overgrowth:
         # load mapside object templates if exist
         if not load_unpacked:
             try:
-                main_console.run_file(f'{level_dir}/serverarchives.con')
+                main_console.run_file(path.join(level_dir, 'serverarchives.con'))
                 mod_loader.load_objects(levels_only=True)
             except FileManagerFileNotFound:
                 pass
 
-        if load_objects:
+        if load_static_objects:
             args = ['BF2Editor'] if load_unpacked else []
-            main_console.run_file(f'{level_dir}/StaticObjects.con', args=args)
+            main_console.run_file(path.join(level_dir, 'StaticObjects.con'), args=args)
 
         if load_overgrowth:
-            main_console.run_file(f'{level_dir}/Overgrowth/OvergrowthCollision.con')
+            main_console.run_file(path.join(level_dir, 'Overgrowth', 'OvergrowthCollision.con'))
 
     templates : Dict[str, GeometryTemplate] = dict()
     template_to_instances : Dict[str, List[Matrix]] = dict()
@@ -442,7 +437,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
     if not load_unpacked:
         main_console.run_file('clientarchives.con')
         try:
-            main_console.run_file(f'{level_dir}/clientarchives.con')
+            main_console.run_file(path.join(level_dir, 'clientarchives.con'))
         except FileManagerFileNotFound:
             pass
 
@@ -546,7 +541,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         print(f"Loading heightmap")
 
     if load_heightmap:
-        main_console.run_file(f'{level_dir}/Heightdata.con')
+        main_console.run_file(path.join(level_dir, 'Heightdata.con'))
         hm_cluster = BF2Engine().get_manager(HeightmapCluster).active_obj
         if hm_cluster:
             for heightmap in hm_cluster.heightmaps:
@@ -554,6 +549,8 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                     break
             else:
                 heightmap = None
+
+            # TODO make waterplane look like actual water
 
             water_plane = make_water_plane(context, hm_cluster.heightmap_size, hm_cluster.water_level)
             context.scene.collection.objects.unlink(water_plane)
@@ -603,7 +600,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
     lights = _make_collection(context, "Lights")
     if load_lights:
         # sun (green channel)
-        main_console.run_file(f'{level_dir}/Sky.con')
+        main_console.run_file(path.join(level_dir, 'Sky.con'))
         sun_dir = Vector(BF2Engine().light_manager.sun_dir)
         _convert_pos(sun_dir)
         light = bpy.data.lights.new(name='Sun', type='SUN')

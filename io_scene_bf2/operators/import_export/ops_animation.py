@@ -99,8 +99,6 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExporterBase):
     bl_idname = "bf2.baf_export"
     bl_options = {'PRESET'}
 
-    ALLOW_DIRS = True
-
     filename_ext = ".baf"
     filter_glob: StringProperty(default="*.baf", options={'HIDDEN'}) # type: ignore
 

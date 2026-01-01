@@ -7,7 +7,6 @@ from bpy.props import BoolProperty, StringProperty, EnumProperty, IntVectorPrope
 
 from ... import get_mod_dir
 from ...core.utils import Reporter
-from ...core.anim_utils import reparent_bones
 from ...core.utils import find_root, save_img_as_dds, next_power_of_2, prev_power_of_2
 from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 from ...core.og_lod_generator import generate_og_lod
