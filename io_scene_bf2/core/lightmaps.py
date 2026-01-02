@@ -94,14 +94,7 @@ def _make_flatten_at_watter_level(water_level):
     node_tree = bpy.data.node_groups.new(type='GeometryNodeTree', name="FlattenAtWaterLevel")
 
     in_sock = node_tree.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
-    in_sock.attribute_domain = 'POINT'
-    in_sock.default_input = 'VALUE'
-    in_sock.structure_type = 'AUTO'
-
     out_sock = node_tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
-    out_sock.attribute_domain = 'POINT'
-    out_sock.default_input = 'VALUE'
-    out_sock.structure_type = 'AUTO'
 
     group_input = node_tree.nodes.new("NodeGroupInput")
     group_output = node_tree.nodes.new("NodeGroupOutput")
@@ -132,7 +125,7 @@ def _add_flatten_at_watter_level_mod(terrain, water_level):
     modifier.node_group = _make_flatten_at_watter_level(water_level)
     return modifier
 
-def _make_water_depth_material(water_level, water_attenuation=0.05):
+def _make_water_depth_material(water_level, water_attenuation=0.08):
     if 'WaterDepth' in bpy.data.materials:
         water_depth = bpy.data.materials['WaterDepth']
         bpy.data.materials.remove(water_depth)
@@ -202,13 +195,54 @@ def _make_water_depth_material(water_level, water_attenuation=0.05):
     node_tree.links.new(diffuse_bsdf.outputs['BSDF'], material_output.inputs['Surface'])
     return material
 
-def _combine_channels():
-    view_transform = bpy.context.scene.view_settings.view_transform
-    bpy.context.scene.view_settings.view_transform = 'Standard'
-    
-    # TODO
+def _make_combine_channels():
+    if 'CombineLightAndWaterDepth' in bpy.data.node_groups:
+        node_group = bpy.data.node_groups['CombineLightAndWaterDepth']
+        bpy.data.node_groups.remove(node_group)
 
-    bpy.context.scene.view_settings.view_transform = view_transform
+    node_tree = bpy.data.node_groups.new(type = 'CompositorNodeTree', name = "CombineLightAndWaterDepth")
+
+    image_light = node_tree.nodes.new("CompositorNodeImage")
+    image_light.name = "LightMap"
+
+    image_water = node_tree.nodes.new("CompositorNodeImage")
+    image_water.name = "WaterDepthMap"
+
+    node_tree.interface.new_socket(name="Image", in_out='OUTPUT', socket_type='NodeSocketColor')
+    group_output = node_tree.nodes.new("NodeGroupOutput")
+    group_output.name = "Group Output"
+    group_output.is_active_output = True
+
+    separate_color_light = node_tree.nodes.new("CompositorNodeSeparateColor")
+    separate_color_water = node_tree.nodes.new("CompositorNodeSeparateColor")
+    combine_color = node_tree.nodes.new("CompositorNodeCombineColor")
+
+    node_tree.links.new(
+        image_water.outputs['Image'],
+        separate_color_water.inputs['Image']
+    )
+    node_tree.links.new(
+        image_light.outputs['Image'],
+        separate_color_light.inputs['Image']
+    )
+    node_tree.links.new(
+        separate_color_water.outputs['Red'],
+        combine_color.inputs['Red']
+    )
+    node_tree.links.new(
+        separate_color_light.outputs['Green'],
+        combine_color.inputs['Green']
+    )
+    node_tree.links.new(
+        separate_color_light.outputs['Blue'],
+        combine_color.inputs['Blue']
+    )
+    node_tree.links.new(
+        combine_color.outputs['Image'],
+        group_output.inputs['Image']
+    )
+
+    return node_tree
 
 def _make_default_terrain_material(minimap_path):
     if 'DefaultTerrain' in bpy.data.materials:
@@ -268,7 +302,7 @@ def find_heightmap(context):
             return obj
 
 def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None, patch_size=None,
-                           water_attenuation=0.05, reporter=DEFAULT_REPORTER):
+                           water_attenuation=0.08, reporter=DEFAULT_REPORTER):
     terrain = find_heightmap(context)
 
     if not terrain:
@@ -296,6 +330,13 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None
     _set_watter_attenuation(water_depth_mat, water_attenuation)
     flatten_water_mod = terrain.modifiers['FlattenAtWaterLevel']
 
+    view_transform = context.scene.view_settings.view_transform
+    context.scene.view_settings.view_transform = 'Standard'
+    combine_channels = _make_combine_channels()
+
+    context.scene.compositing_node_group = combine_channels
+    context.view_layer.update()
+
     mesh.materials.clear()
     mesh.materials.append(default_terrain_mat)
 
@@ -312,6 +353,9 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None
     texture_node_water_depth = _setup_material_for_baking(water_depth_mat, uv=uv_layer.name)
 
     _setup_scene_for_baking(context)
+    if 'Render Result' in bpy.data.images:
+        render_result = bpy.data.images['Render Result']
+        bpy.data.images.remove(render_result)
 
     for obj in context.selected_objects:
         obj.select_set(False)
@@ -327,34 +371,41 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None
         while row < grid_size:
             name = f'tx{col:02d}x{row:02d}'
             reporter.info(f"Baking terrain patch {name} {1 + row + grid_size * col}/{patch_count}")
-            bake_image_light = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=patch_size, height=patch_size)
-            bake_image_water_depth = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=patch_size, height=patch_size)
+            light_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=patch_size, height=patch_size)
+            water_depth_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=patch_size, height=patch_size)
 
             for water_pass in [False, True]:
                 if water_pass:
-                    name += '_waterdepth'
-
-                bake_image = None
-                if water_pass:
                     flatten_water_mod.show_render = False
                     mesh.materials[0] = water_depth_mat
-                    bake_image = texture_node_water_depth.image = bake_image_water_depth
+                    texture_node_water_depth.image = water_depth_map
                 else:
                     flatten_water_mod.show_render = True
                     mesh.materials[0] = default_terrain_mat
-                    bake_image = texture_node_light.image = bake_image_light
+                    texture_node_light.image = light_map
 
                 context.scene.render.bake.use_pass_direct = not water_pass
                 context.scene.render.bake.use_pass_indirect = not water_pass
                 context.scene.render.bake.use_pass_color = water_pass
-
                 bpy.ops.object.bake(type='DIFFUSE', uv_layer=uv_layer.name)
-                save_img_as_dds(bake_image, path.join(output_dir, f'{name}.dds'), dds_fmt)
 
-            # TODO: combine water_pass in compositor and save
+            # combine both passes in compositor
+            combine_channels.nodes['LightMap'].image = light_map
+            combine_channels.nodes['WaterDepthMap'].image = water_depth_map
+            context.scene.render.resolution_x = patch_size
+            context.scene.render.resolution_y = patch_size
+            bpy.ops.render.render()
 
-            bpy.data.images.remove(bake_image_light)
-            bpy.data.images.remove(bake_image_water_depth)
+            # save output
+            render_result = bpy.data.images['Render Result']
+            save_img_as_dds(render_result, path.join(output_dir, f'{name}.dds'), dds_fmt)
+
+            # cleanup
+            combine_channels.nodes['LightMap'].image = None
+            combine_channels.nodes['WaterDepthMap'].image = None
+            bpy.data.images.remove(light_map)
+            bpy.data.images.remove(water_depth_map)
+            bpy.data.images.remove(render_result)
 
             row += 1
             for loop in mesh.loops:
@@ -365,8 +416,10 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None
             loop_uv = uv_layer.data[loop.index]
             u, v = loop_uv.uv
             loop_uv.uv = (u - 1, v - grid_size)
-        break
 
+    # restore
+    context.scene.compositing_node_group = None
+    context.scene.view_settings.view_transform = view_transform
     mesh.materials[0] = default_terrain_mat
     mesh.uv_layers.remove(uv_layer)
 

@@ -15,10 +15,9 @@ class Reporter:
         self.report_func = report_func
 
     def _report(self, level, msg):
+        print(f"{level}: {msg}")
         if self.report_func:
             self.report_func({level}, msg)
-        else:
-            print(f"{level}: {msg}")
 
     def warning(self, msg):
         self._report("WARNING", msg)
