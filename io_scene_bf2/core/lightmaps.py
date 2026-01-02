@@ -93,20 +93,51 @@ DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES = {
     4096: (64, 4096)
 }
 
-def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, patch_size=1024, reporter=DEFAULT_REPORTER):
-    terrain = None
+def get_default_heightmap_patch_count_and_size(context, terrain=None):
+    if not terrain:
+        terrain = find_heightmap(context)
+    if not terrain:
+        return
+    hm_size = get_heightmap_size(terrain)
+    if hm_size is None:
+        return
+    if hm_size not in DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES:
+        return
+    return DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES[hm_size]
+
+def get_heightmap_size(heightmap):
+    bounds = obj_bounds(heightmap)
+    x_s = int(bounds['x'].distance)
+    y_s = int(bounds['y'].distance)
+    if x_s != y_s or not is_pow_two(x_s):
+        return None
+    return x_s
+
+def find_heightmap(context):
     for obj in context.scene.collection.children['Heightmaps'].objects:
         if obj.startswith('Heightmap'):
-            terrain = obj
-            break
-    else:
+            return obj
+
+def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None, patch_size=None, reporter=DEFAULT_REPORTER):
+    terrain = find_heightmap(context)
+
+    if not terrain:
         raise RuntimeError(f'Heightmap object not found')
 
-    if patch_count not in (4, 16, 64):
-        raise RuntimeError(f'patch_count must be 4, 16, or 64')
+    if patch_count is None or patch_size is None:
+        hm_size = get_heightmap_size(terrain)
+        if hm_size is None:
+            raise RuntimeError(f'Cannot determine heightmap size')
+        if hm_size not in DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES:
+            raise RuntimeError(f'Cannot determine default values for patch_count and patch_size')
+        patch_count, patch_size = DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES[hm_size]
+
+    grid_size = math.isqrt(patch_count)
+    if grid_size * grid_size != patch_count:
+        raise RuntimeError(f'patch_count must be a power of 4')
 
     mesh = terrain.data
-    vert_count = int(math.sqrt(len(mesh.vertices)))
+    vert_count = math.isqrt(len(mesh.vertices))
     if vert_count * vert_count != len(mesh.vertices) or not is_pow_two(vert_count - 1):
         raise RuntimeError(f'heightmap vert count is invalid')
 
@@ -122,8 +153,6 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=16, 
 
     # we gon simply scale the UV up so the 0-1 range fits one whole patch
     # then shift the UV when rendering the grid
-
-    grid_size = int(math.sqrt(patch_count))
     uv_layer = mesh.uv_layers.new(name='LightmapBakeUV')
 
     for loop in mesh.loops:
@@ -460,7 +489,15 @@ def load_level(context, mod_dir, level_name, use_cache=True,
             reporter.warning(f"Failed to load mesh '{geom_temp.location}', the file might be corrupted: {e}")
             del template_to_instances[template_name]
             continue
-    
+
+        # TODO: texture load from FileManager if not load_unpacked!
+        importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
+        try:
+            root_obj = importer.import_mesh()
+        except ImportException as e:
+            reporter.warning(f"Failed to import mesh '{geom_temp.location}': {e}")
+            continue
+
         # determine samples size
         meshes_dir = path.dirname(geom_temp.location)
         lm_sizes = dict()
@@ -480,14 +517,6 @@ def load_level(context, mod_dir, level_name, use_cache=True,
             lm_sizes[lod_idx] = lm_size
 
         obj_transforms = template_to_instances[template_name]
-
-        # TODO: texture load from FileManager if not load_unpacked!
-        importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
-        try:
-            root_obj = importer.import_mesh()
-        except ImportException as e:
-            reporter.warning(f"Failed to import mesh '{geom_temp.location}': {e}")
-            continue
 
         geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
         lod0_lm_size = None

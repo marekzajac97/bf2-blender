@@ -53,13 +53,14 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
             subtype="DIR_PATH"
         ) # type: ignore
 
-    dds_fmt : EnumProperty(
+    dds_compression : EnumProperty(
         name="Texture format",
-        default=2,
+        default=3,
         items=[
-            ('DXT1', "DXT1", "", 0),
-            ('DXT3', "DXT3", "", 1),
-            ('DXT5', "DXT5", "", 2),
+            ('NONE', "NONE", "", 0),
+            ('DXT1', "DXT1", "", 1),
+            ('DXT3', "DXT3", "", 2),
+            ('DXT5', "DXT5", "", 3),
         ]
     ) # type: ignore
 
@@ -191,7 +192,7 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
                 return {'CANCELLED'}
 
             lod0, texture = generate_og_lod(root, projections)
-            save_img_as_dds(texture, out_path, self.dds_fmt)
+            save_img_as_dds(texture, out_path, self.dds_compression)
             bpy.data.images.remove(texture)
 
             # apply material
