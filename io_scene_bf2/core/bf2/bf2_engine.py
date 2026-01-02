@@ -821,9 +821,9 @@ class ObjectManager(Manager):
 
         temp = obj_temp_manager.templates.get(template.lower())
         if not temp:
-            BF2Engine().main_console.report(f"ObjectTemplate does not exitst")
+            BF2Engine().main_console.report(f"ObjectTemplate definition not found")
             return
-            # raise ValueError(f"Object.create {template}, ObjectTemplate does not exitst")
+            # raise ValueError(f"Object.create {template}, ObjectTemplate definition not found")
 
         new_object = Object(temp)
         self.objects.append(new_object)

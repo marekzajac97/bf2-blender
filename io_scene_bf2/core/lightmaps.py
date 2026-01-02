@@ -41,7 +41,7 @@ def _setup_scene_for_baking(context):
     context.scene.cycles.bake_type = 'DIFFUSE'
     context.scene.render.bake.use_pass_direct = True
     context.scene.render.bake.use_pass_indirect = True
-    context.scene.render.bake.use_pass_color = False
+    context.scene.render.bake.use_pass_color = True
 
 def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
     node_tree = material.node_tree
@@ -86,6 +86,155 @@ def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
 # baking terrain
 # -------------------
 
+def _make_flatten_at_watter_level(water_level):
+    if 'FlattenAtWaterLevel' in bpy.data.node_groups:
+        node_group = bpy.data.node_groups['FlattenAtWaterLevel']
+        bpy.data.node_groups.remove(node_group)
+
+    node_tree = bpy.data.node_groups.new(type='GeometryNodeTree', name="FlattenAtWaterLevel")
+
+    in_sock = node_tree.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    in_sock.attribute_domain = 'POINT'
+    in_sock.default_input = 'VALUE'
+    in_sock.structure_type = 'AUTO'
+
+    out_sock = node_tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    out_sock.attribute_domain = 'POINT'
+    out_sock.default_input = 'VALUE'
+    out_sock.structure_type = 'AUTO'
+
+    group_input = node_tree.nodes.new("NodeGroupInput")
+    group_output = node_tree.nodes.new("NodeGroupOutput")
+    group_output.is_active_output = True
+
+    get_position = node_tree.nodes.new("GeometryNodeInputPosition")
+
+    clamp = node_tree.nodes.new("ShaderNodeClamp")
+    clamp.inputs['Min'].default_value = water_level
+    clamp.inputs['Max'].default_value = 10000.0
+
+    set_position = node_tree.nodes.new("GeometryNodeSetPosition")
+    combine_xyz = node_tree.nodes.new("ShaderNodeCombineXYZ")
+    separate_xyz = node_tree.nodes.new("ShaderNodeSeparateXYZ")
+
+    node_tree.links.new(group_input.outputs['Geometry'], set_position.inputs['Geometry'])
+    node_tree.links.new(set_position.outputs['Geometry'], group_output.inputs['Geometry'])
+    node_tree.links.new(get_position.outputs['Position'], separate_xyz.inputs['Vector'])
+    node_tree.links.new(separate_xyz.outputs['Z'], clamp.inputs['Value'])
+    node_tree.links.new(clamp.outputs['Result'], combine_xyz.inputs['Z'])
+    node_tree.links.new(separate_xyz.outputs['Y'], combine_xyz.inputs['Y'])
+    node_tree.links.new(separate_xyz.outputs['X'], combine_xyz.inputs['X'])
+    node_tree.links.new(combine_xyz.outputs['Vector'], set_position.inputs['Position'])
+    return node_tree
+
+def _add_flatten_at_watter_level_mod(terrain, water_level):
+    modifier = terrain.modifiers.new(type='NODES', name="FlattenAtWaterLevel")
+    modifier.node_group = _make_flatten_at_watter_level(water_level)
+    return modifier
+
+def _make_water_depth_material(water_level, water_attenuation=0.05):
+    if 'WaterDepth' in bpy.data.materials:
+        water_depth = bpy.data.materials['WaterDepth']
+        bpy.data.materials.remove(water_depth)
+
+    NODE_SPACING = 200
+
+    material = bpy.data.materials.new(name='WaterDepth')
+    material.use_nodes = True
+    node_tree = material.node_tree
+    node_tree.nodes.clear()
+
+    geometry = node_tree.nodes.new("ShaderNodeNewGeometry")
+    geometry.location = (0, 0)
+    separate_xyz = node_tree.nodes.new("ShaderNodeSeparateXYZ")
+    separate_xyz.location = (1 * NODE_SPACING, 0)
+    node_tree.links.new(geometry.outputs['Position'], separate_xyz.inputs['Vector'])
+
+    # substract water level value from Z
+    math_substract = node_tree.nodes.new("ShaderNodeMath")
+    math_substract.operation = 'SUBTRACT'
+    math_substract.inputs[1].default_value = water_level
+    math_substract.location = (2 * NODE_SPACING, 100)
+    node_tree.links.new(separate_xyz.outputs['Z'], math_substract.inputs[0])
+
+    # multiply by water attenuation coefficient
+    watter_att_node = node_tree.nodes.new("ShaderNodeValue")
+    watter_att_node.name = "WaterAttenuation"
+    watter_att_node.label = "WaterAttenuation"
+    watter_att_node.outputs['Value'].default_value = water_attenuation
+    watter_att_node.location = (1 * NODE_SPACING, -100)
+
+    math_multiply = node_tree.nodes.new("ShaderNodeMath")
+    math_multiply.operation = 'MULTIPLY'
+    math_multiply.location = (2 * NODE_SPACING, 0)
+    node_tree.links.new(watter_att_node.outputs['Value'], math_multiply.inputs[1])
+    node_tree.links.new(math_substract.outputs['Value'], math_multiply.inputs[0])
+
+    # calc exponent
+    math_exp = node_tree.nodes.new("ShaderNodeMath")
+    math_exp.operation = 'EXPONENT'
+    math_exp.location = (3 * NODE_SPACING, 0)
+    node_tree.links.new(math_multiply.outputs['Value'], math_exp.inputs['Value'])
+
+    # re-map range 0-1 to 1-0
+    math_substract = node_tree.nodes.new("ShaderNodeMath")
+    math_substract.operation = 'SUBTRACT'
+    math_substract.inputs[0].default_value = 1.0
+    math_substract.location = (4 * NODE_SPACING, 0)
+    node_tree.links.new(math_exp.outputs['Value'], math_substract.inputs[1])
+
+    # map to red channel
+    combine_color = node_tree.nodes.new("ShaderNodeCombineColor")
+    combine_color.mode = 'RGB'
+    combine_color.inputs['Green'].default_value = 0.0
+    combine_color.inputs['Blue'].default_value = 0.0
+    combine_color.location = (5 * NODE_SPACING, 0)
+    node_tree.links.new(math_substract.outputs['Value'], combine_color.inputs['Red'])
+
+    # output as diffuse color
+    diffuse_bsdf = node_tree.nodes.new("ShaderNodeBsdfDiffuse")
+    diffuse_bsdf.location = (6 * NODE_SPACING, 0)
+
+    node_tree.links.new(combine_color.outputs['Color'], diffuse_bsdf.inputs['Color'])
+
+    material_output = node_tree.nodes.new("ShaderNodeOutputMaterial")
+    material_output.location = (7 * NODE_SPACING, 0)
+    node_tree.links.new(diffuse_bsdf.outputs['BSDF'], material_output.inputs['Surface'])
+    return material
+
+def _combine_channels():
+    view_transform = bpy.context.scene.view_settings.view_transform
+    bpy.context.scene.view_settings.view_transform = 'Standard'
+    
+    # TODO
+
+    bpy.context.scene.view_settings.view_transform = view_transform
+
+def _make_default_terrain_material(minimap_path):
+    if 'DefaultTerrain' in bpy.data.materials:
+        terrain = bpy.data.materials['DefaultTerrain']
+        bpy.data.materials.remove(terrain)
+
+    material = bpy.data.materials.new('DefaultTerrain')     
+    material.use_nodes = True
+    
+    tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
+    try:
+        tex_node.image = bpy.data.images.load(minimap_path, check_existing=True)
+        tex_node.image.alpha_mode = 'NONE'
+    except RuntimeError:
+        pass # ignore if can't be loaded
+
+    bsdf = material.node_tree.nodes['Principled BSDF']
+    bsdf.inputs['Roughness'].default_value = 1
+    bsdf.inputs['Specular IOR Level'].default_value = 0
+    bsdf.inputs['IOR'].default_value = 1.1
+    material.node_tree.links.new(tex_node.outputs['Color'], bsdf.inputs['Base Color'])
+    return material
+
+def _set_watter_attenuation(material, water_attenuation):
+    material.node_tree.nodes['WaterAttenuation'].outputs['Value'].default_value = water_attenuation
+
 DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES = {
     512: (16, 1024),
     1024: (16, 2048),
@@ -115,10 +264,11 @@ def get_heightmap_size(heightmap):
 
 def find_heightmap(context):
     for obj in context.scene.collection.children['Heightmaps'].objects:
-        if obj.startswith('Heightmap'):
+        if obj.name.startswith('Heightmap'):
             return obj
 
-def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None, patch_size=None, reporter=DEFAULT_REPORTER):
+def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None, patch_size=None,
+                           water_attenuation=0.05, reporter=DEFAULT_REPORTER):
     terrain = find_heightmap(context)
 
     if not terrain:
@@ -140,6 +290,26 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None
     vert_count = math.isqrt(len(mesh.vertices))
     if vert_count * vert_count != len(mesh.vertices) or not is_pow_two(vert_count - 1):
         raise RuntimeError(f'heightmap vert count is invalid')
+    
+    default_terrain_mat = bpy.data.materials['DefaultTerrain']
+    water_depth_mat = bpy.data.materials['WaterDepth']
+    _set_watter_attenuation(water_depth_mat, water_attenuation)
+    flatten_water_mod = terrain.modifiers['FlattenAtWaterLevel']
+
+    mesh.materials.clear()
+    mesh.materials.append(default_terrain_mat)
+
+    # we gon simply scale the UV up so the 0-1 range fits one whole patch
+    # then shift the UV when rendering the grid
+    uv_layer = mesh.uv_layers.new(name='LightmapBakeUV')
+
+    for loop in mesh.loops:
+        loop_uv = uv_layer.data[loop.index]
+        u, v = loop_uv.uv
+        loop_uv.uv = (grid_size * u, 1 - grid_size * v)
+
+    texture_node_light = _setup_material_for_baking(default_terrain_mat, uv=uv_layer.name)
+    texture_node_water_depth = _setup_material_for_baking(water_depth_mat, uv=uv_layer.name)
 
     _setup_scene_for_baking(context)
 
@@ -151,30 +321,40 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None
     terrain.hide_render = False
     context.view_layer.update()
 
-    # we gon simply scale the UV up so the 0-1 range fits one whole patch
-    # then shift the UV when rendering the grid
-    uv_layer = mesh.uv_layers.new(name='LightmapBakeUV')
-
-    for loop in mesh.loops:
-        loop_uv = uv_layer.data[loop.index]
-        u, v = loop_uv.uv
-        loop_uv.uv = (grid_size * u, 1 - grid_size * v)
-
-    texture_node = _setup_material_for_baking(mesh.materials[0], uv=uv_layer.name)
-
     col = 0
     row = 0
     while col < grid_size:
         while row < grid_size:
             name = f'tx{col:02d}x{row:02d}'
-            reporter.info(f"Baking terrain patch {name} {(row + 1) * (col + 1)}/{patch_count}")
-            bake_image = bpy.data.images.new(name=f'TerrainLightmapBakeImage', width=patch_size, height=patch_size)
-            texture_node.image = bake_image
+            reporter.info(f"Baking terrain patch {name} {1 + row + grid_size * col}/{patch_count}")
+            bake_image_light = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=patch_size, height=patch_size)
+            bake_image_water_depth = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=patch_size, height=patch_size)
 
-            bpy.ops.object.bake(type='DIFFUSE', uv_layer=uv_layer.name)
+            for water_pass in [False, True]:
+                if water_pass:
+                    name += '_waterdepth'
 
-            save_img_as_dds(bake_image, path.join(output_dir, f'{name}.dds'), dds_fmt)
-            bpy.data.images.remove(bake_image)
+                bake_image = None
+                if water_pass:
+                    flatten_water_mod.show_render = False
+                    mesh.materials[0] = water_depth_mat
+                    bake_image = texture_node_water_depth.image = bake_image_water_depth
+                else:
+                    flatten_water_mod.show_render = True
+                    mesh.materials[0] = default_terrain_mat
+                    bake_image = texture_node_light.image = bake_image_light
+
+                context.scene.render.bake.use_pass_direct = not water_pass
+                context.scene.render.bake.use_pass_indirect = not water_pass
+                context.scene.render.bake.use_pass_color = water_pass
+
+                bpy.ops.object.bake(type='DIFFUSE', uv_layer=uv_layer.name)
+                save_img_as_dds(bake_image, path.join(output_dir, f'{name}.dds'), dds_fmt)
+
+            # TODO: combine water_pass in compositor and save
+
+            bpy.data.images.remove(bake_image_light)
+            bpy.data.images.remove(bake_image_water_depth)
 
             row += 1
             for loop in mesh.loops:
@@ -182,8 +362,12 @@ def bake_terrain_lightmaps(context, output_dir, dds_fmt='NONE', patch_count=None
         row = 0
         col += 1
         for loop in mesh.loops:
-            uv_layer.data[loop.index].uv[0] -= 1
+            loop_uv = uv_layer.data[loop.index]
+            u, v = loop_uv.uv
+            loop_uv.uv = (u - 1, v - grid_size)
+        break
 
+    mesh.materials[0] = default_terrain_mat
     mesh.uv_layers.remove(uv_layer)
 
 # -------------------
@@ -389,6 +573,51 @@ def _clone_object(collection, src_root):
                 lod_obj.hide_set(True)
     return root
 
+def _load_heightmap(context, level_dir):
+    file_manager = BF2Engine().file_manager
+    main_console = BF2Engine().main_console
+
+    main_console.run_file(path.join(level_dir, 'Heightdata.con'))
+    hm_cluster = BF2Engine().get_manager(HeightmapCluster).active_obj
+    if not hm_cluster:
+        return
+    for heightmap in hm_cluster.heightmaps:
+        if heightmap.cluster_offset == (0, 0): # load primary only
+            break
+    else:
+        return
+    
+    heightmaps = _make_collection(context, "Heightmaps")
+
+    # water_plane = make_water_plane(context, hm_cluster.heightmap_size, hm_cluster.water_level)
+    # context.scene.collection.objects.unlink(water_plane)
+    # heightmaps.objects.link(water_plane)
+
+    location = hm_cluster.heightmap_size * Vector(heightmap.cluster_offset)
+    data = file_manager.readFile(heightmap.raw_file, as_stream=True)
+    terrain = import_heightmap_from(context, data, name=file_name(heightmap.raw_file),
+                                    bit_res=heightmap.bit_res, scale=swap_zy(heightmap.scale))
+    context.scene.collection.objects.unlink(terrain)
+    heightmaps.objects.link(terrain)
+    terrain.location.x = location.x
+    terrain.location.y = location.y
+
+    # enable smooth shading for the terrain
+    context.view_layer.objects.active = terrain
+    terrain.select_set(True)
+    bpy.ops.object.shade_smooth()
+    terrain.select_set(False)
+
+    # load minimap as diffuse texture on primary heightmap and waterplane
+    minimap_path = path.join(level_dir, 'Hud', 'Minimap', 'ingameMap.dds')
+    material = _make_default_terrain_material(minimap_path)
+    terrain.data.materials.append(material)
+
+    material = _make_water_depth_material(hm_cluster.water_level) 
+    material.use_fake_user = True # will be used later
+
+    _add_flatten_at_watter_level_mod(terrain, hm_cluster.water_level)
+
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
@@ -564,64 +793,11 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         # delete source instance
         delete_object(root_obj, remove_data=False)
 
-    heightmaps = _make_collection(context, "Heightmaps")
-
     if DEBUG:
         print(f"Loading heightmap")
 
     if load_heightmap:
-        main_console.run_file(path.join(level_dir, 'Heightdata.con'))
-        hm_cluster = BF2Engine().get_manager(HeightmapCluster).active_obj
-        if hm_cluster:
-            for heightmap in hm_cluster.heightmaps:
-                if heightmap.cluster_offset == (0, 0): # load primary only
-                    break
-            else:
-                heightmap = None
-
-            # TODO make waterplane look like actual water
-
-            water_plane = make_water_plane(context, hm_cluster.heightmap_size, hm_cluster.water_level)
-            context.scene.collection.objects.unlink(water_plane)
-            heightmaps.objects.link(water_plane)
-
-            location = hm_cluster.heightmap_size * Vector(heightmap.cluster_offset)
-            data = file_manager.readFile(heightmap.raw_file, as_stream=True)
-            terrain = import_heightmap_from(context, data, name=file_name(heightmap.raw_file),
-                                            bit_res=heightmap.bit_res, scale=swap_zy(heightmap.scale))
-            context.scene.collection.objects.unlink(terrain)
-            heightmaps.objects.link(terrain)
-            terrain.location.x = location.x
-            terrain.location.y = location.y
-
-            # enable smooth shading for the terrain
-            context.view_layer.objects.active = terrain
-            terrain.select_set(True)
-            bpy.ops.object.shade_smooth()
-            terrain.select_set(False)
-
-            # load minimap as diffuse texture on primary heightmap and waterplane
-            for obj in (water_plane, terrain):
-                if not obj:
-                    continue
-                minimap_path = path.join(level_dir, 'Hud', 'Minimap', 'ingameMap.dds')
-                if path.isfile(minimap_path):
-                    material = bpy.data.materials.new('Minimap')     
-                    material.use_nodes = True
-                    obj.data.materials.append(material)
-
-                    tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
-                    try:
-                        tex_node.image = bpy.data.images.load(minimap_path, check_existing=True)
-                        tex_node.image.alpha_mode = 'NONE'
-                    except RuntimeError:
-                        pass # ignore if can't be loaded
-
-                    bsdf = material.node_tree.nodes['Principled BSDF']
-                    bsdf.inputs['Roughness'].default_value = 1
-                    bsdf.inputs['Specular IOR Level'].default_value = 0
-                    bsdf.inputs['IOR'].default_value = 1.1
-                    material.node_tree.links.new(tex_node.outputs['Color'], bsdf.inputs['Base Color'])
+        _load_heightmap(context, level_dir)
 
     if DEBUG:
         print(f"Loading lights")

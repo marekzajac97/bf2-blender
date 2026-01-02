@@ -224,7 +224,7 @@ def get_patch_count(self):
     def_val = self.bl_rna.properties['bf2_lm_patch_count'].default
     return self.get('bf2_lm_patch_count', def_val) 
 
-class VIEW3D_OT_bf2_bake(bpy.types.Operator, ImportHelper):
+class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     bl_idname = "bf2.lightmap_bake"
     bl_label = "Bake"
     bl_description = "Bake lighting to texture"
@@ -290,6 +290,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator, ImportHelper):
                                   patch_count=self.patch_count,
                                   patch_size=self.patch_size,
                                   reporter=Reporter(self.report))
+        return {'FINISHED'}
 
 class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
     bl_label = "Lightmapping"

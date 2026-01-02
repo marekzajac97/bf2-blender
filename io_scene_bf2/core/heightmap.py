@@ -10,10 +10,10 @@ from .utils import file_name
 def make_water_plane(context, heightmap_size, water_level, name='WaterPlane'):
     bm = bmesh.new()
     off = heightmap_size / 2
-    bm.verts.new((-off, -off, water_level))
-    bm.verts.new((-off, off, water_level))
-    bm.verts.new((off, off, water_level))
-    bm.verts.new((off, -off, water_level))
+    bm.verts.new((-off, -off, 0))
+    bm.verts.new((-off, off, 0))
+    bm.verts.new((off, off, 0))
+    bm.verts.new((off, -off, 0))
     bm.verts.ensure_lookup_table()
     bm.verts.index_update()
     bm.faces.new(bm.verts[i] for i in ((0, 1, 2, 3)))
@@ -29,6 +29,7 @@ def make_water_plane(context, heightmap_size, water_level, name='WaterPlane'):
         water_uv_layer.data[loop.index].uv = (x_normalized, y_normalized)
 
     obj = bpy.data.objects.new(name, mesh)
+    obj.location.z = water_level
     context.scene.collection.objects.link(obj)
     return obj
 
