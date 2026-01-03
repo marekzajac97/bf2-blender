@@ -30,7 +30,7 @@ MESH_TYPES = {
     'SkinnedMesh': BF2SkinnedMesh
 }
 
-DEBUG = True
+DEBUG = False
 
 # -------------------
 # baking common
@@ -743,11 +743,14 @@ def _load_heightmap(context, level_dir, water_attenuation):
     modifier = terrain.modifiers.new(type='NODES', name="FlattenAtWaterLevel")
     modifier.node_group = _make_flatten_at_watter_level(hm_cluster.water_level)
 
-def load_level(context, mod_dir, level_name, use_cache=True,
+def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
-               lm_size_thresholds=None, water_attenuation=0.1,
+               lm_size_thresholds=None, water_attenuation=0.1, texture_paths=[],
                reporter=DEFAULT_REPORTER):
+
+    level_dir = level_dir.rstrip('/').rstrip('\\')
+    mod_dir = path.normpath(path.join(level_dir, '..', '..'))
 
     if lm_size_thresholds is None:
         lm_size_thresholds = DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS
@@ -757,10 +760,12 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         mod_loader.reload_all()
     else:
         BF2Engine().shutdown()
+        if not any([mod_dir.lower() == t.rstrip('/').rstrip('\\').lower() for t in texture_paths]):
+            texture_paths.append(mod_dir)
+        BF2Engine().file_manager.root_dirs = texture_paths
 
     file_manager = BF2Engine().file_manager
     main_console = BF2Engine().main_console
-    file_manager.root_dir = mod_dir
 
     def report_cb(con_file, line_no, line, what):
         if line.lower().startswith('object.create'):
@@ -768,9 +773,6 @@ def load_level(context, mod_dir, level_name, use_cache=True,
 
     main_console.report_cb = report_cb
 
-    level_dir = path.join('levels', level_name)
-    if load_unpacked:
-        level_dir = path.join(mod_dir, level_dir)
     client_zip_path = path.join(level_dir, 'client.zip')
     server_zip_path = path.join(level_dir, 'server.zip')
 
@@ -845,7 +847,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
             continue
 
         # TODO: texture load from FileManager if not load_unpacked!
-        importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_path=mod_dir, reporter=reporter)
+        importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_paths=texture_paths, reporter=reporter)
         try:
             root_obj = importer.import_mesh()
         except ImportException as e:
@@ -902,18 +904,21 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                 delete_object(geom_obj)
 
         for matrix_world in obj_transforms:
-            if geom_temp.dont_generate_lightmaps or 'StaticMesh' != geom_temp.geometry_type:
+            skip_lightmaps = geom_temp.dont_generate_lightmaps or 'StaticMesh' != geom_temp.geometry_type
+            if skip_lightmaps:
                 obj = _clone_object(static_objects_skip, root_obj)
             else:
                 obj = _clone_object(static_objects, root_obj)
-                # check LM key collisions
+
+            obj.matrix_world = matrix_world
+
+            # check LM key collisions
+            if not skip_lightmaps:
                 lm_key = _gen_lm_key(obj, lod_idx)
                 if lm_key in lm_keys:
                     reporter.warning(f"GeometryTemplate '{geom_temp.name}' at position {matrix_world.translation} "
                                     "is too close to another object of the same type which will result in them having the same lightmap filenames!")
                 lm_keys.add(lm_key)
-
-            obj.matrix_world = matrix_world
 
         # delete source instance
         delete_object(root_obj, remove_data=False)

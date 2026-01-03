@@ -846,8 +846,8 @@ class FileManagerFileNotFound(Exception):
 
 class FileManager:
 
-    def __init__(self, root_dir='./'):
-        self.root_dir = root_dir
+    def __init__(self, root_dirs=['./']):
+        self.root_dirs = root_dirs
         self._archive_to_zip = dict()
         self._mounted_archives = dict()
         self._mounted_paths = dict()
@@ -962,39 +962,44 @@ class FileManager:
                 break
 
         # check is outside of zip
-        abspath = os.path.join(BF2Engine().file_manager.root_dir, filepath)
-        if os.path.isfile(abspath):
-            self._current_dir = path.dirname(abspath)
-            self._current_dir_archive = None
-            self._current_dir_path = None
-            f = ci_open(abspath, 'rb')
-            content = f.read()
-            f.close()
-            return content
+        for root_dir in self.root_dirs:
+            abspath = os.path.join(root_dir, filepath)
+            if os.path.isfile(abspath):
+                self._current_dir = path.dirname(abspath)
+                self._current_dir_archive = None
+                self._current_dir_path = None
+                f = ci_open(abspath, 'rb')
+                content = f.read()
+                f.close()
+                return content
 
         raise FileManagerFileNotFound("{} not found".format(filepath))
 
     def mountPath(self, dirpath, mount_dir):
-        dirpathfull = path.join(self.root_dir, dirpath)
-        if not path.isdir(dirpathfull):
-            return
-        # print('[FileManager] Mounting path {}'.format(dirpathfull))
-        k = mount_dir.lower()
-        if k not in self._mounted_paths:
-            self._mounted_paths[k] = list()
-        self._mounted_paths[k].append(dirpathfull)
+        for root_dir in self.root_dirs:
+            dirpathfull = path.join(root_dir, dirpath)
+            if not path.isdir(dirpathfull):
+                continue
+            # print('[FileManager] Mounting path {}'.format(dirpathfull))
+            k = mount_dir.lower()
+            if k not in self._mounted_paths:
+                self._mounted_paths[k] = list()
+            self._mounted_paths[k].append(dirpathfull)
+            break
 
     def mountArchive(self, archive, mount_dir, mode='r'):
         archive = archive.lower()
-        zipfullpath = find_file(path.join(self.root_dir, archive))
-        if not zipfullpath:
-            return
-        # print('[FileManager] Mounting archive {}'.format(archive))
-        k = mount_dir.lower()
-        if k not in self._mounted_archives:
-            self._mounted_archives[k] = list()
-        self._mounted_archives[k].append(archive)
-        self._archive_to_zip[archive] = ZipFile(zipfullpath, mode) # keep zips open for better performance
+        for root_dir in self.root_dirs:
+            zipfullpath = find_file(path.join(root_dir, archive))
+            if not zipfullpath:
+                continue
+            # print('[FileManager] Mounting archive {}'.format(archive))
+            k = mount_dir.lower()
+            if k not in self._mounted_archives:
+                self._mounted_archives[k] = list()
+            self._mounted_archives[k].append(archive)
+            self._archive_to_zip[archive] = ZipFile(zipfullpath, mode) # keep zips open for better performance
+            break
 
     def unmountArchive(self, archive):
         zip = self._archive_to_zip[archive]

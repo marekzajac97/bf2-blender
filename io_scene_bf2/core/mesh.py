@@ -112,7 +112,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
-                 texture_path='', geom_to_ske=None, merge_materials=True,
+                 texture_paths=[], geom_to_ske=None, merge_materials=True,
                  load_backfaces=True, loader=None, reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
@@ -126,7 +126,7 @@ class MeshImporter:
 
         self.bf2_mesh = None
         self.reload = reload
-        self.texture_path = texture_path
+        self.texture_paths = texture_paths
         self.geom_to_ske = geom_to_ske
         self.reporter = reporter
         self.mesh_materials = []
@@ -216,7 +216,7 @@ class MeshImporter:
                     if has_anim_uv and uv_matrix_idx in ANIM_UV_ROTATION_MATRICES:
                         if uv_ratio is None:
                             try:
-                                uv_ratio = _get_anim_uv_ratio(bf2_mat.maps[0], self.texture_path)
+                                uv_ratio = _get_anim_uv_ratio(bf2_mat.maps[0], self.texture_paths)
                             except Exception:
                                 uv_ratio = (1.0, 1.0)
                                 self.reporter.warning(f"Could not read texture size: {bf2_mat.maps[0]}")
@@ -278,7 +278,7 @@ class MeshImporter:
                     material.is_bf2_vegitation = self.is_vegitation
 
                 material.is_bf2_material = True # MUST be set last!
-                setup_material(material, uvs=uvs.keys(), texture_path=self.texture_path, reporter=self.reporter)
+                setup_material(material, uvs=uvs.keys(), texture_paths=self.texture_paths, reporter=self.reporter)
 
             try:
                 material_index = mesh_materials.index(material)
@@ -538,7 +538,7 @@ class MeshExporter:
 
     def __init__(self, mesh_obj, mesh_file, mesh_type,
                  mesh_geoms=None, gen_lightmap_uv=True,
-                 texture_path='', tangent_uv_map='',
+                 texture_paths=[], tangent_uv_map='',
                  normal_weld_thres=0.999,
                  tangent_weld_thres=0.999,
                  save_backfaces=True,
@@ -550,7 +550,7 @@ class MeshExporter:
         self.mesh_geoms = mesh_geoms
         self.bf2_mesh = _MESH_TYPES[mesh_type.upper()](name=mesh_obj.name)
         self.gen_lightmap_uv = gen_lightmap_uv
-        self.texture_path = texture_path
+        self.texture_paths = texture_paths
         self.tangent_uv_map = tangent_uv_map
         self.normal_weld_thres = normal_weld_thres
         self.tangent_weld_thres = tangent_weld_thres
@@ -983,7 +983,7 @@ class MeshExporter:
                         if animuv_rot_center and blendindices[3] in ANIM_UV_ROTATION_MATRICES:
                             if uv_ratio is None:
                                 try:
-                                    uv_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], self.texture_path)
+                                    uv_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], self.texture_paths)
                                 except (ValueError, FileNotFoundError) as e:
                                     raise ExportException(f"{lod_obj.name} (mat: {blend_material.name}): Cannot determine texture size ratio due to error: {e}")
 
@@ -1068,15 +1068,17 @@ def _get_texture_size(texture_file):
         width = f.read_dword()
         return height, width
 
-def _get_anim_uv_ratio(texture_map_file, texture_path):
+def _get_anim_uv_ratio(texture_map_file, texture_paths):
     u_ratio = 1.0
     v_ratio = 1.0
-    if texture_path:
+    for texture_path in texture_paths:
         texture_map_file = os.path.join(texture_path, texture_map_file)
-    texture_size = _get_texture_size(texture_map_file)
-    tex_height, tex_width = texture_size
-    if tex_width > tex_height:
-        u_ratio = tex_height / tex_width
-    elif tex_height > tex_width:
-        v_ratio = tex_width / tex_height
+        if os.path.isfile(texture_map_file):
+            texture_size = _get_texture_size(texture_map_file)
+            tex_height, tex_width = texture_size
+            if tex_width > tex_height:
+                u_ratio = tex_height / tex_width
+            elif tex_height > tex_width:
+                v_ratio = tex_width / tex_height
+            break
     return u_ratio, v_ratio

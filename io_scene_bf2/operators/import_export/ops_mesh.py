@@ -14,7 +14,7 @@ from ...core.mesh import (import_mesh,
 from ...core.skeleton import find_active_skeleton
 from ...core.utils import find_root, Reporter
 
-from ... import get_mod_dir
+from ... import get_mod_dirs
 
 class MeshImportBase(ImporterBase):
 
@@ -80,7 +80,7 @@ class MeshImportBase(ImporterBase):
         return super().invoke(context, _event)
 
     def _execute(self, context):
-        mod_path = get_mod_dir(context)
+        mod_paths = get_mod_dirs(context)
         kwargs = {}
         if self.only_selected_lod:
             kwargs['geom'] = self.geom
@@ -92,7 +92,7 @@ class MeshImportBase(ImporterBase):
 
         context.view_layer.objects.active = \
             self.__class__.IMPORT_FUNC(context, self.filepath,
-                                       texture_path=mod_path,
+                                       texture_paths=mod_paths,
                                        merge_materials=self.merge_materials,
                                        load_backfaces=self.load_backfaces,
                                        reporter=Reporter(self.report),
@@ -190,10 +190,10 @@ class MeshExportBase(ExporterBase):
         return context.view_layer.objects.active is not None
 
     def _execute(self, context):
-        mod_path = get_mod_dir(context)
+        mod_paths = get_mod_dirs(context)
         root = find_root(context.view_layer.objects.active)
         self.__class__.EXPORT_FUNC(root, self.filepath,
-                                   texture_path=mod_path,
+                                   texture_paths=mod_paths,
                                    tangent_uv_map=self.tangent_uv_map,
                                    save_backfaces=self.save_backfaces,
                                    apply_modifiers=self.apply_modifiers,

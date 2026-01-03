@@ -20,7 +20,7 @@ class ModLoader:
         file_manager = BF2Engine().file_manager
         main_console = BF2Engine().main_console
 
-        file_manager.root_dir = self.mod_dir
+        file_manager.root_dirs = [self.mod_dir]
         main_console.run_file('serverarchives.con')
 
         # cache mod objects
@@ -55,8 +55,8 @@ class ModLoader:
         if not self.use_cache:
             return False
         md5hash = self.object_archives_md5()
-        for f in os.listdir(file_manager.root_dir):
-            filepath = os.path.join(file_manager.root_dir, f)
+        for f in os.listdir(self.mod_dir):
+            filepath = os.path.join(self.mod_dir, f)
             if f.startswith(CACHE_FILE_NAME) and os.path.isfile(filepath):
                 cache_md5 = f.split('__')[-1]
                 version_num = f.split('__')[-2]
@@ -72,7 +72,7 @@ class ModLoader:
         hash_md5 = hashlib.md5()
         for zipfile in file_manager.getArchives('objects'):
             zipfile = zipfile.lower()
-            zipfilepath = os.path.join(file_manager.root_dir, zipfile)
+            zipfilepath = os.path.join(self.mod_dir, zipfile)
             with open(zipfilepath, "rb") as f:
                 for chunk in iter(lambda: f.read(4096), b""):
                     hash_md5.update(chunk)
@@ -97,7 +97,7 @@ class ModLoader:
             return False
         file_manager = BF2Engine().file_manager
         md5hash = self.object_archives_md5()
-        filepath = os.path.join(file_manager.root_dir, CACHE_FILE_NAME + '__' + CACHE_VERSION + '__' + md5hash)
+        filepath = os.path.join(self.mod_dir, CACHE_FILE_NAME + '__' + CACHE_VERSION + '__' + md5hash)
         self.write_cache_to_file(filepath)
 
     def load_objects(self, levels_only=False):

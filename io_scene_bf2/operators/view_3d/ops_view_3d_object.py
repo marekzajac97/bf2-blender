@@ -5,7 +5,7 @@ from pathlib import Path
 
 from bpy.props import BoolProperty, StringProperty, EnumProperty, IntVectorProperty # type: ignore
 
-from ... import get_mod_dir
+from ... import get_mod_dirs
 from ...core.utils import Reporter
 from ...core.utils import find_root, save_img_as_dds, next_power_of_2, prev_power_of_2
 from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
@@ -167,15 +167,20 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
 
         out_path = os.path.join(self.texture_dir, obj_name + '.dds')
         out_path = os.path.normpath(out_path)
-        mod_path = get_mod_dir(context)
-        if mod_path:
+        mod_paths = get_mod_dirs(context)
+        if not mod_paths:
+            self.report({"ERROR"}, f'MOD Path must be defined in add-on preferences')
+            return {'CANCELLED'}
+
+        for mod_path in mod_paths:
             try:
                 Path(out_path).relative_to(mod_path).as_posix().lower()
+                break
             except ValueError:
-                self.report({"ERROR"}, f'Given path: "{out_path}" is not relative to MOD path defined in add-on preferences ("{mod_path}")')
-                return {'CANCELLED'}
-        else:
-            self.report({"ERROR"}, f'MOD Path must be defined in add-on preferences')
+                mod_path = ''
+
+        if not mod_path:
+            self.report({"ERROR"}, f'Given path: "{out_path}" is not relative to one of the MOD paths defined in add-on preferences')
             return {'CANCELLED'}
 
         try:
@@ -206,7 +211,7 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
             else:
                 material.texture_slot_1 = out_path
             material.is_bf2_material = True
-            setup_material(material, texture_path=mod_path, reporter=Reporter(self.report))
+            setup_material(material, texture_paths=[mod_path], reporter=Reporter(self.report))
 
             # build hierarchy
             root = bpy.data.objects.new('StaticMesh_' + obj_name, None)

@@ -6,7 +6,7 @@ from pathlib import Path
 from bpy.props import BoolProperty, EnumProperty, StringProperty, IntProperty, FloatProperty # type: ignore
 from bpy_extras.io_utils import ImportHelper # type: ignore
 
-from ... import get_mod_dir
+from ... import get_mod_dirs
 from ...core.anim_utils import (
     toggle_mesh_mask_mesh_for_active_bone,
     setup_controllers,
@@ -163,30 +163,35 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
     @classmethod
     def poll(cls, context):
         cls.poll_message_set("Mod path must be defined in addon preferences")
-        return get_mod_dir(context)
+        return get_mod_dirs(context)
 
     def execute(self, context):
         if not os.path.isdir(self.filepath):
             self.report({"ERROR"}, f"Choosen path '{self.filepath}' is NOT a directory!")
             return {'CANCELLED'}
 
-        mod_path = get_mod_dir(context)
-        try:
-            Path(self.filepath).relative_to(mod_path).as_posix().lower()
-        except ValueError:
-            self.report({"ERROR"}, f'Given path: "{self.filepath}" is not relative to MOD path defined in add-on preferences ("{mod_path}")')
-            return {'CANCELLED'}
-        level_name = os.path.basename(self.filepath.rstrip('/').rstrip('\\'))
+        filepath = self.filepath.rstrip('/').rstrip('\\')
 
+        mod_dirs = get_mod_dirs(context)
+        for mod_path in mod_dirs:
+            try:
+                Path(self.filepath).relative_to(mod_path).as_posix().lower()
+                break
+            except ValueError:
+                mod_path = ''
+
+        if not mod_path:
+            self.report({"ERROR"}, f'Given path: "{self.filepath}" is not relative to any of the MOD paths defined in add-on preferences')
+            return {'CANCELLED'}
+    
         try:
-            load_level(context,
-                       mod_dir=get_mod_dir(context),
-                       level_name=level_name,
+            load_level(context, filepath,
                        load_static_objects=self.load_static_objects,
                        load_overgrowth=self.load_overgrowth,
                        load_heightmap=self.load_heightmap,
                        load_lights=self.load_lights,
                        water_attenuation=self.water_light_attenuation,
+                       texture_paths=mod_dirs,
                        reporter=Reporter(self.report))
 
             if terrain_cfg := get_default_heightmap_patch_count_and_size(context):

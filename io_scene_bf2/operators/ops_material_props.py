@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from bpy.types import Mesh, Material # type: ignore
 from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
-from .. import get_mod_dir
+from .. import get_mod_dirs
 
 from ..core.utils import Reporter, show_error
 from ..core.mesh_material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
@@ -56,10 +56,10 @@ class MESH_OT_bf2_apply_material(bpy.types.Operator):
         return False
 
     def execute(self, context):
-        mod_path = get_mod_dir(context)
+        mod_paths = get_mod_dirs(context)
         material = context.material
         try:
-            setup_material(material, texture_path=mod_path, reporter=Reporter(self.report))
+            setup_material(material, texture_paths=mod_paths, reporter=Reporter(self.report))
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
@@ -143,8 +143,8 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                 col.prop(material, "texture_slot_5", text="Crack Normal")
                 col.enabled = enabled and not is_vegitation and is_staticmesh_map_allowed(material, "NCrack")
 
-            mod_path = get_mod_dir(context)
-            if not mod_path:
+            mod_paths = get_mod_dirs(context)
+            if not mod_paths:
                 col = self.layout.column()
                 col.label(text='WARNING: Mod Path is not defined in add-on preferences, textures will not load', icon='ERROR')
 
@@ -189,7 +189,7 @@ def on_texture_map_update(self, context, index):
     if not self.is_bf2_material:
         return
 
-    mod_path = get_mod_dir(context)
+    mod_paths = get_mod_dirs(context)
     prop_name = f'texture_slot_{index}'
     prop_val = getattr(self, prop_name)
 
@@ -198,19 +198,23 @@ def on_texture_map_update(self, context, index):
 
     if os.path.isabs(prop_val):
         prop_val = os.path.normpath(prop_val)
-        if mod_path:
-            try:
-                prop_val = Path(prop_val).relative_to(mod_path).as_posix().lower()
-            except ValueError:
-                show_error(context,
-                           title='Invalid texture path!',
-                           text=f'Given path: "{prop_val}" is not relative to MOD path defined in add-on preferences ("{mod_path}")')
-                prop_val = ''
-        else:
+        if not mod_paths:
             show_error(context,
                        title='MOD path not set!',
                        text='To set texture paths, MOD path must be defined in add-on\'s preferences! Read the manual')
             prop_val = ''
+        else:
+            for mod_path in mod_paths:
+                try:
+                    prop_val = Path(prop_val).relative_to(mod_path).as_posix().lower()
+                    break
+                except ValueError:
+                    prop_val = ''
+            if not prop_val:
+                show_error(context,
+                        title='Invalid texture path!',
+                        text=f'Given path: "{prop_val}" is not relative to any of the MOD paths defined in add-on preferences')
+                prop_val = ''
     else:
         pass # relative path probably typed manually, dunno what could check here  
 

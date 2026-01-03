@@ -10,7 +10,7 @@ from ...core.mesh import collect_uv_layers
 from ...core.skeleton import find_all_skeletons
 from ...core.utils import Reporter, find_root, next_power_of_2, prev_power_of_2
 
-from ... import get_mod_dir
+from ... import get_mod_dirs
 
 class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
 
@@ -109,7 +109,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase):
         col.prop(self, "load_backfaces")
 
     def _execute(self, context):
-        mod_path = get_mod_dir(context)
+        mod_paths = get_mod_dirs(context)
 
         geom_to_ske = None
         if self.import_rig_mode == 'MANUAL':
@@ -122,7 +122,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase):
                 import_collmesh=self.import_collmesh,
                 import_rig_mode=self.import_rig_mode,
                 geom_to_ske_name=geom_to_ske,
-                texture_path=mod_path,
+                texture_paths=mod_paths,
                 merge_materials=self.merge_materials,
                 weld_verts=self.weld_verts,
                 load_backfaces=self.load_backfaces,
@@ -375,7 +375,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
             return False
 
     def _execute(self, context):
-        mod_path = get_mod_dir(context)
+        mod_paths = get_mod_dirs(context)
         root = find_root(context.view_layer.objects.active)
         samples_size = self.samples_size if self.export_samples else None
 
@@ -384,7 +384,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
             colmesh_export=self.export_collmesh,
             apply_modifiers=self.apply_modifiers,
             gen_lightmap_uv=self.gen_lightmap_uv,
-            texture_path=mod_path,
+            texture_paths=mod_paths,
             tangent_uv_map=self.tangent_uv_map,
             normal_weld_thres=self.normal_weld_threshold,
             tangent_weld_thres=self.tangent_weld_threshold,

@@ -206,7 +206,7 @@ def _set_alpha_straigt(texture_node): # need this to render properly with Cycles
     if texture_node.image:
         texture_node.image.alpha_mode = 'STRAIGHT'
 
-def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTER):
+def setup_material(material, uvs=None, texture_paths=[], reporter=DEFAULT_REPORTER):
     material.use_nodes = True
     node_tree = material.node_tree
     node_tree.nodes.clear()
@@ -256,23 +256,23 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
     # load textures
     texture_nodes = dict()
     for map_index, (texture_map_type, texture_map_file) in enumerate(texture_maps.items()):
-        if not texture_path:
+        if not texture_paths:
             reporter.warning("MOD path is not defined in add-on preferences!")
-        abs_path = os.path.join(texture_path, texture_map_file)
+        for texture_path in texture_paths:
+            abs_path = os.path.join(texture_path, texture_map_file)
+            if os.path.isfile(abs_path):
+                break
+        else:
+            reporter.warning(f"Texture file '{texture_map_file}' not found in any of the texture paths")
+            abs_path = ''
         tex_node = node_tree.nodes.new('ShaderNodeTexImage')
         tex_node.label = tex_node.name = texture_map_type
         tex_node.location = (-1 * NODE_WIDTH, -map_index * NODE_HEIGHT)
         tex_node.hide = True
         texture_nodes[texture_map_type] = tex_node
-
-        try:
+        if abs_path:
             tex_node.image = bpy.data.images.load(abs_path, check_existing=True)
             tex_node.image.alpha_mode = 'NONE'
-        except RuntimeError:
-            if texture_path:
-                reporter.warning(f"Texture file '{abs_path}' not found or cannot be loaded")
-            else:
-                pass # ignore
 
     shader_base_color = principled_BSDF.inputs['Base Color']
     shader_specular = principled_BSDF.inputs['Specular IOR Level']

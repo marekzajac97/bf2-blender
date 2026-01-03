@@ -9,8 +9,8 @@ from .core.occluders import import_occluders, export_occluders
 from .core.anim_utils import reparent_bones, setup_controllers as setup_anim_controllers
 from .core.lightmaps import load_level, tweak_materials, ObjectBaker, TerrainBaker
 
-def get_mod_dir(context):
-    return context.preferences.addons[__package__].preferences.mod_directory
+def get_mod_dirs(context):
+    return [prop.mod_directory for prop in context.preferences.addons[__package__].preferences.mod_directories]
 
 from .operators import ops_main
 
