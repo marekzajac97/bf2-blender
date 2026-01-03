@@ -15,8 +15,8 @@ from ...core.anim_utils import (
 from ...core.utils import Reporter, next_power_of_2, prev_power_of_2
 from ...core.skeleton import is_bf2_skeleton
 from ...core.lightmaps import (load_level,
-                               bake_object_lightmaps,
-                               bake_terrain_lightmaps,
+                               ObjectBaker,
+                               TerrainBaker,
                                get_default_heightmap_patch_count_and_size)
 
 class View3DPanel_BF2:
@@ -278,19 +278,59 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         default=1024
     ) # type: ignore
 
-    def execute(self, context):
-        if self.bake_objects:
-            bake_object_lightmaps(context, self.outdir,
-                                  dds_fmt=self.dds_compression,
-                                  only_selected=self.bake_objects_mode == 'ONLY_SELECTED',
-                                  reporter=Reporter(self.report))
-        if self.bake_terrain:
-            bake_terrain_lightmaps(context, self.outdir,
-                                  dds_fmt=self.dds_compression,
-                                  patch_count=self.patch_count,
-                                  patch_size=self.patch_size,
-                                  reporter=Reporter(self.report))
+    def active_baker(self):
+        if not self.bakers:
+            return None
+        else:
+            return self.bakers[0]
+
+    def update_progress(self, context):
+        baker = self.active_baker()
+        if not baker:
+            context.scene.bf2_lm_progress_msg = 'Finished'
+            context.scene.bf2_lm_progress_value = 1
+        else:
+            total_items = baker.total_items()
+            completed_items = baker.completed_items()
+            if total_items == 0:
+                return
+            context.scene.bf2_lm_progress_msg = f"Baking {baker.type()}... {completed_items}/{total_items}"
+            context.scene.bf2_lm_progress_value = completed_items / total_items
+            context.area.tag_redraw()
+
+    def modal(self, context, event):
+        baker = self.active_baker()
+        still_running = baker.bake_next(context)
+        self.update_progress(context)
+        if still_running:
+            return {'RUNNING_MODAL'}
+
+        self.bakers.remove(baker)
+        baker = self.active_baker()
+        if baker:
+            self.update_progress(context)
+            return {'RUNNING_MODAL'}
         return {'FINISHED'}
+
+    def execute(self, context):
+        self.bakers = list()
+        if self.bake_objects:
+            baker = ObjectBaker(context, self.outdir,
+                                dds_fmt=self.dds_compression,
+                                only_selected=self.bake_objects_mode == 'ONLY_SELECTED',
+                                reporter=Reporter(self.report))
+            self.bakers.append(baker)
+        if self.bake_terrain:
+            baker = TerrainBaker(context, self.outdir,
+                                 dds_fmt=self.dds_compression,
+                                 patch_count=self.patch_count,
+                                 patch_size=self.patch_size,
+                                 reporter=Reporter(self.report))
+            self.bakers.append(baker)
+
+        self.update_progress(context)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
 
 class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
     bl_label = "Lightmapping"
@@ -327,6 +367,15 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             props.bake_terrain = scene.bf2_lm_bake_terrain
             props.patch_count = scene.bf2_lm_patch_count
             props.patch_size = scene.bf2_lm_patch_size
+
+            if context.scene.bf2_lm_progress_msg:
+                row = layout.row()
+                row.progress(
+                    factor=context.scene.bf2_lm_progress_value,
+                    type="BAR",
+                    text=context.scene.bf2_lm_progress_msg 
+                )
+                row.scale_x = 2
 
 
 # ---------------------------------------------------
@@ -399,6 +448,9 @@ def register():
         options=set()  # Remove ANIMATABLE default option.
     ) # type: ignore
 
+    bpy.types.Scene.bf2_lm_progress_value = bpy.props.FloatProperty()
+    bpy.types.Scene.bf2_lm_progress_msg = bpy.props.StringProperty()
+
     bpy.utils.register_class(VIEW3D_PT_bf2_lightmapping_Panel)
 
 def unregister():
@@ -407,6 +459,8 @@ def unregister():
     bpy.utils.unregister_class(VIEW3D_OT_bf2_bake)
     bpy.utils.unregister_class(VIEW3D_OT_bf2_load_level)
 
+    del bpy.types.Scene.bf2_lm_progress_value
+    del bpy.types.Scene.bf2_lm_progress_msg
     del bpy.types.Scene.bf2_lm_patch_count
     del bpy.types.Scene.bf2_lm_patch_size
     del bpy.types.Scene.bf2_lm_outdir
