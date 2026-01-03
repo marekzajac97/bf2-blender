@@ -743,6 +743,10 @@ def _load_heightmap(context, level_dir, water_attenuation):
     modifier = terrain.modifiers.new(type='NODES', name="FlattenAtWaterLevel")
     modifier.node_group = _make_flatten_at_watter_level(hm_cluster.water_level)
 
+IGNORE_OBJECT_CREATE = [
+    'defaultenvmap'
+]
+
 def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
@@ -769,6 +773,12 @@ def load_level(context, level_dir, use_cache=True,
 
     def report_cb(con_file, line_no, line, what):
         if line.lower().startswith('object.create'):
+            try:
+                template = line.split()[1]
+                if template.lower() in IGNORE_OBJECT_CREATE:
+                    return
+            except IndexError:
+                pass
             reporter.warning(f'{con_file}:{line_no}:{line}: {what}')
 
     main_console.report_cb = report_cb
@@ -842,16 +852,18 @@ def load_level(context, level_dir, use_cache=True,
         try:
             bf2_mesh = mesh_type.load_from(template_name, data)
         except Exception as e:
-            reporter.warning(f"Failed to load mesh '{geom_temp.location}', the file might be corrupted: {e}")
+            reporter.error(f"Failed to load mesh '{geom_temp.location}', the file might be corrupted: {e}")
             del template_to_instances[template_name]
             continue
-
-        # TODO: texture load from FileManager if not load_unpacked!
-        importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_paths=texture_paths, reporter=reporter)
+        
+        if not load_unpacked:
+            raise NotImplementedError() # TODO: texture load from FileManager
+ 
+        importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_paths=texture_paths, reporter=reporter, warn_bad_faces=False)
         try:
             root_obj = importer.import_mesh()
         except ImportException as e:
-            reporter.warning(f"Failed to import mesh '{geom_temp.location}': {e}")
+            reporter.error(f"Failed to import mesh '{geom_temp.location}': {e}")
             continue
 
         # determine samples size
@@ -916,8 +928,7 @@ def load_level(context, level_dir, use_cache=True,
             if not skip_lightmaps:
                 lm_key = _gen_lm_key(obj, lod_idx)
                 if lm_key in lm_keys:
-                    reporter.warning(f"GeometryTemplate '{geom_temp.name}' at position {matrix_world.translation} "
-                                    "is too close to another object of the same type which will result in them having the same lightmap filenames!")
+                    reporter.warning(f"Object '{obj.name}' is too close to another which will result in both having the same lightmap filenames!")
                 lm_keys.add(lm_key)
 
         # delete source instance

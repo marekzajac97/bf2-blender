@@ -113,7 +113,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
                  texture_paths=[], geom_to_ske=None, merge_materials=True,
-                 load_backfaces=True, loader=None, reporter=DEFAULT_REPORTER):
+                 load_backfaces=True, loader=None, warn_bad_faces=True, reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
 
@@ -132,6 +132,7 @@ class MeshImporter:
         self.mesh_materials = []
         self.merge_materials = merge_materials
         self.load_backfaces = load_backfaces
+        self.warn_bad_faces = warn_bad_faces
 
     def import_mesh(self, name='', geom=None, lod=None):
         try:
@@ -319,7 +320,7 @@ class MeshImporter:
         bm.to_mesh(mesh)
         bm.free()
 
-        if fucked_up_faces:
+        if fucked_up_faces and self.warn_bad_faces:
             self.reporter.warning(f"'{name}': Skipped {fucked_up_faces} invalid faces")
 
         # mark faces with backfaces
