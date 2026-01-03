@@ -269,7 +269,10 @@ def setup_material(material, uvs=None, texture_path='', reporter=DEFAULT_REPORTE
             tex_node.image = bpy.data.images.load(abs_path, check_existing=True)
             tex_node.image.alpha_mode = 'NONE'
         except RuntimeError:
-            pass # ignore if file not found
+            if texture_path:
+                reporter.warning(f"Texture file '{abs_path}' not found or cannot be loaded")
+            else:
+                pass # ignore
 
     shader_base_color = principled_BSDF.inputs['Base Color']
     shader_specular = principled_BSDF.inputs['Specular IOR Level']

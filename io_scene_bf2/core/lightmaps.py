@@ -30,7 +30,7 @@ MESH_TYPES = {
     'SkinnedMesh': BF2SkinnedMesh
 }
 
-DEBUG = False
+DEBUG = True
 
 # -------------------
 # baking common
@@ -906,14 +906,14 @@ def load_level(context, mod_dir, level_name, use_cache=True,
                 obj = _clone_object(static_objects_skip, root_obj)
             else:
                 obj = _clone_object(static_objects, root_obj)
-            obj.matrix_world = matrix_world
+                # check LM key collisions
+                lm_key = _gen_lm_key(obj, lod_idx)
+                if lm_key in lm_keys:
+                    reporter.warning(f"GeometryTemplate '{geom_temp.name}' at position {matrix_world.translation} "
+                                    "is too close to another object of the same type which will result in them having the same lightmap filenames!")
+                lm_keys.add(lm_key)
 
-            # check LM key collisions
-            lm_key = _gen_lm_key(obj, lod_idx)
-            if lm_key in lm_keys:
-                reporter.warning(f"GeometryTemplate '{geom_temp.name}' at position {matrix_world.translation} "
-                                 "is too close to another object of the same type which will result in them having the same lightmap filenames!")
-            lm_keys.add(lm_key)
+            obj.matrix_world = matrix_world
 
         # delete source instance
         delete_object(root_obj, remove_data=False)
