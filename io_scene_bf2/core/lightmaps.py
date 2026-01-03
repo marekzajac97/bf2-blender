@@ -823,6 +823,9 @@ def load_level(context, level_dir, use_cache=True,
             if not temp.geom:
                 continue
 
+            if temp.name == 'wooden_tick':
+                print('matrix_world', tuple(matrix_world.translation))
+
             geom = geom_manager.templates[temp.geom.lower()]
             obj_transforms = template_to_instances.setdefault(geom.name.lower(), list())
             obj_transforms.append(matrix_world)
@@ -957,7 +960,7 @@ def load_level(context, level_dir, use_cache=True,
         obj.rotation_quaternion = sun_dir.rotation_difference(Vector((0, 0, 1)))
 
         sin_alpha = abs(sun_dir.z)
-        light.energy = 3 + 2.0 * sin_alpha # TODO strength
+        light.energy = (1 + 0.5 * sin_alpha) * 2 # TODO strength
         light.color = (0, 1, 0)
 
         # ambient light / soft shadows (blue channel)

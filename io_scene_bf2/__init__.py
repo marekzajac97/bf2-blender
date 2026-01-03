@@ -10,7 +10,7 @@ from .core.anim_utils import reparent_bones, setup_controllers as setup_anim_con
 from .core.lightmaps import load_level, tweak_materials, ObjectBaker, TerrainBaker
 
 def get_mod_dirs(context):
-    return [prop.mod_directory for prop in context.preferences.addons[__package__].preferences.mod_directories]
+    return [prop.mod_directory for prop in context.preferences.addons[__package__].preferences.mod_directories if prop.mod_directory]
 
 from .operators import ops_main
 

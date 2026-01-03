@@ -141,14 +141,8 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
     ) # type: ignore
 
     load_heightmap: BoolProperty(
-        name="Load Overgrowth",
+        name="Load Heightmap",
         description="Import primary heightmap and water plane defined in Heightdata.con",
-        default=True
-    ) # type: ignore
-
-    load_lights: BoolProperty(
-        name="Load Overgrowth",
-        description="Import sun direction from Sky.con and set proper light colors",
         default=True
     ) # type: ignore
 
@@ -157,6 +151,22 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
         description="Used for setting up the water depth material. Higher values make the water more opaque",
         default=0.3
     ) # type: ignore
+
+    load_lights: BoolProperty(
+        name="Load Lights",
+        description="Import sun direction from Sky.con and set proper light colors",
+        default=True
+    ) # type: ignore
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, 'load_static_objects')
+        layout.prop(self, 'load_overgrowth')
+        layout.prop(self, 'load_heightmap')
+        row = layout.row()
+        row.prop(self, 'water_light_attenuation')
+        row.enabled = self.load_heightmap
+        layout.prop(self, 'load_lights')
 
     # TODO: config file with area thresholds
 
