@@ -66,6 +66,9 @@ class BakerBase(ABC):
         while self.bake_next():
             pass
 
+    def cleanup(self, context):
+        pass
+
 def _setup_scene_for_baking(context):
     context.scene.render.engine = 'CYCLES'
     context.scene.cycles.device = 'GPU'
@@ -395,6 +398,13 @@ class TerrainBaker(BakerBase):
 
     def completed_items(self):
         return self.row + self.grid_size * self.col
+    
+    def cleanup(self, context):
+        mesh = self.terrain.data
+        context.scene.compositing_node_group = None
+        context.scene.view_settings.view_transform = self.view_transform
+        mesh.materials[0] = self.default_terrain_mat
+        mesh.uv_layers.remove(self.uv_layer)
 
     def bake_next(self, context):
         mesh = self.terrain.data
@@ -418,10 +428,7 @@ class TerrainBaker(BakerBase):
 
         if self.col >= self.grid_size:
             # cleanup & return
-            context.scene.compositing_node_group = None
-            context.scene.view_settings.view_transform = self.view_transform
-            mesh.materials[0] = self.default_terrain_mat
-            mesh.uv_layers.remove(self.uv_layer)
+            self.cleanup(context)
             return False
 
         name = f'tx{self.col:02d}x{self.row:02d}'

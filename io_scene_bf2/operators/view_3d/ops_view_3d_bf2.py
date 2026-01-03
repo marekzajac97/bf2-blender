@@ -285,41 +285,63 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         default=1024
     ) # type: ignore
 
+    @classmethod
+    def is_running(cls, context):
+        for op in context.window.modal_operators:
+            if op.bl_idname == 'BF2_OT_lightmap_bake':
+                return True
+        return False
+
     def active_baker(self):
         if not self.bakers:
             return None
         else:
             return self.bakers[0]
 
-    def update_progress(self, context):
+    def update_progress(self, context, status='Baking'):
         baker = self.active_baker()
         if not baker:
             context.scene.bf2_lm_progress_msg = 'Finished'
             context.scene.bf2_lm_progress_value = 1
-        else:
-            total_items = baker.total_items()
-            completed_items = baker.completed_items()
-            if total_items == 0:
-                return
-            context.scene.bf2_lm_progress_msg = f"Baking {baker.type()}... {completed_items}/{total_items}"
-            context.scene.bf2_lm_progress_value = completed_items / total_items
-            context.area.tag_redraw()
+            return
+        total_items = baker.total_items()
+        completed_items = baker.completed_items()
+        if total_items == 0:
+            context.scene.bf2_lm_progress_msg = f'Nothing to do'
+            context.scene.bf2_lm_progress_value = 1
+            return
+        context.scene.bf2_lm_progress_msg = f"{status} {baker.type()}... {completed_items}/{total_items}"
+        context.scene.bf2_lm_progress_value = completed_items / total_items
+        context.area.tag_redraw()
 
     def modal(self, context, event):
-        baker = self.active_baker()
-        still_running = baker.bake_next(context)
-        self.update_progress(context)
-        if still_running:
-            return {'RUNNING_MODAL'}
+        if event.type=='ESC' and event.value=='PRESS':
+            baker = self.active_baker()
+            if baker:
+                self.update_progress(context, status='Canceled')
+                baker.cleanup(context)
+            self.report({"WARNING"}, "Baking has been canceled!")
+            return {'FINISHED'}
+        elif event.type != 'TIMER':
+            return {'PASS_THROUGH'}
 
-        self.bakers.remove(baker)
+        baker = self.active_baker()
+        if not baker.bake_next(context):
+            self.bakers.remove(baker)
+        self.update_progress(context)
+
         baker = self.active_baker()
         if baker:
-            self.update_progress(context)
             return {'RUNNING_MODAL'}
-        return {'FINISHED'}
+        else:
+            context.window_manager.event_timer_remove(self.timer)
+            self.report({"INFO"}, "Baking has finished!")
+            return {'FINISHED'}
 
     def execute(self, context):
+        if self.is_running(context):
+            return {'CANCELLED'}
+
         self.bakers = list()
         if self.bake_objects:
             baker = ObjectBaker(context, self.outdir,
@@ -335,8 +357,12 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
                                  reporter=Reporter(self.report))
             self.bakers.append(baker)
 
+        # need this to generate dummy events for modal opeartor if user does nothing
+        wm = context.window_manager
+        self.timer = wm.event_timer_add(0.05, window=context.window)
+        wm.modal_handler_add(self)
+
         self.update_progress(context)
-        context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
 class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
@@ -375,7 +401,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             props.patch_count = scene.bf2_lm_patch_count
             props.patch_size = scene.bf2_lm_patch_size
 
-            if context.scene.bf2_lm_progress_msg:
+            if VIEW3D_OT_bf2_bake.is_running(context):
                 row = layout.row()
                 row.progress(
                     factor=context.scene.bf2_lm_progress_value,
@@ -383,6 +409,8 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
                     text=context.scene.bf2_lm_progress_msg 
                 )
                 row.scale_x = 2
+                row = layout.row()
+                row.label(text='Press ESC to cancel', icon='CANCEL')
 
 
 # ---------------------------------------------------
