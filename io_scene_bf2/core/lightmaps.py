@@ -21,7 +21,7 @@ from .utils import (DEFAULT_REPORTER,
                     to_matrix, save_img_as_dds,
                     delete_object, find_root,
                     is_pow_two, obj_bounds)
-from .heightmap import import_heightmap_from, make_water_plane
+from .heightmap import import_heightmap_from
 from .exceptions import ImportException
 
 MESH_TYPES = {
@@ -151,7 +151,7 @@ def _make_flatten_at_watter_level(water_level):
     node_tree.links.new(combine_xyz.outputs['Vector'], set_position.inputs['Position'])
     return node_tree
 
-def _make_water_depth_material(water_level, water_attenuation=0.1):
+def _make_water_depth_material(water_level, water_attenuation):
     if 'WaterDepth' in bpy.data.materials:
         water_depth = bpy.data.materials['WaterDepth']
         bpy.data.materials.remove(water_depth)
@@ -292,9 +292,6 @@ def _make_default_terrain_material(minimap_path):
     material.node_tree.links.new(tex_node.outputs['Color'], bsdf.inputs['Base Color'])
     return material
 
-def _set_watter_attenuation(material, water_attenuation):
-    material.node_tree.nodes['WaterAttenuation'].outputs['Value'].default_value = water_attenuation
-
 DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES = {
     512: (16, 1024),
     1024: (16, 2048),
@@ -329,8 +326,9 @@ def find_heightmap(context):
 
 
 class TerrainBaker(BakerBase):
-    def __init__(self, context, output_dir, dds_fmt='NONE', patch_count=None, patch_size=None,
-                 water_attenuation=0.1, reporter=DEFAULT_REPORTER):
+    def __init__(self, context, output_dir, dds_fmt='NONE',
+                 patch_count=None, patch_size=None,
+                 reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
         self.patch_count = patch_count
         self.patch_size = patch_size
@@ -359,7 +357,6 @@ class TerrainBaker(BakerBase):
         
         self.default_terrain_mat = bpy.data.materials['DefaultTerrain']
         self.water_depth_mat = bpy.data.materials['WaterDepth']
-        _set_watter_attenuation(self.water_depth_mat, water_attenuation)
         self.flatten_water_mod = self.terrain.modifiers['FlattenAtWaterLevel']
 
         self.view_transform = context.scene.view_settings.view_transform
@@ -697,7 +694,7 @@ def _clone_object(collection, src_root):
                 lod_obj.hide_set(True)
     return root
 
-def _load_heightmap(context, level_dir):
+def _load_heightmap(context, level_dir, water_attenuation):
     file_manager = BF2Engine().file_manager
     main_console = BF2Engine().main_console
 
@@ -712,10 +709,6 @@ def _load_heightmap(context, level_dir):
         return
     
     heightmaps = _make_collection(context, "Heightmaps")
-
-    # water_plane = make_water_plane(context, hm_cluster.heightmap_size, hm_cluster.water_level)
-    # context.scene.collection.objects.unlink(water_plane)
-    # heightmaps.objects.link(water_plane)
 
     location = hm_cluster.heightmap_size * Vector(heightmap.cluster_offset)
     data = file_manager.readFile(heightmap.raw_file, as_stream=True)
@@ -737,7 +730,7 @@ def _load_heightmap(context, level_dir):
     material = _make_default_terrain_material(minimap_path)
     terrain.data.materials.append(material)
 
-    material = _make_water_depth_material(hm_cluster.water_level) 
+    material = _make_water_depth_material(hm_cluster.water_level, water_attenuation) 
     material.use_fake_user = True # will be used later
 
     modifier = terrain.modifiers.new(type='NODES', name="FlattenAtWaterLevel")
@@ -746,7 +739,7 @@ def _load_heightmap(context, level_dir):
 def load_level(context, mod_dir, level_name, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
-               lm_size_thresholds=None,
+               lm_size_thresholds=None, water_attenuation=0.1,
                reporter=DEFAULT_REPORTER):
 
     if lm_size_thresholds is None:
@@ -922,7 +915,7 @@ def load_level(context, mod_dir, level_name, use_cache=True,
         print(f"Loading heightmap")
 
     if load_heightmap:
-        _load_heightmap(context, level_dir)
+        _load_heightmap(context, level_dir, water_attenuation)
 
     if DEBUG:
         print(f"Loading lights")

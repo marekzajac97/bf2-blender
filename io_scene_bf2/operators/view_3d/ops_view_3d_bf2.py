@@ -3,7 +3,7 @@ import traceback
 import os
 from pathlib import Path
 
-from bpy.props import BoolProperty, EnumProperty, StringProperty, IntProperty # type: ignore
+from bpy.props import BoolProperty, EnumProperty, StringProperty, IntProperty, FloatProperty # type: ignore
 from bpy_extras.io_utils import ImportHelper # type: ignore
 
 from ... import get_mod_dir
@@ -152,6 +152,12 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
         default=True
     ) # type: ignore
 
+    water_light_attenuation: FloatProperty(
+        name="Water light attenuation",
+        description="Used for setting up the water depth material. Higher values make the water more opaque",
+        default=0.3
+    ) # type: ignore
+
     # TODO: config file with area thresholds
 
     @classmethod
@@ -180,6 +186,7 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
                        load_overgrowth=self.load_overgrowth,
                        load_heightmap=self.load_heightmap,
                        load_lights=self.load_lights,
+                       water_attenuation=self.water_light_attenuation,
                        reporter=Reporter(self.report))
 
             if terrain_cfg := get_default_heightmap_patch_count_and_size(context):
@@ -448,8 +455,8 @@ def register():
         options=set()  # Remove ANIMATABLE default option.
     ) # type: ignore
 
-    bpy.types.Scene.bf2_lm_progress_value = bpy.props.FloatProperty()
-    bpy.types.Scene.bf2_lm_progress_msg = bpy.props.StringProperty()
+    bpy.types.Scene.bf2_lm_progress_value = FloatProperty()
+    bpy.types.Scene.bf2_lm_progress_msg = StringProperty()
 
     bpy.utils.register_class(VIEW3D_PT_bf2_lightmapping_Panel)
 
