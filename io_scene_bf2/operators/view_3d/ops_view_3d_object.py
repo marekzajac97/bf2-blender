@@ -311,8 +311,42 @@ class OBJECT_SHOWHIDE_MT_bf2_submenu(bpy.types.Menu):
 def menu_func_object_showhide(self, context):
     self.layout.menu(OBJECT_SHOWHIDE_MT_bf2_submenu.bl_idname, text="BF2")
 
+# --------------------------------------------------------------------
+
+class OBJECT_SELECT_OT_bf2_by_lm_size(bpy.types.Operator):
+    bl_idname = "bf2.select_object_by_lm_size"
+    bl_label = "Select By Lightmap Size"
+
+    lm_size: IntVectorProperty(
+        name="Lightmap size",
+        default=(256, 256),
+        size=2
+    ) # type: ignore
+
+    def execute(self, context):
+        for obj in bpy.data.objects:
+            if tuple(obj.bf2_lightmap_size) == tuple(self.lm_size):
+                obj.select_set(True)
+        return {'FINISHED'}
+    
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+class OBJECT_SELECT_MT_bf2_submenu(bpy.types.Menu):
+    bl_idname = "OBJECT_SELECT_MT_bf2_submenu"
+    bl_label = "Battlefield 2"
+
+    def draw(self, context):
+        self.layout.operator(OBJECT_SELECT_OT_bf2_by_lm_size.bl_idname)
+
+def menu_func_object_select(self, context):
+    self.layout.menu(OBJECT_SELECT_MT_bf2_submenu.bl_idname, text="BF2")
 
 def register():
+    bpy.utils.register_class(OBJECT_SELECT_OT_bf2_by_lm_size)
+    bpy.utils.register_class(OBJECT_SELECT_MT_bf2_submenu)
+    bpy.types.VIEW3D_MT_select_object.append(menu_func_object_select)
+
     bpy.utils.register_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
     bpy.utils.register_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
     bpy.types.VIEW3D_MT_object_showhide.append(menu_func_object_showhide)
@@ -329,3 +363,7 @@ def unregister():
     bpy.types.VIEW3D_MT_object_showhide.remove(menu_func_object_showhide)
     bpy.utils.unregister_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
     bpy.utils.unregister_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
+
+    bpy.types.VIEW3D_MT_select_object.remove(menu_func_object_select)
+    bpy.utils.unregister_class(OBJECT_SELECT_MT_bf2_submenu)
+    bpy.utils.unregister_class(OBJECT_SELECT_OT_bf2_by_lm_size)

@@ -375,8 +375,9 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
             # (purely based on tiral & error, I don't know how this works in BF2 shaders)
             reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
             reduce_roughness.inputs['To Min'].default_value = ROUGHNESS_BASE
+            reduce_roughness.location = (3 * NODE_WIDTH, NODE_HEIGHT)
+            reduce_roughness.hide = True
             node_tree.links.new(shadow_spec_out, reduce_roughness.inputs['Value'])
-
             node_tree.links.new(reduce_roughness.outputs['Result'], shader_roughness)
 
         # normal
