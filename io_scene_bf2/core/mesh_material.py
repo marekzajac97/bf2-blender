@@ -206,8 +206,10 @@ def _set_alpha_straigt(texture_node): # need this to render properly with Cycles
     if texture_node.image:
         texture_node.image.alpha_mode = 'STRAIGHT'
 
-def setup_material(material, uvs=None, texture_paths=[], reporter=DEFAULT_REPORTER):
+def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, reporter=DEFAULT_REPORTER):
     material.use_nodes = True
+    material.use_backface_culling_shadow = backface_cull
+
     node_tree = material.node_tree
     node_tree.nodes.clear()
     material_output = node_tree.nodes.new('ShaderNodeOutputMaterial')
@@ -215,6 +217,24 @@ def setup_material(material, uvs=None, texture_paths=[], reporter=DEFAULT_REPORT
     principled_BSDF = node_tree.nodes.new('ShaderNodeBsdfPrincipled')
     principled_BSDF.name = principled_BSDF.label = 'Principled BSDF'
     node_tree.links.new(principled_BSDF.outputs['BSDF'], material_output.inputs['Surface'])
+
+    if backface_cull:
+        geometry = node_tree.nodes.new("ShaderNodeNewGeometry")
+        geometry.location = (0 * NODE_WIDTH, 3 * NODE_HEIGHT)
+        geometry.hide = True
+        light_path = node_tree.nodes.new("ShaderNodeLightPath")
+        light_path.location = (0 * NODE_WIDTH, 4 * NODE_HEIGHT)
+        light_path.hide = True
+        # use comapre as exclusive or gate
+        compare = node_tree.nodes.new("ShaderNodeMath")
+        compare.operation = 'COMPARE'
+        compare.location = (1 * NODE_WIDTH, 3 * NODE_HEIGHT)
+        compare.hide = True
+        node_tree.links.new(geometry.outputs['Backfacing'], compare.inputs[1])
+        node_tree.links.new(light_path.outputs['Is Shadow Ray'], compare.inputs[0])
+        backface_cull_alpha = compare.outputs['Value']
+    else:
+        backface_cull_alpha = None
 
     texture_maps = get_material_maps(material)
 
@@ -263,7 +283,8 @@ def setup_material(material, uvs=None, texture_paths=[], reporter=DEFAULT_REPORT
             if os.path.isfile(abs_path):
                 break
         else:
-            reporter.warning(f"Texture file '{texture_map_file}' not found in any of the texture paths")
+            if texture_paths:
+                reporter.warning(f"Texture file '{texture_map_file}' not found in any of the texture paths")
             abs_path = ''
         tex_node = node_tree.nodes.new('ShaderNodeTexImage')
         tex_node.label = tex_node.name = texture_map_type
@@ -382,9 +403,23 @@ def setup_material(material, uvs=None, texture_paths=[], reporter=DEFAULT_REPORT
             node_tree.links.new(normal_out, shader_normal)
 
         # transparency
+        alpha_out = None
         if has_alpha or has_alphatest:
             _set_alpha_straigt(diffuse)
-            node_tree.links.new(diffuse.outputs['Alpha'], shader_alpha)
+            alpha_out = diffuse.outputs['Alpha']
+            if backface_cull:
+                mult_backface = node_tree.nodes.new('ShaderNodeMath')
+                mult_backface.operation = 'MULTIPLY'
+                mult_backface.location = (2 * NODE_WIDTH, 3 * NODE_HEIGHT)
+                mult_backface.hide = True
+                node_tree.links.new(diffuse.outputs['Alpha'], mult_backface.inputs[1])
+                node_tree.links.new(backface_cull_alpha, mult_backface.inputs[0])
+                alpha_out = mult_backface.outputs['Value']
+        elif backface_cull:
+            alpha_out = backface_cull_alpha
+
+        if alpha_out:
+            node_tree.links.new(alpha_out, shader_alpha)
 
         # envmap reflections
         if has_envmap:
@@ -542,6 +577,8 @@ def setup_material(material, uvs=None, texture_paths=[], reporter=DEFAULT_REPORT
 
                 reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
                 reduce_roughness.inputs['To Min'].default_value = ROUGHNESS_BASE
+                reduce_roughness.location = (3 * NODE_WIDTH, NODE_HEIGHT)
+                reduce_roughness.hide = True
                 node_tree.links.new(has_alpha_out, reduce_roughness.inputs['Value'])
                 node_tree.links.new(reduce_roughness.outputs["Result"], shader_roughness)
 
@@ -579,15 +616,28 @@ def setup_material(material, uvs=None, texture_paths=[], reporter=DEFAULT_REPORT
             node_tree.links.new(normal_out, shader_normal)
 
         # ---- transparency ------
+        alpha_out = None
         if has_alpha:
             if detail:
                 _set_alpha_straigt(detail)
-                alpha_output = detail.outputs['Alpha']
+                alpha_out = detail.outputs['Alpha']
             else:
                 _set_alpha_straigt(base)
-                alpha_output = base.outputs['Alpha']
+                alpha_out = base.outputs['Alpha']
 
-            node_tree.links.new(alpha_output, shader_alpha)
+            if backface_cull:
+                mult_backface = node_tree.nodes.new('ShaderNodeMath')
+                mult_backface.operation = 'MULTIPLY'
+                mult_backface.location = (2 * NODE_WIDTH, 3 * NODE_HEIGHT)
+                mult_backface.hide = True
+                node_tree.links.new(alpha_out, mult_backface.inputs[1])
+                node_tree.links.new(backface_cull_alpha, mult_backface.inputs[0])
+                alpha_out = mult_backface.outputs['Value']
+        elif backface_cull:
+            alpha_out = backface_cull_alpha
+
+        if alpha_out:
+            node_tree.links.new(alpha_out, shader_alpha)
 
         principled_BSDF.location = (4 * NODE_WIDTH, 0 * NODE_HEIGHT)
         material_output.location = (5 * NODE_WIDTH, 0 * NODE_HEIGHT)

@@ -3,7 +3,7 @@ import traceback
 import os
 from pathlib import Path
 
-from bpy.props import BoolProperty, EnumProperty, StringProperty, IntProperty, FloatProperty # type: ignore
+from bpy.props import BoolProperty, EnumProperty, StringProperty, IntProperty, FloatProperty, PointerProperty # type: ignore
 from bpy_extras.io_utils import ImportHelper # type: ignore
 
 from ... import get_mod_dirs
@@ -154,18 +154,29 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
 
     load_lights: BoolProperty(
         name="Load Lights",
-        description="Import sun direction from Sky.con and set proper light colors",
+        description="Import sun from Sky.con and point lights from the config file",
         default=True
+    ) # type: ignore
+
+    max_lod_to_load: IntProperty(
+        name="Max LOD",
+        description="Skips loading LODs with higher index, use this if you don't want lower detail LODs to receive any lightmaps",
+        default=6,
+        min=0,
+        max=6
     ) # type: ignore
 
     def draw(self, context):
         layout = self.layout
         layout.prop(self, 'load_static_objects')
         layout.prop(self, 'load_overgrowth')
+        col = layout.column()
+        col.prop(self, 'max_lod_to_load')
+        col.enabled = self.load_static_objects or self.load_overgrowth
         layout.prop(self, 'load_heightmap')
-        row = layout.row()
-        row.prop(self, 'water_light_attenuation')
-        row.enabled = self.load_heightmap
+        col = layout.column()
+        col.prop(self, 'water_light_attenuation')
+        col.enabled = self.load_heightmap
         layout.prop(self, 'load_lights')
 
     # TODO: config file with area thresholds
@@ -193,15 +204,20 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
         if not mod_path:
             self.report({"ERROR"}, f'Given path: "{self.filepath}" is not relative to any of the MOD paths defined in add-on preferences')
             return {'CANCELLED'}
-    
+
         try:
+            if context.scene.bf2_lm_config_file:
+                config = context.scene.bf2_lm_config_file.as_module()
+
             load_level(context, filepath,
                        load_static_objects=self.load_static_objects,
                        load_overgrowth=self.load_overgrowth,
                        load_heightmap=self.load_heightmap,
                        load_lights=self.load_lights,
                        water_attenuation=self.water_light_attenuation,
+                       max_lod_to_load=self.max_lod_to_load,
                        texture_paths=mod_dirs,
+                       config=config,
                        reporter=Reporter(self.report))
 
             if terrain_cfg := get_default_heightmap_patch_count_and_size(context):
@@ -386,10 +402,12 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
-        main = layout.column(heading="Bake")
-        main.operator(VIEW3D_OT_bf2_load_level.bl_idname, icon='IMPORT')
-
         scene = context.scene
+
+        layout.prop(scene, "bf2_lm_config_file", text="Config")
+        layout.operator(VIEW3D_OT_bf2_load_level.bl_idname, icon='IMPORT')
+
+        main = layout.column(heading="Bake")
         header, body = main.panel("BF2_PT_bake_settings", default_closed=True)
         header.label(text="Bake Settings")
         if body:
@@ -401,7 +419,6 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             col.enabled = scene.bf2_lm_bake_objects
             col.prop(scene, "bf2_lm_bake_objects_mode", text=" ")
             body.prop(scene, "bf2_lm_bake_terrain")
-
             col = body.column()
             col.prop(scene, "bf2_lm_patch_count")
             col.prop(scene, "bf2_lm_patch_size")
@@ -498,6 +515,12 @@ def register():
         options=set()  # Remove ANIMATABLE default option.
     ) # type: ignore
 
+    bpy.types.Scene.bf2_lm_config_file = PointerProperty(
+        type=bpy.types.Text,
+        name="Lightmapping configuration file",
+        description="Pointer to text file containing optional actions to perform when loading the level, e.g. what objects to skip, where to place point lights etc"
+    ) # type: ignore
+
     bpy.types.Scene.bf2_lm_progress_value = FloatProperty()
     bpy.types.Scene.bf2_lm_progress_msg = StringProperty()
 
@@ -511,6 +534,7 @@ def unregister():
 
     del bpy.types.Scene.bf2_lm_progress_value
     del bpy.types.Scene.bf2_lm_progress_msg
+    del bpy.types.Scene.bf2_lm_config_file
     del bpy.types.Scene.bf2_lm_patch_count
     del bpy.types.Scene.bf2_lm_patch_size
     del bpy.types.Scene.bf2_lm_outdir

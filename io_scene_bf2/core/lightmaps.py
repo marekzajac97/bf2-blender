@@ -2,7 +2,7 @@ import os.path as path
 import math
 import bpy # type: ignore
 import bmesh # type: ignore
-from mathutils import Matrix, Vector, Euler # type: ignore
+from mathutils import Matrix, Vector # type: ignore
 from abc import ABC, abstractmethod
 
 from typing import Dict, List
@@ -14,6 +14,7 @@ from .bf2.bf2_engine import (BF2Engine,
                             Object)
 from .bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh, BF2Samples
 from .mod_loader import ModLoader
+from .mesh_material import setup_material, get_material_maps, STATICMESH_TEXUTRE_MAP_TYPES
 from .mesh import MeshImporter, MeshExporter
 from .utils import (DEFAULT_REPORTER,
                     swap_zy, file_name,
@@ -23,6 +24,7 @@ from .utils import (DEFAULT_REPORTER,
                     is_pow_two, obj_bounds)
 from .heightmap import import_heightmap_from
 from .exceptions import ImportException
+from fnmatch import fnmatch
 
 MESH_TYPES = {
     'StaticMesh': BF2StaticMesh,
@@ -31,6 +33,13 @@ MESH_TYPES = {
 }
 
 DEBUG = False
+
+def module_from_file(py_file):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("lm_config", py_file)
+    lm_config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lm_config)
+    return lm_config
 
 # -------------------
 # baking common
@@ -323,6 +332,8 @@ def get_heightmap_size(heightmap):
     return x_s
 
 def find_heightmap(context):
+    if 'Heightmaps' not in context.scene.collection.children:
+        return None
     for obj in context.scene.collection.children['Heightmaps'].objects:
         if obj.name.startswith('Heightmap'):
             return obj
@@ -494,10 +505,9 @@ def _strip_prefix(s):
             return s[char_idx+2:]
     return s
 
-def _gen_lm_key(obj, lod=0):
-    geom_template_name = _strip_prefix(_strip_suffix(obj.name)).lower()
-    x, y, z = [str(int(i)) for i in obj.matrix_world.translation]
-    return '='.join([geom_template_name, f'{lod:02d}', x, z, y])
+def _gen_lm_key(geom_template_name, position, lod):
+    x, y, z = [str(int(i)) for i in position]
+    return '='.join([geom_template_name.lower(), f'{lod:02d}', x, z, y])
 
 class ObjectBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE', lod_mask=None,
@@ -519,30 +529,6 @@ class ObjectBaker(BakerBase):
 
         self.total_count = len(self.objects)
         _setup_scene_for_baking(context)
-
-    def _setup_object_for_baking(self, lod_idx, obj):
-        lm_name = _gen_lm_key(obj, lod=lod_idx)
-        lm_size = tuple(obj.bf2_lightmap_size)
-
-        if lm_size == (0, 0):
-            self.reporter.warning(f"skipping '{obj.name}' because lightmap size is not set")
-            return None
-        if 'UV4' not in obj.data.uv_layers:
-            self.reporter.warning(f"skipping '{obj.name}' because lightmap UV layer (UV4) is missing")
-            return None
-
-        # create bake image
-        if lm_name in bpy.data.images:
-            bake_image = bpy.data.images[lm_name]
-            bpy.data.images.remove(bake_image)
-
-        bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
-
-        # add bake lightmap texture for each material
-        for material in obj.data.materials:
-            _setup_material_for_baking(material, bake_image)
-
-        return bake_image
 
     def _select_lod_for_bake(self, geom, lod):
         for lod_idx, lod_obj in enumerate(geom):
@@ -581,12 +567,35 @@ class ObjectBaker(BakerBase):
             for lod_idx, lod_obj in enumerate(geom):
                 if self.lod_mask is not None and lod_idx not in self.lod_mask:
                     continue
-                if image := self._setup_object_for_baking(lod_idx, lod_obj):
-                    self._select_lod_for_bake(geom, lod_idx)
-                    context.view_layer.update()
-                    bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
-                    self.save_bake(image)
-                    bpy.data.images.remove(image)
+                mesh = lod_obj.data
+                geom_temp_name = _strip_prefix(mesh.name)
+                lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
+                lm_size = tuple(lod_obj.bf2_lightmap_size)
+
+                if lm_size == (0, 0):
+                    self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
+                    continue
+
+                if 'UV4' not in lod_obj.data.uv_layers:
+                    self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap UV layer (UV4) is missing")
+                    continue
+
+                # create bake image
+                if lm_name in bpy.data.images:
+                    bake_image = bpy.data.images[lm_name]
+                    bpy.data.images.remove(bake_image)
+
+                bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
+
+                # add bake lightmap texture for each material
+                for material in lod_obj.data.materials:
+                    _setup_material_for_baking(material, bake_image)
+
+                self._select_lod_for_bake(geom, lod_idx)
+                context.view_layer.update()
+                bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+                self.save_bake(bake_image)
+                bpy.data.images.remove(bake_image)
             self._select_lod_for_bake(geom, 0)
             context.view_layer.update()
 
@@ -679,20 +688,20 @@ def _calc_mesh_area(lod_obj):
     bm.free()
     return area
 
-def _clone_object(collection, src_root):
+def _clone_object(collection, src_root, name):
     geoms = MeshExporter.collect_geoms_lods(src_root, skip_checks=True)
-    root = bpy.data.objects.new(src_root.name, None)
+    root = bpy.data.objects.new(name, None)
     root.hide_render = True
     collection.objects.link(root)
     root.hide_set(True)
     for geom_idx, geom in enumerate(geoms):
-        geom_obj = bpy.data.objects.new(f'G{geom_idx}__' + src_root.name, None)
+        geom_obj = bpy.data.objects.new(f'G{geom_idx}__' + name, None)
         geom_obj.parent = root
         geom_obj.hide_render = True
         collection.objects.link(geom_obj)
         geom_obj.hide_set(True)
         for lod_idx, src_lod_obj in enumerate(geom):
-            lod_obj = bpy.data.objects.new(f'G{geom_idx}L{lod_idx}__' + src_root.name, src_lod_obj.data)
+            lod_obj = bpy.data.objects.new(f'G{geom_idx}L{lod_idx}__' + name, src_lod_obj.data)
             lod_obj.parent = geom_obj
             lod_obj.bf2_lightmap_size = src_lod_obj.bf2_lightmap_size
             collection.objects.link(lod_obj)
@@ -744,20 +753,120 @@ def _load_heightmap(context, level_dir, water_attenuation):
     modifier.node_group = _make_flatten_at_watter_level(hm_cluster.water_level)
 
 IGNORE_OBJECT_CREATE = [
-    'defaultenvmap'
+    'defaultenvmap' # hardcoded type, only for BF2Editor
 ]
+
+def _match_config_pattern(value, config, prop, get_pattern=None):
+    for prop_val in getattr(config, prop, []):
+        if not prop_val:
+            continue
+        if get_pattern:
+            pattern = get_pattern(prop_val)
+        else:
+            pattern = prop_val
+        if fnmatch(value, pattern):
+            return prop_val
+    return None
+
+class ObjectTemplateConfig:
+    def __init__(self, template, geom, point_light_cfg=None):
+        self.template : ObjectTemplate = template
+        self.geom : GeometryTemplate = geom
+        self.instances : List[Matrix] = list()
+        self.point_light_cfg : Dict = point_light_cfg
+
+def _get_template_configs(template, matrix, config, templates : Dict[str, ObjectTemplateConfig]):
+    temp_cfg = templates.get(template.name.lower())
+    if temp_cfg is None:
+        template.add_bundle_childs() # resolve children
+        geom_name = template.geom
+
+        if (geom_name and
+            _match_config_pattern(template.name, config, 'SKIP_OBJECT_TEMPLATES') or
+            _match_config_pattern(template.location, config, 'SKIP_OBJECT_TEMPLATE_PATHS')):
+            geom_name = None
+
+        if geom_name:
+            geom_manager = BF2Engine().get_manager(GeometryTemplate)
+            geom = geom_manager.templates[geom_name.lower()]
+        else:
+            geom = None
+
+        point_light_cfg = _match_config_pattern(template.name, config, 'LIGHT_SOURCES', lambda p: p['at'])
+        temp_cfg = ObjectTemplateConfig(template, geom, point_light_cfg)
+        templates[template.name.lower()] = temp_cfg
+
+    temp_cfg.instances.append(matrix)
+
+    # check children
+    for child in template.children:
+        if child.template is not None:
+            child_matrix = _yaw_pitch_roll_to_matrix(child.rotation)
+            child_matrix.translation = swap_zy(child.position)
+            _get_template_configs(child.template, matrix @ child_matrix, config, templates)
+
+def _do_material_tweaks(config, template, mesh, texture_paths, reporter):
+    for material in mesh.materials:
+        modified = False
+        backface_cull = True
+        if _match_config_pattern(template.name, config, 'FORCE_TWO_SIDED'):
+            backface_cull = False
+            modified = True
+
+        for name, path in get_material_maps(material).items():
+            if name not in ('Base', 'Detail', 'Dirt', 'Crack'):
+                continue
+
+            replace_cfg = _match_config_pattern(path, config, 'TEXTURE_REPLACE', lambda p: p['from'])
+            if not replace_cfg:
+                continue
+
+            index = STATICMESH_TEXUTRE_MAP_TYPES.index(name)
+
+            material.is_bf2_material = False # temporarily disable so update() doesn't trigger
+            setattr(material, f"texture_slot_{index}", replace_cfg['to'])
+            if replace_cfg.get('force_alpha', False):
+                material.bf2_alpha_mode = 'ALPHA_TEST'
+            material.is_bf2_material = True
+            reporter.info(f"Replaced texture '{path}' for '{mesh.name}' as requested")
+            modified = True
+
+        if modified:
+            setup_material(material, texture_paths=texture_paths, reporter=reporter, backface_cull=backface_cull) # re-apply
+
+def _get_lm_size_thresholds(config, reporter):
+    lm_size_thresholds = getattr(config, 'LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS')  
+    lm_size_thresholds.sort(key=lambda x: x[0])
+    if lm_size_thresholds:
+        _, prev_thresh = lm_size_thresholds[0]
+        if prev_thresh != 0:
+            reporter.error(f"LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS: Surface area thresholds must be starting from zero")
+            return None
+        for _, thresh in lm_size_thresholds[1:]:
+            if thresh <= prev_thresh:
+                reporter.error(f"LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS: Lightmap sizes and threshold must be sorted in ascending order")
+                return None
+            prev_thresh = thresh
+    if not lm_size_thresholds:
+        return DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS
+    else:
+        return lm_size_thresholds
 
 def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
-               lm_size_thresholds=None, water_attenuation=0.1, texture_paths=[],
-               reporter=DEFAULT_REPORTER):
+               water_attenuation=0.1, texture_paths=[], max_lod_to_load=None,
+               config=None, config_file='', reporter=DEFAULT_REPORTER):
 
     level_dir = level_dir.rstrip('/').rstrip('\\')
     mod_dir = path.normpath(path.join(level_dir, '..', '..'))
 
-    if lm_size_thresholds is None:
-        lm_size_thresholds = DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS
+    if config_file and path.isfile(config_file):
+        config = module_from_file(config_file)
+
+    lm_size_thresholds = _get_lm_size_thresholds(config, reporter)
+    if not lm_size_thresholds:
+        return
 
     if not load_unpacked:
         mod_loader = ModLoader(mod_dir, use_cache)
@@ -811,25 +920,10 @@ def load_level(context, level_dir, use_cache=True,
         if load_overgrowth:
             main_console.run_file(path.join(level_dir, 'Overgrowth', 'OvergrowthCollision.con'))
 
-    templates : Dict[str, GeometryTemplate] = dict()
-    template_to_instances : Dict[str, List[Matrix]] = dict()
-
-    obj_manager = BF2Engine().get_manager(Object)
-    geom_manager = BF2Engine().get_manager(GeometryTemplate)
-
-    for obj in obj_manager.objects:
-        template = obj.template
-        for temp, matrix_world, in _get_templates(template, _get_obj_matrix(obj)):
-            if not temp.geom:
-                continue
-
-            if temp.name == 'wooden_tick':
-                print('matrix_world', tuple(matrix_world.translation))
-
-            geom = geom_manager.templates[temp.geom.lower()]
-            obj_transforms = template_to_instances.setdefault(geom.name.lower(), list())
-            obj_transforms.append(matrix_world)
-            templates[geom.name.lower()] = geom
+    # collect template configs recursively
+    templates : Dict[str, ObjectTemplateConfig] = dict()
+    for obj in BF2Engine().get_manager(Object).objects:
+        _get_template_configs(obj.template, _get_obj_matrix(obj), config, templates)
 
     # load meshes
     if not load_unpacked:
@@ -843,7 +937,11 @@ def load_level(context, level_dir, use_cache=True,
     static_objects_skip = _make_collection(context, "StaticObjects_SkipLightmaps")
     lm_keys = set()
 
-    for idx, (template_name, geom_temp) in enumerate(templates.items()):
+    for idx, (template_name, temp_cfg) in enumerate(templates.items()):
+        geom_temp = temp_cfg.geom
+        if not geom_temp:
+            continue # skip, just for point lights
+
         if DEBUG:
             print(f"Importing {geom_temp.name} | {idx}/{len(templates)}")
 
@@ -853,18 +951,21 @@ def load_level(context, level_dir, use_cache=True,
             reporter.warning(f"skipping '{template_name}' as it is not supported mesh type {geom_temp.geometry_type}")
             continue
         try:
-            bf2_mesh = mesh_type.load_from(template_name, data)
+            bf2_mesh = mesh_type.load_from(geom_temp.name.lower(), data)
         except Exception as e:
             reporter.error(f"Failed to load mesh '{geom_temp.location}', the file might be corrupted: {e}")
-            del template_to_instances[template_name]
             continue
-        
+
+        del bf2_mesh.geoms[1:] # TODO: Geom1 support
+        if max_lod_to_load is not None:
+            bf2_mesh.geoms[0].lods = bf2_mesh.geoms[0].lods[0:max_lod_to_load+1]
+
         if not load_unpacked:
             raise NotImplementedError() # TODO: texture load from FileManager
- 
+
         importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_paths=texture_paths, reporter=reporter, warn_bad_faces=False)
         try:
-            root_obj = importer.import_mesh()
+            mesh_obj = importer.import_mesh()
         except ImportException as e:
             reporter.error(f"Failed to import mesh '{geom_temp.location}': {e}")
             continue
@@ -887,9 +988,7 @@ def load_level(context, level_dir, use_cache=True,
                 raise NotImplementedError() # TODO
             lm_sizes[lod_idx] = lm_size
 
-        obj_transforms = template_to_instances[template_name]
-
-        geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
+        geoms = MeshExporter.collect_geoms_lods(mesh_obj, skip_checks=True)
         lod0_lm_size = None
         MIN_LM_SIZE = 8
         for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
@@ -913,29 +1012,30 @@ def load_level(context, level_dir, use_cache=True,
                 lod0_lm_size = lm_size
             lod_obj.bf2_lightmap_size = lm_size
 
-        # TODO: Geom1 support
+        # do material tweaks
         if 'StaticMesh' == geom_temp.geometry_type:
-            for geom_obj in geoms[1:]:
-                delete_object(geom_obj)
+            for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
+                _do_material_tweaks(config, temp_cfg.template, lod_obj.data, texture_paths, reporter)
 
-        for matrix_world in obj_transforms:
-            skip_lightmaps = geom_temp.dont_generate_lightmaps or 'StaticMesh' != geom_temp.geometry_type
-            if skip_lightmaps:
-                obj = _clone_object(static_objects_skip, root_obj)
-            else:
-                obj = _clone_object(static_objects, root_obj)
-
+        # instantiate meshes
+        skip_lightmaps = geom_temp.dont_generate_lightmaps or 'StaticMesh' != geom_temp.geometry_type
+        for matrix_world in temp_cfg.instances:
+            # XXX: objects will be named by ObjectTemplate
+            # and meshes will be named by GeometryTemplate
+            # which is not always the same!
+            collection = static_objects_skip if skip_lightmaps else static_objects
+            obj = _clone_object(collection, mesh_obj, temp_cfg.template.name)
             obj.matrix_world = matrix_world
 
             # check LM key collisions
             if not skip_lightmaps:
-                lm_key = _gen_lm_key(obj, lod_idx)
+                lm_key = _gen_lm_key(geom_temp.name, obj.matrix_world.translation, lod_idx)
                 if lm_key in lm_keys:
                     reporter.warning(f"Object '{obj.name}' is too close to another which will result in both having the same lightmap filenames!")
                 lm_keys.add(lm_key)
 
-        # delete source instance
-        delete_object(root_obj, remove_data=False)
+        # delete source objects, keep mesh instances
+        delete_object(mesh_obj, remove_data=False)
 
     if DEBUG:
         print(f"Loading heightmap")
@@ -952,18 +1052,18 @@ def load_level(context, level_dir, use_cache=True,
         main_console.run_file(path.join(level_dir, 'Sky.con'))
         sun_dir = Vector(BF2Engine().light_manager.sun_dir)
         _convert_pos(sun_dir)
-        light = bpy.data.lights.new(name='Sun', type='SUN')
-        obj = bpy.data.objects.new(light.name, light)
+        sun_light = bpy.data.lights.new(name='Sun', type='SUN')
+        obj = bpy.data.objects.new(sun_light.name, sun_light)
         lights.objects.link(obj)
         sun_dir.z = -sun_dir.z # points down
         obj.rotation_mode = 'QUATERNION'
         obj.rotation_quaternion = sun_dir.rotation_difference(Vector((0, 0, 1)))
 
         sin_alpha = abs(sun_dir.z)
-        light.energy = (1 + 0.5 * sin_alpha) * 2 # TODO strength
-        light.color = (0, 1, 0)
+        sun_light.energy = (1 + 0.5 * sin_alpha) * 2 # TODO strength
+        sun_light.color = (0, 1, 0)
 
-        # ambient light / soft shadows (blue channel)
+        # skylight / soft shadows (blue channel)
         if "SkyLight" in bpy.data.worlds:
             world = bpy.data.worlds["SkyLight"]
             bpy.data.worlds.remove(world)
@@ -972,4 +1072,21 @@ def load_level(context, level_dir, use_cache=True,
         background.inputs['Color'].default_value = (0, 0, 1, 1)
         background.inputs['Strength'].default_value = 0.7 # TODO strength
 
-        # TODO: point lights (red channel)
+        COLOR_MAP = {'red': (1, 0, 0), 'green': (0, 1, 0), 'blue': (0, 0, 1)}
+
+        # point lights (red channel)
+        for temp_cfg in templates.values():
+            if not temp_cfg.point_light_cfg:
+                continue
+
+            point_light = bpy.data.lights.new(name=temp_cfg.template.name, type='POINT')
+            point_light.energy = temp_cfg.point_light_cfg.get('intensity', 100.0)
+            point_light.shadow_soft_size = temp_cfg.point_light_cfg.get('radius', 0.0)
+            point_light.color = COLOR_MAP[temp_cfg.point_light_cfg.get('color', 'red')]
+
+            offset = Vector(temp_cfg.point_light_cfg.get('offset', (0, 0, 0)))
+            for matrix_world in temp_cfg.instances:
+                matrix_world.translation += offset
+                obj = bpy.data.objects.new(point_light.name, point_light)
+                lights.objects.link(obj)
+                obj.matrix_world = matrix_world

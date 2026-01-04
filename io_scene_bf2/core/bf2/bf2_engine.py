@@ -459,6 +459,12 @@ class ObjectTemplate(Template):
         self.save_in_separate_file = False
         self.anchor_point = None
 
+        active_con = BF2Engine().main_console.get_active_con_file()
+        if active_con:
+            self.location = active_con.lower()
+        else:
+            self.location = None
+
     def add_bundle_childs(self):
         mngr = BF2Engine().get_manager(self.__class__)
         for child in self.children:
