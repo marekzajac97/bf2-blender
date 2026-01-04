@@ -906,7 +906,7 @@ def _do_material_tweaks(config, template, mesh, texture_paths, reporter):
 def _get_lm_size_thresholds(config, reporter):
     lm_size_thresholds = list()
     for t in getattr(config, 'LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS', DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS):
-        lm_size_thresholds.append((t['size'], t['area']))
+        lm_size_thresholds.append((t['size'], t['min_area']))
     lm_size_thresholds.sort(key=lambda x: x[0])
     if lm_size_thresholds:
         _, prev_thresh = lm_size_thresholds[0]
@@ -1154,7 +1154,8 @@ def load_level(context, level_dir, use_cache=True,
 
             offset = Vector(temp_cfg.point_light_cfg.get('offset', (0, 0, 0)))
             for matrix_world in temp_cfg.instances:
-                matrix_world.translation += offset
+                om = matrix_world.copy()
+                om.translation = offset
                 obj = bpy.data.objects.new(point_light.name, point_light)
                 lights.objects.link(obj)
-                obj.matrix_world = matrix_world
+                obj.matrix_world = matrix_world @ om

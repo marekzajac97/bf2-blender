@@ -133,6 +133,8 @@ class VIEW3D_OT_bf2_new_lm_config(bpy.types.Operator):
         text = bpy.data.texts.new('lightmap_config')
         text.name += '.py'
         text.from_string(LIGHTMAPPING_CONFIG_TEMPLATE)
+        text.current_line_index = 0
+        text.current_character = 0
         context.scene.bf2_lm_config_file = text
 
         if 'Scripting' in bpy.data.workspaces:
