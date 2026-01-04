@@ -17,7 +17,8 @@ from ...core.skeleton import is_bf2_skeleton
 from ...core.lightmaps import (load_level,
                                ObjectBaker,
                                TerrainBaker,
-                               get_default_heightmap_patch_count_and_size)
+                               get_default_heightmap_patch_count_and_size,
+                               LIGHTMAPPING_CONFIG_TEMPLATE)
 
 class View3DPanel_BF2:
     bl_category = "BF2"
@@ -123,6 +124,28 @@ class VIEW3D_PT_bf2_animation_Panel(View3DPanel_BF2, bpy.types.Panel):
 
 # --------------- lightmapping ----------------------
 
+class VIEW3D_OT_bf2_new_lm_config(bpy.types.Operator):
+    bl_idname = "bf2.new_lm_config"
+    bl_label = "Add lightmapping config"
+    bl_description = "Add new Text data block and fills it with a lightmapping config template"
+
+    def execute(self, context):
+        text = bpy.data.texts.new('lightmap_config')
+        text.name += '.py'
+        text.from_string(LIGHTMAPPING_CONFIG_TEMPLATE)
+        context.scene.bf2_lm_config_file = text
+
+        if 'Scripting' in bpy.data.workspaces:
+            if 'Scripting' in bpy.data.screens:
+                screen = bpy.data.screens['Scripting']
+                for area in screen.areas:
+                    if area.type == 'TEXT_EDITOR':
+                        with context.temp_override(area=area, screen=screen):
+                            context.space_data.text = text
+            context.window.workspace = bpy.data.workspaces['Scripting']
+
+        return {'FINISHED'}
+
 class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
     bl_idname = "bf2.load_level"
     bl_label = "Load level"
@@ -178,8 +201,6 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
         col.prop(self, 'water_light_attenuation')
         col.enabled = self.load_heightmap
         layout.prop(self, 'load_lights')
-
-    # TODO: config file with area thresholds
 
     @classmethod
     def poll(cls, context):
@@ -404,7 +425,10 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
         layout.use_property_split = True
         scene = context.scene
 
-        layout.prop(scene, "bf2_lm_config_file", text="Config")
+        row = layout.row()
+        row.prop(scene, "bf2_lm_config_file", text="Config")
+        row.operator(VIEW3D_OT_bf2_new_lm_config.bl_idname, text='', icon='ADD')
+
         layout.operator(VIEW3D_OT_bf2_load_level.bl_idname, icon='IMPORT')
 
         main = layout.column(heading="Bake")
@@ -455,6 +479,7 @@ def register():
     bpy.utils.register_class(VIEW3D_PT_bf2_animation_Panel)
 
     # lightmapping
+    bpy.utils.register_class(VIEW3D_OT_bf2_new_lm_config)
     bpy.utils.register_class(VIEW3D_OT_bf2_load_level)
     bpy.utils.register_class(VIEW3D_OT_bf2_bake)
 
@@ -531,6 +556,7 @@ def unregister():
     bpy.utils.unregister_class(VIEW3D_PT_bf2_lightmapping_Panel)
     bpy.utils.unregister_class(VIEW3D_OT_bf2_bake)
     bpy.utils.unregister_class(VIEW3D_OT_bf2_load_level)
+    bpy.utils.unregister_class(VIEW3D_OT_bf2_new_lm_config)
 
     del bpy.types.Scene.bf2_lm_progress_value
     del bpy.types.Scene.bf2_lm_progress_msg

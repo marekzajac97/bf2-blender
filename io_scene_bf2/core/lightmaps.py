@@ -129,6 +129,75 @@ def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
 # baking terrain
 # -------------------
 
+LIGHTMAPPING_CONFIG_TEMPLATE = \
+"""
+# THIS IS A LIGHTMAPING CONFIG TEMPLATE
+# PROVIDED VALUES ARE JUST EXAMPLES
+# REMOVE LEADING `#` FOR THEM TO MAKE THEM TAKE ANY EFFECT
+
+# Used to assign lightmap sizes to the object
+# based on the total surface area of the mesh in meters squared
+# NOTE1: values are only used when `.samples` file does not exist for the mesh
+# NOTE2: values for LOD0, size for consequtive lods will be halved
+LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS = [
+    # {'size': 8, 'min_area': 0},
+    # {'size': 16, 'min_area': 4},
+    # {'size': 32, 'min_area': 8},
+    # {'size': 64, 'min_area': 16},
+    # {'size': 128, 'min_area': 32},
+    # {'size': 256, 'min_area': 256},
+    # {'size': 512, 'min_area': 1024},
+    # {'size': 1024, 'min_area': 2056}
+]
+
+# Skips loading meshes for ObjectTemplates
+# whose .con locations match the pattern
+SKIP_OBJECT_TEMPLATE_PATHS = [
+    # 'common/lightsources/dp_lights',
+    # 'common/lightsources/l_lights',
+    # 'common/lightsources/nf_lights'
+]
+
+# Skips loading meshes for ObjectTemplates
+# whose names match the pattern
+SKIP_OBJECT_TEMPLATES = [
+    # 'e_sAmb_oiltower_fire',
+    # 'e_sAmb_wreckfire',
+    # 'glow*'
+]
+
+# Disables backface culling on materials for
+# ObjectTemplates whose names match the pattern
+FORCE_TWO_SIDED = [
+    # 'command_underground'
+]
+
+# Replaces textures paths on materials:
+#   'from' - the source texture pattern, NOTE: it's only Color/Detail/Crack/Dirt textures, not normal maps
+#   'to' - the target texture path
+#   'force_alpha' - force enables alpha testing
+TEXTURE_REPLACE = [
+    # {'from': 'objects/staticobjects/common_statics/textures/common_trench_de*.dds',
+    #  'to': 'objects/staticobjects/common_statics/textures/common_trench_lightmapping_c.dds',
+    #  'force_alpha': True},
+    # {'from': 'objects/water/textures/watertemp.dds',
+    #  'to': 'objects/staticobjects/common/textures/transparent_c.dds',
+    #  'force_alpha': True}
+]
+
+# Defines where to place point lights:
+#   'at' - pattern that matches the name of the ObjectTemplate, where the light should be placed, this value is mandatory
+#   'offset' - offset relative to the ObjectTemplate pivot, defaults to (0, 0, 0)
+#   'intensity' - sets 'intensity' value on the created Blender light, defaults to 100
+#   'radius' - sets 'radius' value on the created Blender light, defaults to 0
+#   'color' - defaults to 'red', use 'blue' if you want the point lights to appear on the terrain
+LIGHT_SOURCES = [
+    # {'at': 'houselight_small*', 'intensity': 400.0},
+    # {'at': 'fh_groundlight_big', 'intensity': 400.0, 'color': 'blue'},
+    # {'at': 'bunkerlight', 'intensity': 200.0, 'radius': 0.01, 'offset': (-0.0035, 0.002, 0.597)},
+]
+"""
+
 def _make_flatten_at_watter_level(water_level):
     if 'FlattenAtWaterLevel' in bpy.data.node_groups:
         node_group = bpy.data.node_groups['FlattenAtWaterLevel']
@@ -671,14 +740,14 @@ def _make_collection(context, name):
         return c
 
 DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS = [
-    (8, 0),
-    (16, 4),
-    (32, 8),
-    (64, 16),
-    (128, 32),
-    (256, 256),
-    (512, 1024),
-    (1024, 2056)
+    {'size': 8, 'min_area': 0},
+    {'size': 16, 'min_area': 4},
+    {'size': 32, 'min_area': 8},
+    {'size': 64, 'min_area': 16},
+    {'size': 128, 'min_area': 32},
+    {'size': 256, 'min_area': 256},
+    {'size': 512, 'min_area': 1024},
+    {'size': 1024, 'min_area': 2056}
 ]
 
 def _calc_mesh_area(lod_obj):
@@ -835,7 +904,9 @@ def _do_material_tweaks(config, template, mesh, texture_paths, reporter):
             setup_material(material, texture_paths=texture_paths, reporter=reporter, backface_cull=backface_cull) # re-apply
 
 def _get_lm_size_thresholds(config, reporter):
-    lm_size_thresholds = getattr(config, 'LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS')  
+    lm_size_thresholds = list()
+    for t in getattr(config, 'LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS', DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS):
+        lm_size_thresholds.append((t['size'], t['area']))
     lm_size_thresholds.sort(key=lambda x: x[0])
     if lm_size_thresholds:
         _, prev_thresh = lm_size_thresholds[0]
@@ -847,10 +918,7 @@ def _get_lm_size_thresholds(config, reporter):
                 reporter.error(f"LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS: Lightmap sizes and threshold must be sorted in ascending order")
                 return None
             prev_thresh = thresh
-    if not lm_size_thresholds:
-        return DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS
-    else:
-        return lm_size_thresholds
+    return lm_size_thresholds
 
 def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
