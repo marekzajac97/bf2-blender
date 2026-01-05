@@ -125,10 +125,10 @@ class VIEW3D_PT_bf2_animation_Panel(View3DPanel_BF2, bpy.types.Panel):
 
 # --------------- lightmapping ----------------------
 
-class VIEW3D_OT_bf2_add_ambient_light(bpy.types.Operator):
-    bl_idname = "bf2.add_ambient_light"
-    bl_label = "Add ambient light"
-    bl_description = "Add ambient light to baked lightmaps by clamping the Blue channel"
+class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
+    bl_idname = "bf2.lm_post_process"
+    bl_label = "Post process"
+    bl_description = "Post process baked lightmaps"
 
     srcdir: StringProperty (
             name="Source directory",
@@ -154,7 +154,7 @@ class VIEW3D_OT_bf2_add_ambient_light(bpy.types.Operator):
         description="Intensity of the ambient light",
         min=0.0,
         max=1.0,
-        default=0.633
+        default=0.2
     ) # type: ignore
 
     def execute(self, context):
@@ -358,6 +358,12 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         ]
     ) # type: ignore
 
+    normal_maps: BoolProperty(
+        name="Normal Maps",
+        description="When disabled, bakes lightmaps without normal maps on materials. Usually results in less noisy lightmaps",
+        default=False
+    ) # type: ignore
+
     bake_objects: BoolProperty(
         name="Objects",
         description="Bake lightmaps for static objects",
@@ -449,6 +455,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             baker = ObjectBaker(context, self.outdir,
                                 dds_fmt=self.dds_compression,
                                 only_selected=self.bake_objects_mode == 'ONLY_SELECTED',
+                                normal_maps=self.normal_maps,
                                 reporter=Reporter(self.report))
             self.bakers.append(baker)
         if self.bake_terrain:
@@ -487,16 +494,19 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
         if body:
             body.prop(scene, "bf2_lm_outdir")
             body.prop(scene, "bf2_lm_dds_compression")
+            body.separator(factor=1.0, type='LINE')
             body.prop(scene, "bf2_lm_bake_objects")
             col = body.column()
-            col.enabled = scene.bf2_lm_bake_objects
             col.prop(scene, "bf2_lm_bake_objects_mode", text=" ")
+            col.prop(scene, "bf2_lm_normal_maps")
+            col.enabled = scene.bf2_lm_bake_objects
+            body.separator(factor=1.0, type='LINE')
             body.prop(scene, "bf2_lm_bake_terrain")
             col = body.column()
             col.prop(scene, "bf2_lm_patch_count")
             col.prop(scene, "bf2_lm_patch_size")
             col.enabled = scene.bf2_lm_bake_terrain
-
+            body.separator(factor=1.0, type='SPACE')
             props = main.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
             props.outdir = scene.bf2_lm_outdir
             props.dds_compression = scene.bf2_lm_dds_compression
@@ -505,6 +515,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             props.bake_terrain = scene.bf2_lm_bake_terrain
             props.patch_count = scene.bf2_lm_patch_count
             props.patch_size = scene.bf2_lm_patch_size
+            props.normal_maps = scene.bf2_lm_normal_maps
 
             if VIEW3D_OT_bf2_bake.is_running(context):
                 row = layout.row()
@@ -522,7 +533,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
         if body:
             body.prop(scene, "bf2_lm_post_process_outdir", text='Output directory')
             body.prop(scene, "bf2_lm_ambient_light_level")
-            props = body.operator(VIEW3D_OT_bf2_add_ambient_light.bl_idname, icon='OUTPUT')
+            props = body.operator(VIEW3D_OT_bf2_lm_post_process.bl_idname, icon='OUTPUT')
             props.srcdir = scene.bf2_lm_outdir
             props.outdir = scene.bf2_lm_post_process_outdir
             props.dds_compression = scene.bf2_lm_dds_compression
@@ -538,7 +549,7 @@ def register():
     bpy.utils.register_class(VIEW3D_PT_bf2_animation_Panel)
 
     # lightmapping
-    bpy.utils.register_class(VIEW3D_OT_bf2_add_ambient_light)
+    bpy.utils.register_class(VIEW3D_OT_bf2_lm_post_process)
     bpy.utils.register_class(VIEW3D_OT_bf2_new_lm_config)
     bpy.utils.register_class(VIEW3D_OT_bf2_load_level)
     bpy.utils.register_class(VIEW3D_OT_bf2_bake)
@@ -618,8 +629,14 @@ def register():
         name="Ambient light intensity",
         min=0.0,
         max=1.0,
-        default=0.633,
+        default=0.2,
         options=set()  # Remove ANIMATABLE default option.
+    ) # type: ignore
+
+    bpy.types.Scene.bf2_lm_normal_maps = BoolProperty(
+        name="Normal Maps",
+        description="When disabled, bakes lightmaps without normal maps on materials. Usually results in less noisy lightmaps",
+        default=False
     ) # type: ignore
 
     bpy.utils.register_class(VIEW3D_PT_bf2_lightmapping_Panel)
@@ -630,8 +647,9 @@ def unregister():
     bpy.utils.unregister_class(VIEW3D_OT_bf2_bake)
     bpy.utils.unregister_class(VIEW3D_OT_bf2_load_level)
     bpy.utils.unregister_class(VIEW3D_OT_bf2_new_lm_config)
-    bpy.utils.unregister_class(VIEW3D_OT_bf2_add_ambient_light)
+    bpy.utils.unregister_class(VIEW3D_OT_bf2_lm_post_process)
 
+    del bpy.types.Scene.bf2_lm_normal_maps
     del bpy.types.Scene.bf2_lm_ambient_light_level
     del bpy.types.Scene.bf2_lm_progress_value
     del bpy.types.Scene.bf2_lm_progress_msg

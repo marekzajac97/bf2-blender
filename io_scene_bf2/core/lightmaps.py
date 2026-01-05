@@ -538,6 +538,7 @@ class TerrainBaker(BakerBase):
 
         # we gon simply scale the UV up so the 0-1 range fits one whole patch
         # then shift the UV when rendering the grid
+        mesh.uv_layer.active = mesh.uv_layers['UVMap']
         self.uv_layer = mesh.uv_layers.new(name='LightmapBakeUV')
 
         for loop in mesh.loops:
@@ -646,13 +647,24 @@ class TerrainBaker(BakerBase):
 # baking objects
 # -------------------
 
-def _strip_suffix(s):
-    if '.' not in s:
-        return s
-    head, tail = s.rsplit('.', 1)
-    if tail.isnumeric():
-        return head
-    return s
+def _unplug_socket_from_bsdf(material, socket_name):
+    if not material.is_bf2_material:
+        return None
+    node_tree = material.node_tree
+    for node_link in node_tree.links:
+        node = node_link.to_node
+        if node.type == 'BSDF_PRINCIPLED' and node_link.to_socket.name == socket_name:
+            node_tree.links.remove(node_link)
+            return node_link.from_socket
+
+def _plug_socket_to_bsdf(material, socket_name, from_socket):
+    if not material.is_bf2_material:
+        return
+    node_tree = material.node_tree
+    for node in node_tree.nodes:
+        if node.type == 'BSDF_PRINCIPLED':
+            node_socket = node.inputs[socket_name]
+            material.node_tree.links.new(from_socket, node_socket)
 
 def _strip_prefix(s):
     for char_idx, _ in enumerate(s):
@@ -666,10 +678,11 @@ def _gen_lm_key(geom_template_name, position, lod):
 
 class ObjectBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE', lod_mask=None,
-                 only_selected=True, reporter=DEFAULT_REPORTER):
+                 only_selected=True, normal_maps=True, reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
         self.lod_mask = lod_mask
         self.reporter = reporter
+        self.normal_maps = normal_maps
         self.objects = list()
 
         if only_selected:
@@ -743,40 +756,26 @@ class ObjectBaker(BakerBase):
                 bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
 
                 # add bake lightmap texture for each material
+                normal_socket = None
                 for material in lod_obj.data.materials:
                     _setup_material_for_baking(material, bake_image)
+                    if not self.normal_maps:
+                        normal_socket = _unplug_socket_from_bsdf(material, 'Normal')
 
                 self._select_lod_for_bake(geom, lod_idx)
                 context.view_layer.update()
                 bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
                 self.save_bake(bake_image)
                 bpy.data.images.remove(bake_image)
+
+                if normal_socket:
+                    for material in lod_obj.data.materials:
+                        _plug_socket_to_bsdf(material, 'Normal')
+
             self._select_lod_for_bake(geom, 0)
             context.view_layer.update()
 
         return True
-
-# -------------------
-# material tweaks
-# -------------------
-
-def _unplug_socket_from_bsdf(socket_name):
-    for mesh in bpy.data.meshes:
-        for material in mesh.materials:
-            if not material.is_bf2_material:
-                continue
-            node_tree = material.node_tree
-            for node_link in node_tree.links:
-                node = node_link.to_node
-                if node.type == 'BSDF_PRINCIPLED' and node_link.to_socket.name == socket_name:
-                    node_tree.links.remove(node_link)
-                    break
-
-def tweak_materials(no_normalmap=True):
-    if no_normalmap:
-        _unplug_socket_from_bsdf('Normal')
-
-    # TODO: add ambient occlusion as an option
 
 # -------------------
 # scene setup
@@ -1240,7 +1239,7 @@ def load_level(context, level_dir, use_cache=True,
 
             offset = Vector(temp_cfg.point_light_cfg.get('offset', (0, 0, 0)))
             for matrix_world in temp_cfg.instances:
-                om = matrix_world.copy()
+                om = Matrix.Identity(4)
                 om.translation = offset
                 obj = bpy.data.objects.new(point_light.name, point_light)
                 lights.objects.link(obj)

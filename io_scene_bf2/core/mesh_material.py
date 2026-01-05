@@ -208,7 +208,6 @@ def _set_alpha_straigt(texture_node): # need this to render properly with Cycles
 
 def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, reporter=DEFAULT_REPORTER):
     material.use_nodes = True
-    material.use_backface_culling_shadow = backface_cull
 
     node_tree = material.node_tree
     node_tree.nodes.clear()
@@ -217,6 +216,24 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
     principled_BSDF = node_tree.nodes.new('ShaderNodeBsdfPrincipled')
     principled_BSDF.name = principled_BSDF.label = 'Principled BSDF'
     node_tree.links.new(principled_BSDF.outputs['BSDF'], material_output.inputs['Surface'])
+
+    texture_maps = get_material_maps(material)
+
+    if uvs is None:
+        if material.bf2_shader == 'STATICMESH':
+            uvs = get_staticmesh_uv_channels(texture_maps.keys())
+        elif material.bf2_shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
+            uvs = {0}
+
+    # special staticmesh OG shaders
+    is_leaf = is_trunk = False
+    if material.bf2_shader == 'STATICMESH':
+        is_vegitation = material.is_bf2_vegitation
+        is_leaf = is_vegitation and len(texture_maps) == 1
+        is_trunk = is_vegitation and len(texture_maps) > 1
+        backface_cull = not is_vegitation # vegitation is always renders double sided
+
+    material.use_backface_culling_shadow = backface_cull
 
     if backface_cull:
         geometry = node_tree.nodes.new("ShaderNodeNewGeometry")
@@ -235,21 +252,6 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         backface_cull_alpha = compare.outputs['Value']
     else:
         backface_cull_alpha = None
-
-    texture_maps = get_material_maps(material)
-
-    if uvs is None:
-        if material.bf2_shader == 'STATICMESH':
-            uvs = get_staticmesh_uv_channels(texture_maps.keys())
-        elif material.bf2_shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
-            uvs = {0}
-
-    # special staticmesh OG shaders
-    is_leaf = is_trunk = False
-    if material.bf2_shader == 'STATICMESH':
-        is_vegitation = material.is_bf2_vegitation
-        is_leaf = is_vegitation and len(texture_maps) == 1
-        is_trunk = is_vegitation and len(texture_maps) > 1
 
     # alpha mode
     has_alpha = False
