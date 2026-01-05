@@ -17,6 +17,7 @@ from ...core.skeleton import is_bf2_skeleton
 from ...core.lightmaps import (load_level,
                                ObjectBaker,
                                TerrainBaker,
+                               add_ambient_light,
                                get_default_heightmap_patch_count_and_size,
                                LIGHTMAPPING_CONFIG_TEMPLATE)
 
@@ -124,6 +125,49 @@ class VIEW3D_PT_bf2_animation_Panel(View3DPanel_BF2, bpy.types.Panel):
 
 # --------------- lightmapping ----------------------
 
+class VIEW3D_OT_bf2_add_ambient_light(bpy.types.Operator):
+    bl_idname = "bf2.add_ambient_light"
+    bl_label = "Add ambient light"
+    bl_description = "Add ambient light to baked lightmaps by clamping the Blue channel"
+
+    srcdir: StringProperty (
+            name="Source directory",
+            subtype="DIR_PATH"
+        ) # type: ignore
+
+    outdir: StringProperty (
+            name="Output directory",
+            subtype="DIR_PATH"
+        ) # type: ignore
+
+    dds_compression : EnumProperty(
+        name="DDS compression",
+        default=1,
+        items=[
+            ('DXT1', "DXT1", "", 0),
+            ('NONE', "NONE", "", 1)
+        ]
+    ) # type: ignore
+
+    intensity: FloatProperty(
+        name="Intensity",
+        description="Intensity of the ambient light",
+        min=0.0,
+        max=1.0,
+        default=0.633
+    ) # type: ignore
+
+    def execute(self, context):
+        if not os.path.isdir(self.srcdir):
+            self.report({"ERROR"}, f"Choosen src path '{self.srcdir}' is NOT a directory!")
+            return {'CANCELLED'}
+        if not os.path.isdir(self.outdir):
+            self.report({"ERROR"}, f"Choosen out path '{self.outdir}' is NOT a directory!")
+            return {'CANCELLED'}
+
+        add_ambient_light(context, self.srcdir, self.outdir, self.intensity, self.dds_compression)
+        return {'FINISHED'}
+
 class VIEW3D_OT_bf2_new_lm_config(bpy.types.Operator):
     bl_idname = "bf2.new_lm_config"
     bl_label = "Add lightmapping config"
@@ -174,7 +218,8 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
     water_light_attenuation: FloatProperty(
         name="Water light attenuation",
         description="Used for setting up the water depth material. Higher values make the water more opaque",
-        default=0.3
+        default=0.3,
+        min=0.0
     ) # type: ignore
 
     load_lights: BoolProperty(
@@ -395,6 +440,9 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     def execute(self, context):
         if self.is_running(context):
             return {'CANCELLED'}
+        if not os.path.isdir(self.outdir):
+            self.report({"ERROR"}, f"Choosen out path '{self.outdir}' is NOT a directory!")
+            return {'CANCELLED'}
 
         self.bakers = list()
         if self.bake_objects:
@@ -437,7 +485,6 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
         header, body = main.panel("BF2_PT_bake_settings", default_closed=True)
         header.label(text="Bake Settings")
         if body:
-            
             body.prop(scene, "bf2_lm_outdir")
             body.prop(scene, "bf2_lm_dds_compression")
             body.prop(scene, "bf2_lm_bake_objects")
@@ -470,6 +517,16 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
                 row = layout.row()
                 row.label(text='Press ESC to cancel', icon='CANCEL')
 
+        header, body = layout.panel("BF2_PT_post_process", default_closed=True)
+        header.label(text="Post-process")
+        if body:
+            body.prop(scene, "bf2_lm_post_process_outdir", text='Output directory')
+            body.prop(scene, "bf2_lm_ambient_light_level")
+            props = body.operator(VIEW3D_OT_bf2_add_ambient_light.bl_idname, icon='OUTPUT')
+            props.srcdir = scene.bf2_lm_outdir
+            props.outdir = scene.bf2_lm_post_process_outdir
+            props.dds_compression = scene.bf2_lm_dds_compression
+            props.intensity = scene.bf2_lm_ambient_light_level
 
 # ---------------------------------------------------
 
@@ -481,6 +538,7 @@ def register():
     bpy.utils.register_class(VIEW3D_PT_bf2_animation_Panel)
 
     # lightmapping
+    bpy.utils.register_class(VIEW3D_OT_bf2_add_ambient_light)
     bpy.utils.register_class(VIEW3D_OT_bf2_new_lm_config)
     bpy.utils.register_class(VIEW3D_OT_bf2_load_level)
     bpy.utils.register_class(VIEW3D_OT_bf2_bake)
@@ -524,6 +582,11 @@ def register():
             subtype="DIR_PATH"
         ) # type: ignore
 
+    bpy.types.Scene.bf2_lm_post_process_outdir = StringProperty (
+            name="Output directory for lightmap post-processing",
+            subtype="DIR_PATH"
+        ) # type: ignore
+
     bpy.types.Scene.bf2_lm_patch_count = IntProperty(
         name="Patch count",
         description="Number of terrain patches, must be a power of four",
@@ -551,6 +614,14 @@ def register():
     bpy.types.Scene.bf2_lm_progress_value = FloatProperty()
     bpy.types.Scene.bf2_lm_progress_msg = StringProperty()
 
+    bpy.types.Scene.bf2_lm_ambient_light_level = FloatProperty(
+        name="Ambient light intensity",
+        min=0.0,
+        max=1.0,
+        default=0.633,
+        options=set()  # Remove ANIMATABLE default option.
+    ) # type: ignore
+
     bpy.utils.register_class(VIEW3D_PT_bf2_lightmapping_Panel)
 
 def unregister():
@@ -559,12 +630,15 @@ def unregister():
     bpy.utils.unregister_class(VIEW3D_OT_bf2_bake)
     bpy.utils.unregister_class(VIEW3D_OT_bf2_load_level)
     bpy.utils.unregister_class(VIEW3D_OT_bf2_new_lm_config)
+    bpy.utils.unregister_class(VIEW3D_OT_bf2_add_ambient_light)
 
+    del bpy.types.Scene.bf2_lm_ambient_light_level
     del bpy.types.Scene.bf2_lm_progress_value
     del bpy.types.Scene.bf2_lm_progress_msg
     del bpy.types.Scene.bf2_lm_config_file
     del bpy.types.Scene.bf2_lm_patch_count
     del bpy.types.Scene.bf2_lm_patch_size
+    del bpy.types.Scene.bf2_lm_post_process_outdir
     del bpy.types.Scene.bf2_lm_outdir
     del bpy.types.Scene.bf2_lm_dds_compression
     del bpy.types.Scene.bf2_lm_bake_objects_mode

@@ -1,3 +1,4 @@
+import os
 import os.path as path
 import math
 import bpy # type: ignore
@@ -302,6 +303,56 @@ def _make_water_depth_material(water_level, water_attenuation):
     node_tree.links.new(diffuse_bsdf.outputs['BSDF'], material_output.inputs['Surface'])
     return material
 
+def _make_add_ambinet_light(ambient_light_level):
+    if 'AddAmbientLight' in bpy.data.node_groups:
+        node_group = bpy.data.node_groups['AddAmbientLight']
+        bpy.data.node_groups.remove(node_group)
+
+    node_tree = bpy.data.node_groups.new(type = 'CompositorNodeTree', name = "AddAmbientLight")
+
+    image = node_tree.nodes.new("CompositorNodeImage")
+    image.name = "SrcImage"
+
+    node_tree.interface.new_socket(name="Image", in_out='OUTPUT', socket_type='NodeSocketColor')
+    group_output = node_tree.nodes.new("NodeGroupOutput")
+    group_output.name = "Group Output"
+    group_output.is_active_output = True
+
+    separate_color = node_tree.nodes.new("CompositorNodeSeparateColor")
+    combine_color = node_tree.nodes.new("CompositorNodeCombineColor")
+
+    clamp = node_tree.nodes.new("ShaderNodeClamp")
+    clamp.clamp_type = 'MINMAX'
+    clamp.inputs['Min'].default_value = ambient_light_level
+    clamp.inputs['Max'].default_value = 1.0
+
+    node_tree.links.new(
+        image.outputs['Image'],
+        separate_color.inputs['Image']
+    )
+    node_tree.links.new(
+        separate_color.outputs['Green'],
+        combine_color.inputs['Green']
+    )
+    node_tree.links.new(
+        separate_color.outputs['Red'],
+        combine_color.inputs['Red']
+    )
+    node_tree.links.new(
+        separate_color.outputs['Blue'],
+        clamp.inputs['Value']
+    )
+    node_tree.links.new(
+        clamp.outputs['Result'],
+        combine_color.inputs['Blue']
+    )
+    node_tree.links.new(
+        combine_color.outputs['Image'],
+        group_output.inputs['Image']
+    )
+
+    return node_tree
+
 def _make_combine_channels():
     if 'CombineLightAndWaterDepth' in bpy.data.node_groups:
         node_group = bpy.data.node_groups['CombineLightAndWaterDepth']
@@ -407,6 +458,41 @@ def find_heightmap(context):
         if obj.name.startswith('Heightmap'):
             return obj
 
+def add_ambient_light(context, src_dir, out_dir, intensity, dds_fmt='NONE'):
+    view_transform = context.scene.view_settings.view_transform
+    context.scene.view_settings.view_transform = 'Standard'
+    add_ambient_light = _make_add_ambinet_light(intensity)
+    context.scene.compositing_node_group = add_ambient_light
+
+    if 'Render Result' in bpy.data.images:
+        render_result = bpy.data.images['Render Result']
+        bpy.data.images.remove(render_result)
+
+    for file in os.listdir(src_dir):
+        filepath = path.join(src_dir, file)
+        if not path.isfile(filepath):
+            continue
+        if not file.endswith(".dds"):
+            continue
+
+        image = bpy.data.images.load(filepath, check_existing=True)
+        image.alpha_mode = 'NONE'
+
+        add_ambient_light.nodes['SrcImage'].image = image
+        context.scene.render.resolution_x = image.size[0]
+        context.scene.render.resolution_y = image.size[1]
+        bpy.ops.render.render()
+
+        # save output
+        render_result = bpy.data.images['Render Result']
+        save_img_as_dds(render_result, path.join(out_dir, f'{file}.dds'), dds_fmt)
+
+        # cleanup
+        add_ambient_light.nodes['SrcImage'].image = None
+        bpy.data.images.remove(image)
+        bpy.data.images.remove(render_result)
+
+    context.scene.view_settings.view_transform = view_transform
 
 class TerrainBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE',
