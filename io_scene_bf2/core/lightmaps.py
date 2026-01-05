@@ -318,36 +318,18 @@ def _make_add_ambinet_light(ambient_light_level):
     group_output.name = "Group Output"
     group_output.is_active_output = True
 
-    separate_color = node_tree.nodes.new("CompositorNodeSeparateColor")
-    combine_color = node_tree.nodes.new("CompositorNodeCombineColor")
-
-    clamp = node_tree.nodes.new("ShaderNodeClamp")
-    clamp.clamp_type = 'MINMAX'
-    clamp.inputs['Min'].default_value = ambient_light_level
-    clamp.inputs['Max'].default_value = 1.0
+    rgb_curves = node_tree.nodes.new("CompositorNodeCurveRGB")
+    rgb_curves_blue = rgb_curves.mapping.curves[2]
+    rgb_curves_blue_point_low = rgb_curves_blue.points[0]
+    rgb_curves_blue_point_low.location = (0.0, 1 - ambient_light_level)
+    rgb_curves.mapping.update()
 
     node_tree.links.new(
         image.outputs['Image'],
-        separate_color.inputs['Image']
+        rgb_curves.inputs['Image']
     )
     node_tree.links.new(
-        separate_color.outputs['Green'],
-        combine_color.inputs['Green']
-    )
-    node_tree.links.new(
-        separate_color.outputs['Red'],
-        combine_color.inputs['Red']
-    )
-    node_tree.links.new(
-        separate_color.outputs['Blue'],
-        clamp.inputs['Value']
-    )
-    node_tree.links.new(
-        clamp.outputs['Result'],
-        combine_color.inputs['Blue']
-    )
-    node_tree.links.new(
-        combine_color.outputs['Image'],
+        rgb_curves.outputs['Image'],
         group_output.inputs['Image']
     )
 
@@ -538,7 +520,7 @@ class TerrainBaker(BakerBase):
 
         # we gon simply scale the UV up so the 0-1 range fits one whole patch
         # then shift the UV when rendering the grid
-        mesh.uv_layer.active = mesh.uv_layers['UVMap']
+        mesh.uv_layers.active = mesh.uv_layers['UVMap']
         self.uv_layer = mesh.uv_layers.new(name='LightmapBakeUV')
 
         for loop in mesh.loops:
@@ -654,8 +636,9 @@ def _unplug_socket_from_bsdf(material, socket_name):
     for node_link in node_tree.links:
         node = node_link.to_node
         if node.type == 'BSDF_PRINCIPLED' and node_link.to_socket.name == socket_name:
+            from_socket = node_link.from_socket
             node_tree.links.remove(node_link)
-            return node_link.from_socket
+            return from_socket
 
 def _plug_socket_to_bsdf(material, socket_name, from_socket):
     if not material.is_bf2_material:
@@ -690,10 +673,10 @@ class ObjectBaker(BakerBase):
                 root_obj = find_root(obj)
                 if root_obj not in self.objects:
                     self.objects.append(root_obj)
-        else:
+        elif 'StaticObjects' in context.scene.collection.children:
             for obj in context.scene.collection.children['StaticObjects'].objects:
                 if obj.parent is None and obj.data is None:
-                    self.objects.append(root_obj)
+                    self.objects.append(obj)
 
         self.total_count = len(self.objects)
         _setup_scene_for_baking(context)
@@ -770,7 +753,7 @@ class ObjectBaker(BakerBase):
 
                 if normal_socket:
                     for material in lod_obj.data.materials:
-                        _plug_socket_to_bsdf(material, 'Normal')
+                        _plug_socket_to_bsdf(material, 'Normal', normal_socket)
 
             self._select_lod_for_bake(geom, 0)
             context.view_layer.update()
