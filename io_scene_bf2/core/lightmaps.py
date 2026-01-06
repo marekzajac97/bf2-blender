@@ -1,6 +1,7 @@
 import os
 import os.path as path
 import math
+import re
 import bpy # type: ignore
 import bmesh # type: ignore
 from mathutils import Matrix, Vector # type: ignore
@@ -126,9 +127,81 @@ def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
     node_tree.nodes.active = texture_node
     return texture_node
 
-# -------------------
-# baking terrain
-# -------------------
+def _make_add_ambinet_light(ambient_light_level):
+    if 'AddAmbientLight' in bpy.data.node_groups:
+        node_group = bpy.data.node_groups['AddAmbientLight']
+        bpy.data.node_groups.remove(node_group)
+
+    node_tree = bpy.data.node_groups.new(type = 'CompositorNodeTree', name = "AddAmbientLight")
+
+    image = node_tree.nodes.new("CompositorNodeImage")
+    image.name = "SrcImage"
+
+    node_tree.interface.new_socket(name="Image", in_out='OUTPUT', socket_type='NodeSocketColor')
+    group_output = node_tree.nodes.new("NodeGroupOutput")
+    group_output.name = "Group Output"
+    group_output.is_active_output = True
+
+    rgb_curves = node_tree.nodes.new("CompositorNodeCurveRGB")
+    rgb_curves_blue = rgb_curves.mapping.curves[2]
+    rgb_curves_blue_point_low = rgb_curves_blue.points[0]
+    rgb_curves_blue_point_low.location = (0.0, 1 - ambient_light_level)
+    rgb_curves.mapping.update()
+
+    node_tree.links.new(
+        image.outputs['Image'],
+        rgb_curves.inputs['Image']
+    )
+    node_tree.links.new(
+        rgb_curves.outputs['Image'],
+        group_output.inputs['Image']
+    )
+
+    return node_tree
+
+def add_ambient_light(context, src_dir, out_dir, intensity, dds_fmt='NONE'):
+    view_transform = context.scene.view_settings.view_transform
+    context.scene.view_settings.view_transform = 'Standard'
+    add_ambient_light = _make_add_ambinet_light(intensity)
+    context.scene.compositing_node_group = add_ambient_light
+
+    if 'Render Result' in bpy.data.images:
+        render_result = bpy.data.images['Render Result']
+        bpy.data.images.remove(render_result)
+
+    for file in os.listdir(src_dir):
+        filepath = path.join(src_dir, file)
+        if not path.isfile(filepath):
+            continue
+        if not file.endswith(".dds"):
+            continue
+
+        image = bpy.data.images.load(filepath, check_existing=True)
+        image.alpha_mode = 'NONE'
+
+        add_ambient_light.nodes['SrcImage'].image = image
+        context.scene.render.resolution_x = image.size[0]
+        context.scene.render.resolution_y = image.size[1]
+        bpy.ops.render.render()
+
+        # save output
+        render_result = bpy.data.images['Render Result']
+        save_img_as_dds(render_result, path.join(out_dir, f'{file}.dds'), dds_fmt)
+
+        # cleanup
+        add_ambient_light.nodes['SrcImage'].image = None
+        bpy.data.images.remove(image)
+        bpy.data.images.remove(render_result)
+
+    context.scene.view_settings.view_transform = view_transform
+
+def get_all_lightmap_files(dir):
+    files = set()
+    for file in os.listdir(dir):
+        if not file.endswith(".dds"):
+            continue
+        files.add(file[:-4])
+    return files
 
 LIGHTMAPPING_CONFIG_TEMPLATE = \
 """
@@ -198,6 +271,10 @@ LIGHT_SOURCES = [
     # {'at': 'bunkerlight', 'intensity': 200.0, 'radius': 0.01, 'offset': (-0.0035, 0.002, 0.597)},
 ]
 """
+
+# -------------------
+# baking terrain
+# -------------------
 
 def _make_flatten_at_watter_level(water_level):
     if 'FlattenAtWaterLevel' in bpy.data.node_groups:
@@ -302,38 +379,6 @@ def _make_water_depth_material(water_level, water_attenuation):
     material_output.location = (7 * NODE_SPACING, 0)
     node_tree.links.new(diffuse_bsdf.outputs['BSDF'], material_output.inputs['Surface'])
     return material
-
-def _make_add_ambinet_light(ambient_light_level):
-    if 'AddAmbientLight' in bpy.data.node_groups:
-        node_group = bpy.data.node_groups['AddAmbientLight']
-        bpy.data.node_groups.remove(node_group)
-
-    node_tree = bpy.data.node_groups.new(type = 'CompositorNodeTree', name = "AddAmbientLight")
-
-    image = node_tree.nodes.new("CompositorNodeImage")
-    image.name = "SrcImage"
-
-    node_tree.interface.new_socket(name="Image", in_out='OUTPUT', socket_type='NodeSocketColor')
-    group_output = node_tree.nodes.new("NodeGroupOutput")
-    group_output.name = "Group Output"
-    group_output.is_active_output = True
-
-    rgb_curves = node_tree.nodes.new("CompositorNodeCurveRGB")
-    rgb_curves_blue = rgb_curves.mapping.curves[2]
-    rgb_curves_blue_point_low = rgb_curves_blue.points[0]
-    rgb_curves_blue_point_low.location = (0.0, 1 - ambient_light_level)
-    rgb_curves.mapping.update()
-
-    node_tree.links.new(
-        image.outputs['Image'],
-        rgb_curves.inputs['Image']
-    )
-    node_tree.links.new(
-        rgb_curves.outputs['Image'],
-        group_output.inputs['Image']
-    )
-
-    return node_tree
 
 def _make_combine_channels():
     if 'CombineLightAndWaterDepth' in bpy.data.node_groups:
@@ -440,51 +485,19 @@ def find_heightmap(context):
         if obj.name.startswith('Heightmap'):
             return obj
 
-def add_ambient_light(context, src_dir, out_dir, intensity, dds_fmt='NONE'):
-    view_transform = context.scene.view_settings.view_transform
-    context.scene.view_settings.view_transform = 'Standard'
-    add_ambient_light = _make_add_ambinet_light(intensity)
-    context.scene.compositing_node_group = add_ambient_light
-
-    if 'Render Result' in bpy.data.images:
-        render_result = bpy.data.images['Render Result']
-        bpy.data.images.remove(render_result)
-
-    for file in os.listdir(src_dir):
-        filepath = path.join(src_dir, file)
-        if not path.isfile(filepath):
-            continue
-        if not file.endswith(".dds"):
-            continue
-
-        image = bpy.data.images.load(filepath, check_existing=True)
-        image.alpha_mode = 'NONE'
-
-        add_ambient_light.nodes['SrcImage'].image = image
-        context.scene.render.resolution_x = image.size[0]
-        context.scene.render.resolution_y = image.size[1]
-        bpy.ops.render.render()
-
-        # save output
-        render_result = bpy.data.images['Render Result']
-        save_img_as_dds(render_result, path.join(out_dir, f'{file}.dds'), dds_fmt)
-
-        # cleanup
-        add_ambient_light.nodes['SrcImage'].image = None
-        bpy.data.images.remove(image)
-        bpy.data.images.remove(render_result)
-
-    context.scene.view_settings.view_transform = view_transform
-
 class TerrainBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE',
-                 patch_count=None, patch_size=None,
+                 patch_count=None, patch_size=None, skip_existing=False,
                  reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
         self.patch_count = patch_count
         self.patch_size = patch_size
         self.reporter = reporter
         self.terrain = find_heightmap(context)
+        self.existing_patches = set()
+        if skip_existing:
+            existing = get_all_lightmap_files(output_dir)
+            self.existing_patches = [e for e in existing if re.match(r'tx\d{2}x\d{2}', e)]
 
         if not self.terrain:
             raise RuntimeError(f'Heightmap object not found')
@@ -581,48 +594,50 @@ class TerrainBaker(BakerBase):
             return False
 
         name = f'tx{self.col:02d}x{self.row:02d}'
-        print(f"Baking terrain patch {self.completed_items() + 1}/{self.patch_count}")
+        if name in self.existing_patches:
+            print(f"Skipped terrain patch {self.completed_items() + 1}/{self.patch_count}")
+        else:
+            print(f"Baking terrain patch {self.completed_items() + 1}/{self.patch_count}")
 
-        light_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=self.patch_size, height=self.patch_size)
-        water_depth_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=self.patch_size, height=self.patch_size)
+            light_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=self.patch_size, height=self.patch_size)
+            water_depth_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=self.patch_size, height=self.patch_size)
 
-        for water_pass in [False, True]:
-            if water_pass:
-                self.flatten_water_mod.show_render = False
-                mesh.materials[0] = self.water_depth_mat
-                self.texture_node_water_depth.image = water_depth_map
-            else:
-                self.flatten_water_mod.show_render = True
-                mesh.materials[0] = self.default_terrain_mat
-                self.texture_node_light.image = light_map
+            for water_pass in [False, True]:
+                if water_pass:
+                    self.flatten_water_mod.show_render = False
+                    mesh.materials[0] = self.water_depth_mat
+                    self.texture_node_water_depth.image = water_depth_map
+                else:
+                    self.flatten_water_mod.show_render = True
+                    mesh.materials[0] = self.default_terrain_mat
+                    self.texture_node_light.image = light_map
 
-            context.scene.render.bake.use_pass_direct = not water_pass
-            context.scene.render.bake.use_pass_indirect = not water_pass
-            context.scene.render.bake.use_pass_color = water_pass
-            bpy.ops.object.bake(type='DIFFUSE', uv_layer=self.uv_layer.name)
+                context.scene.render.bake.use_pass_direct = not water_pass
+                context.scene.render.bake.use_pass_indirect = not water_pass
+                context.scene.render.bake.use_pass_color = water_pass
+                bpy.ops.object.bake(type='DIFFUSE', uv_layer=self.uv_layer.name)
 
-        # combine both passes in compositor
-        self.combine_channels.nodes['LightMap'].image = light_map
-        self.combine_channels.nodes['WaterDepthMap'].image = water_depth_map
-        context.scene.render.resolution_x = self.patch_size
-        context.scene.render.resolution_y = self.patch_size
-        bpy.ops.render.render()
+            # combine both passes in compositor
+            self.combine_channels.nodes['LightMap'].image = light_map
+            self.combine_channels.nodes['WaterDepthMap'].image = water_depth_map
+            context.scene.render.resolution_x = self.patch_size
+            context.scene.render.resolution_y = self.patch_size
+            bpy.ops.render.render()
 
-        # save output
-        render_result = bpy.data.images['Render Result']
-        self.save_bake(render_result, name)
+            # save output
+            render_result = bpy.data.images['Render Result']
+            self.save_bake(render_result, name)
 
-        # cleanup
-        self.combine_channels.nodes['LightMap'].image = None
-        self.combine_channels.nodes['WaterDepthMap'].image = None
-        bpy.data.images.remove(light_map)
-        bpy.data.images.remove(water_depth_map)
-        bpy.data.images.remove(render_result)
+            # cleanup
+            self.combine_channels.nodes['LightMap'].image = None
+            self.combine_channels.nodes['WaterDepthMap'].image = None
+            bpy.data.images.remove(light_map)
+            bpy.data.images.remove(water_depth_map)
+            bpy.data.images.remove(render_result)
 
         self.row += 1
         for loop in mesh.loops:
             self.uv_layer.data[loop.index].uv[1] += 1
-
         return True
 
 # -------------------
@@ -661,12 +676,18 @@ def _gen_lm_key(geom_template_name, position, lod):
 
 class ObjectBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE', lod_mask=None,
-                 only_selected=True, normal_maps=True, reporter=DEFAULT_REPORTER):
+                 only_selected=True, normal_maps=True, skip_existing=False,
+                 reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
         self.lod_mask = lod_mask
         self.reporter = reporter
         self.normal_maps = normal_maps
         self.objects = list()
+
+        self.existing_lods = set()
+        if skip_existing:
+            self.existing_lods = get_all_lightmap_files(output_dir)
+            # TODO: filter terrain
 
         if only_selected:
             for obj in context.selected_objects:
@@ -721,8 +742,10 @@ class ObjectBaker(BakerBase):
                 mesh = lod_obj.data
                 geom_temp_name = _strip_prefix(mesh.name)
                 lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
-                lm_size = tuple(lod_obj.bf2_lightmap_size)
+                if lm_name in self.existing_lods:
+                    continue
 
+                lm_size = tuple(lod_obj.bf2_lightmap_size)
                 if lm_size == (0, 0):
                     self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
                     continue

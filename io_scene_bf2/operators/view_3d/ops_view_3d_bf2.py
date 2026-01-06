@@ -390,6 +390,12 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         default=1024
     ) # type: ignore
 
+    resume: BoolProperty(
+        name="Resume",
+        description="Resume previously canceled bake by skipping Objects which has been lightmapped already",
+        default=False
+    ) # type: ignore
+
     @classmethod
     def is_running(cls, context):
         for op in context.window.modal_operators:
@@ -456,6 +462,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
                                 dds_fmt=self.dds_compression,
                                 only_selected=self.bake_objects_mode == 'ONLY_SELECTED',
                                 normal_maps=self.normal_maps,
+                                skip_existing=self.resume,
                                 reporter=Reporter(self.report))
             self.bakers.append(baker)
         if self.bake_terrain:
@@ -463,6 +470,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
                                  dds_fmt=self.dds_compression,
                                  patch_count=self.patch_count,
                                  patch_size=self.patch_size,
+                                 skip_existing=self.resume,
                                  reporter=Reporter(self.report))
             self.bakers.append(baker)
 
@@ -506,7 +514,8 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             col.prop(scene, "bf2_lm_patch_count")
             col.prop(scene, "bf2_lm_patch_size")
             col.enabled = scene.bf2_lm_bake_terrain
-            body.separator(factor=1.0, type='SPACE')
+            body.separator(factor=1.0, type='LINE')
+            body.prop(scene, "bf2_lm_resume")
             props = main.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
             props.outdir = scene.bf2_lm_outdir
             props.dds_compression = scene.bf2_lm_dds_compression
@@ -516,6 +525,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             props.patch_count = scene.bf2_lm_patch_count
             props.patch_size = scene.bf2_lm_patch_size
             props.normal_maps = scene.bf2_lm_normal_maps
+            props.resume = scene.bf2_lm_resume
 
             if VIEW3D_OT_bf2_bake.is_running(context):
                 row = layout.row()
@@ -636,7 +646,15 @@ def register():
     bpy.types.Scene.bf2_lm_normal_maps = BoolProperty(
         name="Normal Maps",
         description="When disabled, bakes lightmaps without normal maps on materials. Usually results in less noisy lightmaps",
-        default=False
+        default=False,
+        options=set()  # Remove ANIMATABLE default option.
+    ) # type: ignore
+
+    bpy.types.Scene.bf2_lm_resume = BoolProperty(
+        name="Resume",
+        description="Resume previously canceled bake by skipping Objects which has been lightmapped already",
+        default=False,
+        options=set()  # Remove ANIMATABLE default option.
     ) # type: ignore
 
     bpy.utils.register_class(VIEW3D_PT_bf2_lightmapping_Panel)
@@ -649,6 +667,7 @@ def unregister():
     bpy.utils.unregister_class(VIEW3D_OT_bf2_new_lm_config)
     bpy.utils.unregister_class(VIEW3D_OT_bf2_lm_post_process)
 
+    del bpy.types.Scene.bf2_lm_resume
     del bpy.types.Scene.bf2_lm_normal_maps
     del bpy.types.Scene.bf2_lm_ambient_light_level
     del bpy.types.Scene.bf2_lm_progress_value
