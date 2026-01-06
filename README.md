@@ -1,18 +1,27 @@
 # Blender addon for Battlefield 2
-I'm probably like 15 years late but anyway, here are some tools for importing and exporting Refractor 2 engine asset files for Blender!
+I'm probably like 15 years late but anyway, here are some Blender tools for working with Refractor 2 engine asset files and more!
 
 ## Features:
-- Skeleton (`.ske`) import/export
-- Animation (`.baf`) import/export
-- StaticMesh (`.staticMesh`) import/export (including lightmap samples)
-- SkinnedMesh (`.skinnedMesh`) import/export
-- BundledMesh (`.bundledMesh`) import/export
-- CollisionMesh (`.collisionMesh`) import/export
-- Occlusion Mesh (`.occ`) import/export
+Import & export support of:
+- Skeleton (`.ske`)
+- Animation (`.baf`)
+- StaticMesh (`.staticMesh`) including lightmap samples
+- SkinnedMesh (`.skinnedMesh`)
+- BundledMesh (`.bundledMesh`)
+- CollisionMesh (`.collisionMesh`)
+- Occlusion Mesh (`.occ`)
+
+As well as many other utilities for:
+- Lightmapping
+- Skeleton rigging
+- Making overgrowth LODs
+- BundledMesh skinning
 
 ## Compatibility
-- Blender 4.2 or later
-- Windows x64, Linux x64 and macOS x64 (Intel). For ARM or other platforms see building instructions at [BSP Builder](bsp_builder/README.md).
+- Blender 4.2 or later required.
+- Supports all platforms with the following exceptions:
+  * ARM (Any platform) - CollostionMesh export is significantly slower (see [BSP Builder](bsp_builder/README.md)).
+  * Windows ARM - DDS export not supported (ligtmapping/OG lod generations)
 
 ## Installation
 Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) (NOT `Source code (zip)`!) and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)

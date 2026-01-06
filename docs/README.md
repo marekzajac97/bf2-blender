@@ -21,6 +21,7 @@
   * [Animated UVs (BundledMesh)](#animated-uvs-bundledmesh)
   * [Skinning (SkinnedMesh)](#skinning-skinnedmesh)
   * [Overgrowth LOD Generation](#overgrowth-lod-generation)
+- [Lightmapping](#lightmapping)
 - [Video Tutorials](#video-tutorials)
 - [Scripting](#scripting)
 
@@ -287,11 +288,30 @@ Bare in mind that to export properly, each vertex must have at most two weights 
 ## Overgrowth LOD Generation
 The add-on also ships with the OG LOD generation tool which can create a low quality OG mesh variant from the base mesh. The tool can be found under `Object` -> `BF2` submenu and its usage is quite straightforward. NOTE: You need to have the base OG imported as `ObjectTempalte (.con)`, not as `StaticMesh (.staticmesh)` for it to work. 
 
+# Lightmapping
+This is a short guide on how to bake lightmaps using Blender Cycles rendering engine. Given my lack of knowledge in this area the feature is still in experimental state and largely untested. You may require some manual tinkering to get decent results. Feel free to open a GitHub issue if something doesn't work as it should or feel like could be automated. The lightmapping tools are accessible from the [Sidebar](https://docs.blender.org/manual/en/latest/interface/window_system/regions.html#sidebar), BF2 section.
+## Setting up the scene
+The first (optional) step is to prepare a configuration file. This defines how to load and post-process assets for lightmapping, but most importantly it contains the list of objects that should emit light. Click on the `+` icon to create a new config template and follow the descriptions of fields provided in comments, add what you need and remember to save it afterwards! When your config file is ready, make sure that your map files are unpacked and proceed with importing them using the `Load level` button, be patient as it may take a few minutes. If loading succeeds, you should see these four collections being created:
+- **StaticObjects**: contains all the objects that should to receive lightmaps
+- **StaticObjects_SkipLightmaps**: contains all the objects that aren't StaticMeshes or have `GeometryTemplate.dontGenerateLightmaps 1`
+- **Lights**: contains all the point lights as well as the *Sun*
+- **Heightmaps**: contains just the primary heightmap. The heightmap will have a modifier applied which flattens all the vertices below the water level so that terrain shadows are casted on the water surface.
+## Post-load actions
+- It's very important to check the [Info Logs](https://docs.blender.org/manual/en/latest/editors/info_editor.html) for errors and warnings from the loading process, and try to fix them. If some meshes fail to import they won't receive any lightmaps nor cast any shadows!
+- Verify and tweak configured lightmap sizes, especially if you used automatic lightmap size based on mesh surface area feature. You can use `Select -> BF2 -> By Lightmap Size` or check the size in *Object Properties* for each LOD. LODs can be skipped during lightmapping if their lightmap size is set to zero.
+- Tweak the intensity of the *Sun* light, its color should be green. Tweak the intensity of the sky light (in Blender called [World](https://docs.blender.org/manual/en/latest/render/lights/world.html) background) its color should be blue, Verify your point light placement and parameters (intensity, radius etc.), their color should be red (unless you need them to appear on the terrain).
+## Baking
+First of all, make sure that you configured [GPU Rendering](https://docs.blender.org/manual/en/latest/render/cycles/gpu_rendering.html). Make a test bake for a single object by unchecking *Terrain* and choosing *Only Selected* for *Objects*. If the result ends up noisy adjust Render settings like [Sampling](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html) to achieve good quality lightmaps (default settings probably won't be good enough). It may also help to  uncheck *Normal Maps*. This will generally produce smoother lightmaps as Blender won't be trying to bake all the little shadows from normal maps that end up looking like noise on a low resolution lightmap. When your test bake looks good, you may switch *Objects* mode to *All*, hit *Bake* and be patient, this process may take DAYS.
+## Post-processing (Ambient lights)
+After your lightmaps are baked you will notice that some areas like interiors that don't receive much sunlight or skylight are way too dark, so you may want to add some ambient light to the lightmaps. The ambient light is basically a "flat" light uniformly affecting every surface. I couldn't find a good way to implement such lightning in Blender therefore it can only be added to lightmaps post bake. This has a disadvantage of not beeing able to see it in the render preview but the benefit of quickly changing the amount of ambient light later without re-baking.
+
 # Video Tutorials
+Some of the tutorials might be slightly outdated, always read the documenatation first!
 - [Animation - rig setup, export, import and editing (by Ekiso)](https://youtu.be/xO1848HzetQ)
 - [StaticMesh - hierarchy, materials and export (by Ason)](https://www.youtube.com/watch?v=H97o0d3zkoY)
 - [BundledMesh - simple weapon export (by Krayt)](https://www.youtube.com/watch?v=crQRXm-4lxQ)
 - [BundledMesh - tracked vehicle export (by Krayt)](https://www.youtube.com/watch?v=HYPFTYakv1M)
+- [StaticMesh/Overgrowth - making a tree (by Ason)](https://www.youtube.com/watch?v=5DY9qKfWWBE)
 
 # Scripting
 The add-on import/export functions can be used in python scripts to automate tasks, some examples below.

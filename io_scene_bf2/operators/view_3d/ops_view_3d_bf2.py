@@ -154,7 +154,7 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
         description="Intensity of the ambient light",
         min=0.0,
         max=1.0,
-        default=0.633
+        default=0.3
     ) # type: ignore
 
     def execute(self, context):
@@ -629,7 +629,7 @@ def register():
         name="Ambient light intensity",
         min=0.0,
         max=1.0,
-        default=0.633,
+        default=0.3,
         options=set()  # Remove ANIMATABLE default option.
     ) # type: ignore
 
