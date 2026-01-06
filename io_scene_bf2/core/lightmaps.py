@@ -485,6 +485,17 @@ def find_heightmap(context):
         if obj.name.startswith('Heightmap'):
             return obj
 
+def _offset_uvs(uv_layer, u, v):
+    tmp = len(uv_layer.data) * 2 * [None]
+    uv_layer.data.foreach_get('uv', tmp)
+    def do_offset(i, value):
+        if i % 2 == 0:
+            return value + u
+        else:
+            return value + v
+    tmp = [do_offset(i, value) for i, value in enumerate(tmp)]
+    uv_layer.data.foreach_set('uv', tmp)
+
 class TerrainBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE',
                  patch_count=None, patch_size=None, skip_existing=False,
@@ -498,6 +509,7 @@ class TerrainBaker(BakerBase):
         if skip_existing:
             existing = get_all_lightmap_files(output_dir)
             self.existing_patches = [e for e in existing if re.match(r'tx\d{2}x\d{2}', e)]
+            # TODO: detect which terrain patches to skip entirely and do UV offset at one go based on skipped row/col
 
         if not self.terrain:
             raise RuntimeError(f'Heightmap object not found')
@@ -536,10 +548,15 @@ class TerrainBaker(BakerBase):
         mesh.uv_layers.active = mesh.uv_layers['UVMap']
         self.uv_layer = mesh.uv_layers.new(name='LightmapBakeUV')
 
-        for loop in mesh.loops:
-            loop_uv = self.uv_layer.data[loop.index]
-            u, v = loop_uv.uv
-            loop_uv.uv = (self.grid_size * u, 1 - self.grid_size * v)
+        tmp = len(self.uv_layer.data) * 2 * [None]
+        self.uv_layer.data.foreach_get('uv', tmp)
+
+        def do_scale_and_offset(i, value):
+            if i % 2 == 0:
+                return self.grid_size * value
+            else:
+                return 1 - self.grid_size * value
+        self.uv_layer.data.foreach_set('uv', [do_scale_and_offset(i, value) for i, value in enumerate(tmp)])
 
         self.texture_node_light = _setup_material_for_baking(self.default_terrain_mat, uv=self.uv_layer.name)
         self.texture_node_water_depth = _setup_material_for_baking(self.water_depth_mat, uv=self.uv_layer.name)
@@ -583,10 +600,7 @@ class TerrainBaker(BakerBase):
             # next column
             self.row = 0
             self.col += 1
-            for loop in mesh.loops:
-                loop_uv = self.uv_layer.data[loop.index]
-                u, v = loop_uv.uv
-                loop_uv.uv = (u - 1, v - self.grid_size)
+            _offset_uvs(self.uv_layer, -1, -self.grid_size)
 
         if self.col >= self.grid_size:
             # cleanup & return
@@ -636,8 +650,7 @@ class TerrainBaker(BakerBase):
             bpy.data.images.remove(render_result)
 
         self.row += 1
-        for loop in mesh.loops:
-            self.uv_layer.data[loop.index].uv[1] += 1
+        _offset_uvs(self.uv_layer, 0, 1)
         return True
 
 # -------------------
