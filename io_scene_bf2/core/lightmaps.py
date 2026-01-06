@@ -142,58 +142,73 @@ def _make_add_ambinet_light(ambient_light_level):
     group_output.name = "Group Output"
     group_output.is_active_output = True
 
-    rgb_curves = node_tree.nodes.new("CompositorNodeCurveRGB")
-    rgb_curves_blue = rgb_curves.mapping.curves[2]
-    rgb_curves_blue_point_low = rgb_curves_blue.points[0]
-    rgb_curves_blue_point_low.location = (0.0, 1 - ambient_light_level)
-    rgb_curves.mapping.update()
+    separate_color = node_tree.nodes.new("CompositorNodeSeparateColor")
+    combine_color = node_tree.nodes.new("CompositorNodeCombineColor")
+
+    srgb_val = math.pow((ambient_light_level + 0.055) / 1.055, 2.4)
+    map_range = node_tree.nodes.new('ShaderNodeMapRange')
+    map_range.inputs['To Min'].default_value = srgb_val
 
     node_tree.links.new(
         image.outputs['Image'],
-        rgb_curves.inputs['Image']
+        separate_color.inputs['Image']
     )
     node_tree.links.new(
-        rgb_curves.outputs['Image'],
+        separate_color.outputs['Green'],
+        combine_color.inputs['Green']
+    )
+    node_tree.links.new(
+        separate_color.outputs['Red'],
+        combine_color.inputs['Red']
+    )
+    node_tree.links.new(
+        separate_color.outputs['Blue'],
+        map_range.inputs['Value']
+    )
+    node_tree.links.new(
+        map_range.outputs['Result'],
+        combine_color.inputs['Blue']
+    )
+    node_tree.links.new(
+        combine_color.outputs['Image'],
         group_output.inputs['Image']
     )
 
     return node_tree
 
 def add_ambient_light(context, src_dir, out_dir, intensity, dds_fmt='NONE'):
-    view_transform = context.scene.view_settings.view_transform
-    context.scene.view_settings.view_transform = 'Standard'
-    add_ambient_light = _make_add_ambinet_light(intensity)
-    context.scene.compositing_node_group = add_ambient_light
+    with PreserveColorSpaceSettings(context):
+        context.scene.view_settings.view_transform = 'Standard'
+        add_ambient_light = _make_add_ambinet_light(intensity)
+        context.scene.compositing_node_group = add_ambient_light
 
-    if 'Render Result' in bpy.data.images:
-        render_result = bpy.data.images['Render Result']
-        bpy.data.images.remove(render_result)
+        if 'Render Result' in bpy.data.images:
+            render_result = bpy.data.images['Render Result']
+            bpy.data.images.remove(render_result)
 
-    for file in os.listdir(src_dir):
-        filepath = path.join(src_dir, file)
-        if not path.isfile(filepath):
-            continue
-        if not file.endswith(".dds"):
-            continue
+        for file in os.listdir(src_dir):
+            filepath = path.join(src_dir, file)
+            if not path.isfile(filepath):
+                continue
+            if not file.endswith(".dds"):
+                continue
 
-        image = bpy.data.images.load(filepath, check_existing=True)
-        image.alpha_mode = 'NONE'
+            image = bpy.data.images.load(filepath, check_existing=True)
+            image.alpha_mode = 'NONE'
 
-        add_ambient_light.nodes['SrcImage'].image = image
-        context.scene.render.resolution_x = image.size[0]
-        context.scene.render.resolution_y = image.size[1]
-        bpy.ops.render.render()
+            add_ambient_light.nodes['SrcImage'].image = image
+            context.scene.render.resolution_x = image.size[0]
+            context.scene.render.resolution_y = image.size[1]
+            bpy.ops.render.render()
 
-        # save output
-        render_result = bpy.data.images['Render Result']
-        save_img_as_dds(render_result, path.join(out_dir, f'{file}.dds'), dds_fmt)
+            # save output
+            render_result = bpy.data.images['Render Result']
+            save_img_as_dds(render_result, path.join(out_dir, f'{file}.dds'), dds_fmt)
 
-        # cleanup
-        add_ambient_light.nodes['SrcImage'].image = None
-        bpy.data.images.remove(image)
-        bpy.data.images.remove(render_result)
-
-    context.scene.view_settings.view_transform = view_transform
+            # cleanup
+            add_ambient_light.nodes['SrcImage'].image = None
+            bpy.data.images.remove(image)
+            bpy.data.images.remove(render_result)
 
 def get_all_lightmap_files(dir):
     files = set()
@@ -271,6 +286,17 @@ LIGHT_SOURCES = [
     # {'at': 'bunkerlight', 'intensity': 200.0, 'radius': 0.01, 'offset': (-0.0035, 0.002, 0.597)},
 ]
 """
+
+class PreserveColorSpaceSettings():
+    def __init__(self, context):
+        self.context = context
+
+    def __enter__(self):
+        self.view_transform = self.context.scene.view_settings.view_transform
+        return self
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        self.context.scene.view_settings.view_transform = self.view_transform
 
 # -------------------
 # baking terrain
@@ -535,8 +561,6 @@ class TerrainBaker(BakerBase):
         self.water_depth_mat = bpy.data.materials['WaterDepth']
         self.flatten_water_mod = self.terrain.modifiers['FlattenAtWaterLevel']
 
-        self.view_transform = context.scene.view_settings.view_transform
-        context.scene.view_settings.view_transform = 'Standard'
         self.combine_channels = _make_combine_channels()
         context.scene.compositing_node_group = self.combine_channels
 
@@ -581,7 +605,6 @@ class TerrainBaker(BakerBase):
     def cleanup(self, context):
         mesh = self.terrain.data
         context.scene.compositing_node_group = None
-        context.scene.view_settings.view_transform = self.view_transform
         mesh.materials[0] = self.default_terrain_mat
         mesh.uv_layers.remove(self.uv_layer)
 
@@ -632,22 +655,24 @@ class TerrainBaker(BakerBase):
                 bpy.ops.object.bake(type='DIFFUSE', uv_layer=self.uv_layer.name)
 
             # combine both passes in compositor
-            self.combine_channels.nodes['LightMap'].image = light_map
-            self.combine_channels.nodes['WaterDepthMap'].image = water_depth_map
-            context.scene.render.resolution_x = self.patch_size
-            context.scene.render.resolution_y = self.patch_size
-            bpy.ops.render.render()
+            with PreserveColorSpaceSettings(context):
+                context.scene.view_settings.view_transform = 'Standard'
+                self.combine_channels.nodes['LightMap'].image = light_map
+                self.combine_channels.nodes['WaterDepthMap'].image = water_depth_map
+                context.scene.render.resolution_x = self.patch_size
+                context.scene.render.resolution_y = self.patch_size
+                bpy.ops.render.render()
 
-            # save output
-            render_result = bpy.data.images['Render Result']
-            self.save_bake(render_result, name)
+                # save output
+                render_result = bpy.data.images['Render Result']
+                self.save_bake(render_result, name)
 
-            # cleanup
-            self.combine_channels.nodes['LightMap'].image = None
-            self.combine_channels.nodes['WaterDepthMap'].image = None
-            bpy.data.images.remove(light_map)
-            bpy.data.images.remove(water_depth_map)
-            bpy.data.images.remove(render_result)
+                # cleanup
+                self.combine_channels.nodes['LightMap'].image = None
+                self.combine_channels.nodes['WaterDepthMap'].image = None
+                bpy.data.images.remove(light_map)
+                bpy.data.images.remove(water_depth_map)
+                bpy.data.images.remove(render_result)
 
         self.row += 1
         _offset_uvs(self.uv_layer, 0, 1)
