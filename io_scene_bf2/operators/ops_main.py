@@ -63,7 +63,7 @@ def register():
     bpy.utils.register_class(BF2_OT_bf2_mod_path_remove)
     bpy.utils.register_class(BF2_OT_bf2_mod_path_add)
 
-    # debug_set_mod_path()
+    debug_set_mod_path()
 
 def unregister():
     bpy.utils.unregister_class(BF2_OT_bf2_mod_path_add)
@@ -99,7 +99,9 @@ def debug_set_mod_path():
     if len(prefs.mod_directories) != 0:
         return
     import os
-    BF2_PATHS = [r'D:\Battlefield 2\mods\fh2', r'D:\Battlefield 2\mods\bf2']
+    BF2_PATHS = [r'D:\Battlefield 2\mods\fh2',
+                 r'D:\Battlefield 2\mods\bf2',
+                 r'D:\Project Reality\mods\pr']
     for path in BF2_PATHS:
         if not os.path.isdir(path):
             continue

@@ -255,16 +255,22 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
     # alpha mode
     has_alpha = False
-    if material.bf2_alpha_mode == 'NONE' or is_trunk:
+    if is_trunk:
         material.blend_method = 'OPAQUE'
-    elif material.bf2_alpha_mode == 'ALPHA_TEST' or is_leaf:
+    elif is_leaf:
         has_alpha = True
         material.blend_method = 'CLIP'
-    elif material.bf2_alpha_mode == 'ALPHA_BLEND':
-        has_alpha = True
-        material.blend_method = 'BLEND'
     else:
-        raise RuntimeError(f"Unknown alpha mode '{material.bf2_alpha_mode}'")
+        if material.bf2_alpha_mode == 'NONE':
+            material.blend_method = 'OPAQUE'
+        elif material.bf2_alpha_mode == 'ALPHA_TEST':
+            has_alpha = True
+            material.blend_method = 'CLIP'
+        elif material.bf2_alpha_mode == 'ALPHA_BLEND':
+            has_alpha = True
+            material.blend_method = 'BLEND'
+        else:
+            raise RuntimeError(f"Unknown alpha mode '{material.bf2_alpha_mode}'")
 
     # create UV map nodes
     uv_map_nodes = dict()
