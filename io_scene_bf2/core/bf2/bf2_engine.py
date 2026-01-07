@@ -138,10 +138,10 @@ class MainConsole():
             return
 
         # check comment
-        if self._inside_comment or op == 'rem':
+        if op == 'rem':
             return
         if op == 'beginrem':
-            self._inside_comment = True
+            self._ignore = self._inside_comment = True
             return
 
         # check branch

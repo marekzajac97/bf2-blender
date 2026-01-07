@@ -768,7 +768,12 @@ class ObjectBaker(BakerBase):
         root_obj = self.objects.pop(0)
 
         print(f"Baking object {root_obj.name} {self.completed_items()}/{self.total_count}")
-        geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
+        try:
+            geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
+        except Exception as e:
+            self.reporter.warning(f"Skipping bake for '{root_obj.name}': {e}")
+            return True
+
         for geom_idx, geom in enumerate(geoms):
             if geom_idx != 0: # TODO: Geom1 support
                 continue
@@ -1068,6 +1073,7 @@ def load_level(context, level_dir, use_cache=True,
         BF2Engine().shutdown()
         if not any([mod_dir.lower() == t.rstrip('/').rstrip('\\').lower() for t in texture_paths]):
             texture_paths.append(mod_dir)
+        texture_paths.append(level_dir) # for objects inside levels dir
         BF2Engine().file_manager.root_dirs = texture_paths
 
     file_manager = BF2Engine().file_manager

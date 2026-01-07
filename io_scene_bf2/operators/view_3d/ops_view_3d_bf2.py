@@ -276,6 +276,8 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
         try:
             if context.scene.bf2_lm_config_file:
                 config = context.scene.bf2_lm_config_file.as_module()
+            else:
+                config = None
 
             load_level(context, filepath,
                        load_static_objects=self.load_static_objects,
