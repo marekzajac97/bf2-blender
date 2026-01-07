@@ -84,7 +84,7 @@ def _setup_scene_for_baking(context):
     context.scene.cycles.bake_type = 'DIFFUSE'
     context.scene.render.bake.use_pass_direct = True
     context.scene.render.bake.use_pass_indirect = True
-    context.scene.render.bake.use_pass_color = True
+    context.scene.render.bake.use_pass_color = False
 
 def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
     node_tree = material.node_tree
@@ -1060,8 +1060,6 @@ def load_level(context, level_dir, use_cache=True,
         config = module_from_file(config_file)
 
     lm_size_thresholds = _get_lm_size_thresholds(config, reporter)
-    if not lm_size_thresholds:
-        return
 
     if not load_unpacked:
         mod_loader = ModLoader(mod_dir, use_cache)
@@ -1188,10 +1186,14 @@ def load_level(context, level_dir, use_cache=True,
                 else:
                     # guess using surface area of the mesh
                     mesh_area = _calc_mesh_area(lod_obj)
-                    for lms, min_area in reversed(lm_size_thresholds):
-                        if mesh_area >= min_area:
-                            lm_size = (lms, lms)
-                            break
+                    if not lm_size_thresholds:
+                        reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
+                        lm_size = (0, 0)
+                    else: 
+                        for lms, min_area in reversed(lm_size_thresholds):
+                            if mesh_area >= min_area:
+                                lm_size = (lms, lms)
+                                break
             if lm_size is None:
                 lm_size = (MIN_LM_SIZE, MIN_LM_SIZE)
             if lod_idx == 0:
