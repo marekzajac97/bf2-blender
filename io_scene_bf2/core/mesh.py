@@ -113,7 +113,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
                  texture_paths=[], geom_to_ske=None, merge_materials=True,
-                 load_backfaces=True, loader=None, warn_bad_faces=True, reporter=DEFAULT_REPORTER):
+                 load_backfaces=True, loader=None, silent=False, reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
 
@@ -132,7 +132,7 @@ class MeshImporter:
         self.mesh_materials = []
         self.merge_materials = merge_materials
         self.load_backfaces = load_backfaces
-        self.warn_bad_faces = warn_bad_faces
+        self.silent = silent
 
     def import_mesh(self, name='', geom=None, lod=None):
         try:
@@ -258,14 +258,16 @@ class MeshImporter:
 
                 material.bf2_technique= bf2_mat.technique
                 if material.bf2_shader == 'STATICMESH' and 'parallaxdetail' in material.bf2_technique:
-                    self.reporter.warning(f"'{name}': Ignoring technique 'parallaxdetail', (not supported)")
+                    if not self.silent:
+                        self.reporter.warning(f"'{name}': Ignoring technique 'parallaxdetail', (not supported)")
                     material.bf2_technique = material.bf2_technique.replace('parallaxdetail', '')
 
                 texture_map_types = TEXTURE_MAPS[material.bf2_shader]
                 texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
                 for map_type, map_file in texture_maps.items():
                     if os.path.isabs(map_file):
-                        self.reporter.warning(f"Invalid material texture map path: '{map_file}' is an absolute path, ignoring and converting to relative path...")
+                        if not self.silent:
+                            self.reporter.warning(f"Invalid material texture map path: '{map_file}' is an absolute path, ignoring and converting to relative path...")
                         map_file = map_file.lstrip('/').lstrip('\\')
                     type_index = texture_map_types.index(map_type)
                     setattr(material, f'texture_slot_{type_index}', map_file)
@@ -320,7 +322,7 @@ class MeshImporter:
         bm.to_mesh(mesh)
         bm.free()
 
-        if fucked_up_faces and self.warn_bad_faces:
+        if fucked_up_faces and not self.silent:
             self.reporter.warning(f"'{name}': Skipped {fucked_up_faces} invalid faces")
 
         # mark faces with backfaces
