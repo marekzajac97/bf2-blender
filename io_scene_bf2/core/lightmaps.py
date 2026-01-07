@@ -34,8 +34,6 @@ MESH_TYPES = {
     'SkinnedMesh': BF2SkinnedMesh
 }
 
-DEBUG = False
-
 def module_from_file(py_file):
     import importlib.util
     spec = importlib.util.spec_from_file_location("lm_config", py_file)
@@ -1089,16 +1087,10 @@ def load_level(context, level_dir, use_cache=True,
 
     main_console.report_cb = report_cb
 
-    client_zip_path = path.join(level_dir, 'client.zip')
-    server_zip_path = path.join(level_dir, 'server.zip')
-
     # mount level archives
     if not load_unpacked:
-        file_manager.mountArchive(client_zip_path, level_dir)
-        file_manager.mountArchive(server_zip_path, level_dir)
-
-    if DEBUG:
-        print(f"Loading statics")
+        file_manager.mountArchive(path.join(level_dir, 'client.zip'), level_dir)
+        file_manager.mountArchive(path.join(level_dir, 'server.zip'), level_dir)
 
     # load statics & OG
     if load_static_objects or load_overgrowth:
@@ -1134,13 +1126,10 @@ def load_level(context, level_dir, use_cache=True,
     static_objects_skip = _make_collection(context, "StaticObjects_SkipLightmaps")
     lm_keys = set()
 
-    for idx, (template_name, temp_cfg) in enumerate(templates.items()):
+    for template_name, temp_cfg in templates.items():
         geom_temp = temp_cfg.geom
         if not geom_temp:
             continue # skip, just for point lights
-
-        if DEBUG:
-            print(f"Importing {geom_temp.name} | {idx}/{len(templates)}")
 
         data = file_manager.readFile(geom_temp.location, as_stream=True)
         mesh_type = MESH_TYPES.get(geom_temp.geometry_type)
@@ -1234,17 +1223,12 @@ def load_level(context, level_dir, use_cache=True,
         # delete source objects, keep mesh instances
         delete_object(mesh_obj, remove_data=False)
 
-    if DEBUG:
-        print(f"Loading heightmap")
-
     if load_heightmap:
         _load_heightmap(context, level_dir, water_attenuation)
 
-    if DEBUG:
-        print(f"Loading lights")
-
-    lights = _make_collection(context, "Lights")
     if load_lights:
+        lights = _make_collection(context, "Lights")
+
         # sun (green channel)
         main_console.run_file(path.join(level_dir, 'Sky.con'))
         sun_dir = Vector(BF2Engine().light_manager.sun_dir)
