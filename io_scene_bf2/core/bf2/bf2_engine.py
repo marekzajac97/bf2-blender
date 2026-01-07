@@ -75,7 +75,7 @@ class MainConsole():
         def __init__(self, con_file):
             self._con_file = con_file
             self._constants = dict()
-            self._variables = set()
+            self._variables = dict()
 
     def __init__(self, silent = False):
         self._silent = silent
@@ -234,7 +234,10 @@ class MainConsole():
         # TODO: while, return keywords??
         # TODO: variable assignmnets as con outputs with ->
 
-        self._execute_object_method(command, args)
+        try:
+            self._execute_object_method(command, args)
+        except ValueError:
+            self.report('Wrong syntax')
         self._processed_directive = ''
 
     def _const_or_var(self, name):
@@ -432,7 +435,7 @@ class ObjectTemplate(Template):
         POINT = 1
         PLATFORM = 2
         MESH = 3
-        ROTATIONAL_POINT = 4
+        ROTATIONALPOINT = 4
 
     class ChildObject:
         def __init__(self, name):
@@ -654,9 +657,7 @@ class CollisionMeshTemplate(Template):
 class CollisionManager(TemplateManager):
     MANAGED_TYPE = CollisionMeshTemplate
 
-    @classmethod
-    def createTemplate(cls, name):
-        self = BF2Engine().get_manager(cls.MANAGED_TYPE)
+    def createTemplate(self, name):
         self.create(name)
 
 
@@ -1053,10 +1054,10 @@ class BF2Engine():
         self.main_console : MainConsole = MainConsole(silent=True)
         self.main_console.register_object(ObjectTemplate)
         self.main_console.register_object(GeometryTemplate)
-        self.main_console.register_object(CollisionManager)
         self.main_console.register_object(Object)
         self.main_console.register_object(HeightmapCluster)
         self.main_console.register_object(Heightmap)
+        self.main_console.register_object(self.get_manager(CollisionMeshTemplate))
         self.main_console.register_object(self.file_manager)
         self.main_console.register_object(self.light_manager)
 

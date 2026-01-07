@@ -1052,11 +1052,20 @@ def _get_lm_size_thresholds(config, reporter):
             prev_thresh = thresh
     return lm_size_thresholds
 
+def _run_all_con_files(root_dir):
+    if not path.isdir(root_dir):
+        return
+    main_console = BF2Engine().main_console
+    for root, _, files in os.walk(root_dir):
+        for filename in files:
+            if filename.endswith('.con'):
+                main_console.run_file(os.path.join(root, filename))
+
 def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
                water_attenuation=0.1, texture_paths=[], max_lod_to_load=None,
-               config=None, config_file='', reporter=DEFAULT_REPORTER):
+               config=None, config_file='', run_all_con_files=True, reporter=DEFAULT_REPORTER):
 
     level_dir = level_dir.rstrip('/').rstrip('\\')
     mod_dir = path.normpath(path.join(level_dir, '..', '..'))
@@ -1075,6 +1084,9 @@ def load_level(context, level_dir, use_cache=True,
             texture_paths.append(mod_dir)
         texture_paths.append(level_dir) # for objects inside levels dir
         BF2Engine().file_manager.root_dirs = texture_paths
+        if run_all_con_files:
+            _run_all_con_files(os.path.join(mod_dir, 'objects'))
+            _run_all_con_files(os.path.join(level_dir, 'objects'))
 
     file_manager = BF2Engine().file_manager
     main_console = BF2Engine().main_console
@@ -1107,7 +1119,10 @@ def load_level(context, level_dir, use_cache=True,
                 pass
 
         if load_static_objects:
-            args = ['BF2Editor'] if load_unpacked else []
+            if run_all_con_files or load_unpacked:
+                args = []
+            else:
+                args = ['BF2Editor']
             main_console.run_file(path.join(level_dir, 'StaticObjects.con'), args=args)
 
         if load_overgrowth:
