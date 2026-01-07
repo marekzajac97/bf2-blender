@@ -237,7 +237,7 @@ LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS = [
     # {'size': 1024, 'min_area': 2056}
 ]
 
-# Skips loading meshes for ObjectTemplates
+# Skips loading meshes for GeometryTemplates
 # whose .con locations match the pattern
 SKIP_OBJECT_TEMPLATE_PATHS = [
     # 'common/lightsources/dp_lights',
@@ -245,7 +245,7 @@ SKIP_OBJECT_TEMPLATE_PATHS = [
     # 'common/lightsources/nf_lights'
 ]
 
-# Skips loading meshes for ObjectTemplates
+# Skips loading meshes for GeometryTemplates
 # whose names match the pattern
 SKIP_OBJECT_TEMPLATES = [
     # 'e_sAmb_oiltower_fire',
@@ -254,7 +254,7 @@ SKIP_OBJECT_TEMPLATES = [
 ]
 
 # Disables backface culling on materials for
-# ObjectTemplates whose names match the pattern
+# GeometryTemplates whose names match the pattern
 FORCE_TWO_SIDED = [
     # 'command_underground'
 ]
@@ -889,28 +889,6 @@ def _calc_mesh_area(lod_obj):
     bm.free()
     return area
 
-def _clone_object(collection, src_root, name):
-    geoms = MeshExporter.collect_geoms_lods(src_root, skip_checks=True)
-    root = bpy.data.objects.new(name, None)
-    root.hide_render = True
-    collection.objects.link(root)
-    root.hide_set(True)
-    for geom_idx, geom in enumerate(geoms):
-        geom_obj = bpy.data.objects.new(f'G{geom_idx}__' + name, None)
-        geom_obj.parent = root
-        geom_obj.hide_render = True
-        collection.objects.link(geom_obj)
-        geom_obj.hide_set(True)
-        for lod_idx, src_lod_obj in enumerate(geom):
-            lod_obj = bpy.data.objects.new(f'G{geom_idx}L{lod_idx}__' + name, src_lod_obj.data)
-            lod_obj.parent = geom_obj
-            lod_obj.bf2_lightmap_size = src_lod_obj.bf2_lightmap_size
-            collection.objects.link(lod_obj)
-            if lod_idx != 0:
-                lod_obj.hide_render = True
-                lod_obj.hide_set(True)
-    return root
-
 def _load_heightmap(context, level_dir, water_attenuation):
     file_manager = BF2Engine().file_manager
     main_console = BF2Engine().main_console
@@ -976,7 +954,41 @@ class ObjectTemplateConfig:
         self.instances : List[Matrix] = list()
         self.point_light_cfg : Dict = point_light_cfg
 
-def _get_template_configs(template, matrix, config, templates : Dict[str, ObjectTemplateConfig]):
+class GeometryTemplateConfig:
+    class Lod:
+        def __init__(self, mesh, lm_size):
+            self.mesh = mesh
+            self.lm_size = lm_size
+
+    class Geom:
+        def __init__(self):
+            self.lods = list()
+
+    def __init__(self):
+        self.geoms = list()
+
+    def instantiate(self, collection, name):
+        root = bpy.data.objects.new(name, None)
+        root.hide_render = True
+        collection.objects.link(root)
+        root.hide_set(True)
+        for geom_idx, geom in enumerate(self.geoms):
+            geom_obj = bpy.data.objects.new(f'G{geom_idx}__' + name, None)
+            geom_obj.parent = root
+            geom_obj.hide_render = True
+            collection.objects.link(geom_obj)
+            geom_obj.hide_set(True)
+            for lod_idx, lod_data in enumerate(geom.lods):
+                lod_obj = bpy.data.objects.new(f'G{geom_idx}L{lod_idx}__' + name, lod_data.mesh)
+                lod_obj.parent = geom_obj
+                lod_obj.bf2_lightmap_size = lod_data.lm_size
+                collection.objects.link(lod_obj)
+                if lod_idx != 0:
+                    lod_obj.hide_render = True
+                    lod_obj.hide_set(True)
+        return root
+
+def _get_template_configs(template, matrix, config, templates : Dict[str, ObjectTemplateConfig], reporter):
     temp_cfg = templates.get(template.name.lower())
     if temp_cfg is None:
         template.add_bundle_childs() # resolve children
@@ -989,7 +1001,9 @@ def _get_template_configs(template, matrix, config, templates : Dict[str, Object
 
         if geom_name:
             geom_manager = BF2Engine().get_manager(GeometryTemplate)
-            geom = geom_manager.templates[geom_name.lower()]
+            geom = geom_manager.templates.get(geom_name.lower())
+            if not geom:
+                reporter.error(f"GeometryTemplate definition for '{geom_name}' not found")
         else:
             geom = None
 
@@ -1004,13 +1018,13 @@ def _get_template_configs(template, matrix, config, templates : Dict[str, Object
         if child.template is not None:
             child_matrix = _yaw_pitch_roll_to_matrix(child.rotation)
             child_matrix.translation = swap_zy(child.position)
-            _get_template_configs(child.template, matrix @ child_matrix, config, templates)
+            _get_template_configs(child.template, matrix @ child_matrix, config, templates, reporter)
 
-def _do_material_tweaks(config, template, mesh, texture_paths, reporter):
+def _do_material_tweaks(config, geom_temp_name, mesh, texture_paths, reporter):
     for material in mesh.materials:
         modified = False
         backface_cull = True
-        if _match_config_pattern(template.name, config, 'FORCE_TWO_SIDED'):
+        if _match_config_pattern(geom_temp_name, config, 'FORCE_TWO_SIDED'):
             backface_cull = False
             modified = True
 
@@ -1131,7 +1145,7 @@ def load_level(context, level_dir, use_cache=True,
     # collect template configs recursively
     templates : Dict[str, ObjectTemplateConfig] = dict()
     for obj in BF2Engine().get_manager(Object).objects:
-        _get_template_configs(obj.template, _get_obj_matrix(obj), config, templates)
+        _get_template_configs(obj.template, _get_obj_matrix(obj), config, templates, reporter)
 
     # load meshes
     if not load_unpacked:
@@ -1144,87 +1158,97 @@ def load_level(context, level_dir, use_cache=True,
     static_objects = _make_collection(context, "StaticObjects")
     static_objects_skip = _make_collection(context, "StaticObjects_SkipLightmaps")
     lm_keys = set()
+    geom_template_to_mesh : Dict[str, GeometryTemplateConfig] = dict() # differen ObjectTemplates may use same GeometryTemplate
 
     for template_name, temp_cfg in templates.items():
         geom_temp = temp_cfg.geom
         if not geom_temp:
             continue # skip, just for point lights
 
-        data = file_manager.readFile(geom_temp.location, as_stream=True)
-        mesh_type = MESH_TYPES.get(geom_temp.geometry_type)
-        if not mesh_type:
-            reporter.warning(f"skipping '{template_name}' as it is not supported mesh type {geom_temp.geometry_type}")
-            continue
-        try:
-            bf2_mesh = mesh_type.load_from(geom_temp.name.lower(), data)
-        except Exception as e:
-            reporter.error(f"Failed to load mesh '{geom_temp.location}', the file might be corrupted: {e}")
-            continue
+        mesh_info = geom_template_to_mesh.get(geom_temp.name.lower())
+        if not mesh_info:
+            mesh_info = GeometryTemplateConfig()
+            geom_template_to_mesh[geom_temp.name.lower()] = mesh_info
 
-        del bf2_mesh.geoms[1:] # TODO: Geom1 support
-        if max_lod_to_load is not None:
-            bf2_mesh.geoms[0].lods = bf2_mesh.geoms[0].lods[0:max_lod_to_load+1]
+            data = file_manager.readFile(geom_temp.location, as_stream=True)
+            mesh_type = MESH_TYPES.get(geom_temp.geometry_type)
+            if not mesh_type:
+                reporter.warning(f"skipping '{template_name}' as it is not supported mesh type {geom_temp.geometry_type}")
+                continue
+            try:
+                bf2_mesh = mesh_type.load_from(geom_temp.name.lower(), data)
+            except Exception as e:
+                reporter.error(f"Failed to load mesh '{geom_temp.location}', the file might be corrupted: {e}")
+                continue
 
-        if not load_unpacked:
-            raise NotImplementedError() # TODO: texture load from FileManager
+            del bf2_mesh.geoms[1:] # TODO: Geom1 support
+            if max_lod_to_load is not None:
+                bf2_mesh.geoms[0].lods = bf2_mesh.geoms[0].lods[0:max_lod_to_load+1]
 
-        importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_paths=texture_paths, reporter=reporter, silent=True)
-        try:
-            mesh_obj = importer.import_mesh()
-        except ImportException as e:
-            reporter.error(f"Failed to import mesh '{geom_temp.location}': {e}")
-            continue
+            if not load_unpacked:
+                raise NotImplementedError() # TODO: texture load from FileManager
 
-        # determine samples size
-        meshes_dir = path.dirname(geom_temp.location)
-        lm_sizes = dict()
-        for lod_idx, _ in enumerate(bf2_mesh.geoms[0].lods): # TODO: Geom1 support
-            if lod_idx == 0:
-                fname = path.join(meshes_dir, geom_temp.name + '.samples')
-            else:
-                fname = path.join(meshes_dir, geom_temp.name + f'.samp_{lod_idx:02d}')
-            
-            lm_size = None
-            if load_unpacked:
-                if path.isfile(fname):
-                    with open(fname, "rb") as f:
-                        lm_size = BF2Samples.read_map_size_from(f)
-            else:
-                raise NotImplementedError() # TODO
-            lm_sizes[lod_idx] = lm_size
+            importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_paths=texture_paths, reporter=reporter, silent=True)
+            try:
+                mesh_obj = importer.import_mesh()
+            except ImportException as e:
+                reporter.error(f"Failed to import mesh '{geom_temp.location}': {e}")
+                continue
 
-        geoms = MeshExporter.collect_geoms_lods(mesh_obj, skip_checks=True)
-        lod0_lm_size = None
-        MIN_LM_SIZE = 8
-        for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
-            lm_size = lm_sizes[lod_idx]
-            if lm_size is None:
-                # if lm_size is None:
-                #     reporter.warning(f"Cannot determine LM size for mesh '{geom.location}' Lod{lod_idx} from samples file, it may not exist")
-                if lod0_lm_size is not None:
-                    # halve the LOD0 size
-                    lm_size = [max(int(i / (2**lod_idx)), MIN_LM_SIZE) for i in lod0_lm_size]
-                else:
-                    # guess using surface area of the mesh
-                    mesh_area = _calc_mesh_area(lod_obj)
-                    if not lm_size_thresholds:
-                        reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
-                        lm_size = (0, 0)
-                    else: 
-                        for lms, min_area in reversed(lm_size_thresholds):
-                            if mesh_area >= min_area:
-                                lm_size = (lms, lms)
-                                break
-            if lm_size is None:
-                lm_size = (MIN_LM_SIZE, MIN_LM_SIZE)
-            if lod_idx == 0:
-                lod0_lm_size = lm_size
-            lod_obj.bf2_lightmap_size = lm_size
-
-        # do material tweaks
-        if 'StaticMesh' == geom_temp.geometry_type:
+            # determine samples size
+            meshes_dir = path.dirname(geom_temp.location)
+            geoms = MeshExporter.collect_geoms_lods(mesh_obj, skip_checks=True)
+            lod0_lm_size = None
+            MIN_LM_SIZE = 8
+            geom_info = GeometryTemplateConfig.Geom() # TODO: Geom1 support
+            mesh_info.geoms.append(geom_info)
             for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
-                _do_material_tweaks(config, temp_cfg.template, lod_obj.data, texture_paths, reporter)
+                lm_size = None
+
+                if lod_idx == 0:
+                    fname = path.join(meshes_dir, geom_temp.name + '.samples')
+                else:
+                    fname = path.join(meshes_dir, geom_temp.name + f'.samp_{lod_idx:02d}')
+
+                if load_unpacked:
+                    if path.isfile(fname):
+                        with open(fname, "rb") as f:
+                            lm_size = BF2Samples.read_map_size_from(f)
+                else:
+                    raise NotImplementedError() # TODO
+
+                if lm_size is None:
+                    # if lm_size is None:
+                    #     reporter.warning(f"Cannot determine LM size for mesh '{geom.location}' Lod{lod_idx} from samples file, it may not exist")
+                    if lod0_lm_size is not None:
+                        # halve the LOD0 size
+                        lm_size = [max(int(i / (2**lod_idx)), MIN_LM_SIZE) for i in lod0_lm_size]
+                    else:
+                        # guess using surface area of the mesh
+                        mesh_area = _calc_mesh_area(lod_obj)
+                        if not lm_size_thresholds:
+                            reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
+                            lm_size = (0, 0)
+                        else: 
+                            for lms, min_area in reversed(lm_size_thresholds):
+                                if mesh_area >= min_area:
+                                    lm_size = (lms, lms)
+                                    break
+                if lm_size is None:
+                    lm_size = (MIN_LM_SIZE, MIN_LM_SIZE)
+                if lod_idx == 0:
+                    lod0_lm_size = lm_size
+
+                lod_info = GeometryTemplateConfig.Lod(lod_obj.data, lm_size)
+                geom_info.lods.append(lod_info)
+
+            # do material tweaks
+            if 'StaticMesh' == geom_temp.geometry_type:
+                for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
+                    _do_material_tweaks(config, geom_temp.name, lod_obj.data, texture_paths, reporter)
+
+            # delete source objects, keep mesh instances
+            delete_object(mesh_obj, remove_data=False)
 
         # instantiate meshes
         skip_lightmaps = geom_temp.dont_generate_lightmaps or 'StaticMesh' != geom_temp.geometry_type
@@ -1233,7 +1257,7 @@ def load_level(context, level_dir, use_cache=True,
             # and meshes will be named by GeometryTemplate
             # which is not always the same!
             collection = static_objects_skip if skip_lightmaps else static_objects
-            obj = _clone_object(collection, mesh_obj, temp_cfg.template.name)
+            obj = mesh_info.instantiate(collection, temp_cfg.template.name)
             obj.matrix_world = matrix_world
 
             # check LM key collisions
@@ -1242,9 +1266,6 @@ def load_level(context, level_dir, use_cache=True,
                 if lm_key in lm_keys:
                     reporter.warning(f"Object '{obj.name}' is too close to another which will result in both having the same lightmap filenames!")
                 lm_keys.add(lm_key)
-
-        # delete source objects, keep mesh instances
-        delete_object(mesh_obj, remove_data=False)
 
     if load_heightmap:
         _load_heightmap(context, level_dir, water_attenuation)
