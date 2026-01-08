@@ -17,7 +17,7 @@ from ...core.skeleton import is_bf2_skeleton
 from ...core.lightmaps import (load_level,
                                ObjectBaker,
                                TerrainBaker,
-                               add_ambient_light,
+                               PostProcessor,
                                get_default_heightmap_patch_count_and_size,
                                LIGHTMAPPING_CONFIG_TEMPLATE)
 
@@ -157,16 +157,63 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
         default=0.663
     ) # type: ignore
 
+    @classmethod
+    def is_running(cls, context):
+        for op in context.window.modal_operators:
+            if op.bl_idname == 'BF2_OT_lm_post_process':
+                return True
+        return False
+
+    def update_progress(self, context, status='Post-processing'):
+        if not self.processor:
+            context.scene.bf2_lm_progress_msg = 'Finished'
+            context.scene.bf2_lm_progress_value = 1
+            return
+        total_items = self.processor.total_items()
+        completed_items = self.processor.completed_items()
+        if total_items == 0:
+            context.scene.bf2_lm_progress_msg = f'Nothing to do'
+            context.scene.bf2_lm_progress_value = 1
+            return
+        context.scene.bf2_lm_progress_msg = f"{status}... {completed_items}/{total_items}"
+        context.scene.bf2_lm_progress_value = completed_items / total_items
+        context.area.tag_redraw()
+
+    def modal(self, context, event):
+        if event.type=='ESC' and event.value=='PRESS':
+            self.report({"WARNING"}, "Post-processing has been canceled!")
+            return {'FINISHED'}
+        elif event.type != 'TIMER':
+            return {'PASS_THROUGH'}
+
+        if not self.processor.process_next(context):
+            self.processor = None
+        self.update_progress(context)
+
+        if self.processor:
+            return {'RUNNING_MODAL'}
+        else:
+            context.window_manager.event_timer_remove(self.timer)
+            self.report({"INFO"}, "Post-processing has finished!")
+            return {'FINISHED'}
+
     def execute(self, context):
+        if VIEW3D_OT_bf2_bake.is_running(context):
+            self.report({"ERROR"}, f"Bake is running")
         if not os.path.isdir(self.srcdir):
             self.report({"ERROR"}, f"Choosen src path '{self.srcdir}' is NOT a directory!")
             return {'CANCELLED'}
         if not os.path.isdir(self.outdir):
             self.report({"ERROR"}, f"Choosen out path '{self.outdir}' is NOT a directory!")
             return {'CANCELLED'}
+        
+        self.processor = PostProcessor(context, self.srcdir, self.outdir, self.intensity, self.dds_compression)
 
-        add_ambient_light(context, self.srcdir, self.outdir, self.intensity, self.dds_compression)
-        return {'FINISHED'}
+        wm = context.window_manager
+        self.timer = wm.event_timer_add(0, window=context.window)
+        wm.modal_handler_add(self)
+        self.update_progress(context)
+        return {'RUNNING_MODAL'}
 
 class VIEW3D_OT_bf2_new_lm_config(bpy.types.Operator):
     bl_idname = "bf2.new_lm_config"
@@ -454,6 +501,9 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     def execute(self, context):
         if self.is_running(context):
             return {'CANCELLED'}
+        if VIEW3D_OT_bf2_lm_post_process.is_running(context):
+            self.report({"ERROR"}, f"Post-processor is running")
+            return {'CANCELLED'}
         if not os.path.isdir(self.outdir):
             self.report({"ERROR"}, f"Choosen out path '{self.outdir}' is NOT a directory!")
             return {'CANCELLED'}
@@ -550,6 +600,17 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             props.outdir = scene.bf2_lm_post_process_outdir
             props.dds_compression = scene.bf2_lm_dds_compression
             props.intensity = scene.bf2_lm_ambient_light_level
+
+            if VIEW3D_OT_bf2_lm_post_process.is_running(context):
+                row = layout.row()
+                row.progress(
+                    factor=context.scene.bf2_lm_progress_value,
+                    type="BAR",
+                    text=context.scene.bf2_lm_progress_msg 
+                )
+                row.scale_x = 2
+                row = layout.row()
+                row.label(text='Press ESC to cancel', icon='CANCEL')
 
 # ---------------------------------------------------
 

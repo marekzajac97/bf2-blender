@@ -174,39 +174,59 @@ def _make_add_ambinet_light(ambient_light_level):
 
     return node_tree
 
-def add_ambient_light(context, src_dir, out_dir, intensity, dds_fmt='NONE'):
-    with PreserveColorSpaceSettings(context):
-        context.scene.view_settings.view_transform = 'Standard'
-        add_ambient_light = _make_add_ambinet_light(intensity)
-        context.scene.compositing_node_group = add_ambient_light
-
+class PostProcessor:
+    def __init__(self, context, src_dir, out_dir, intensity, dds_fmt='NONE'):
         if 'Render Result' in bpy.data.images:
             render_result = bpy.data.images['Render Result']
             bpy.data.images.remove(render_result)
 
+        self.dds_fmt = dds_fmt
+        self.add_ambient_light = _make_add_ambinet_light(intensity)
+        context.scene.compositing_node_group = self.add_ambient_light
+        self.out_dir = out_dir
+        self.textures = list()
         for file in os.listdir(src_dir):
             filepath = path.join(src_dir, file)
             if not path.isfile(filepath):
                 continue
             if not file.endswith(".dds"):
                 continue
+            self.textures.append(filepath)
+        self.total_count = len(self.textures)
 
-            image = bpy.data.images.load(filepath, check_existing=True)
+    def total_items(self):
+        return self.total_count
+
+    def completed_items(self):
+        return self.total_count - len(self.textures)
+
+    def process_next(self, context):
+        if not self.textures:
+            return False
+
+        filepath = self.textures.pop(0)
+
+        with PreserveColorSpaceSettings(context):
+            context.scene.view_settings.view_transform = 'Standard'
+
+            image = bpy.data.images.load(filepath, check_existing=False)
             image.alpha_mode = 'NONE'
 
-            add_ambient_light.nodes['SrcImage'].image = image
+            self.add_ambient_light.nodes['SrcImage'].image = image
             context.scene.render.resolution_x = image.size[0]
             context.scene.render.resolution_y = image.size[1]
             bpy.ops.render.render()
 
             # save output
             render_result = bpy.data.images['Render Result']
-            save_img_as_dds(render_result, path.join(out_dir, f'{file}.dds'), dds_fmt)
+            save_img_as_dds(render_result, path.join(self.out_dir, path.basename(filepath)), self.dds_fmt)
 
             # cleanup
-            add_ambient_light.nodes['SrcImage'].image = None
+            self.add_ambient_light.nodes['SrcImage'].image = None
             bpy.data.images.remove(image)
             bpy.data.images.remove(render_result)
+        
+        return True
 
 def get_all_lightmap_files(dir):
     files = set()
@@ -248,8 +268,6 @@ SKIP_OBJECT_TEMPLATE_PATHS = [
 # Skips loading meshes for GeometryTemplates
 # whose names match the pattern
 SKIP_OBJECT_TEMPLATES = [
-    # 'e_sAmb_oiltower_fire',
-    # 'e_sAmb_wreckfire',
     # 'glow*'
 ]
 
@@ -262,14 +280,16 @@ FORCE_TWO_SIDED = [
 # Replaces textures paths on materials:
 #   'from' - the source texture pattern, NOTE: it's only Color/Detail/Crack/Dirt textures, not normal maps
 #   'to' - the target texture path
-#   'force_alpha' - force enables alpha testing
+#   'alpha_mode' - optional, the value must be either:
+#      'ALPHA_TEST' - texture's alpha channel will be used as transparency. Material will not receive or cast any shadows.
+#      'RAY_MASK' - texture's alpha channel will be used as a ray visibility mask instead. Material will receive shadows but will not cast them.
 TEXTURE_REPLACE = [
     # {'from': 'objects/staticobjects/common_statics/textures/common_trench_de*.dds',
     #  'to': 'objects/staticobjects/common_statics/textures/common_trench_lightmapping_c.dds',
-    #  'force_alpha': True},
+    #  'alpha_mode': 'ALPHA_TEST'},
     # {'from': 'objects/water/textures/watertemp.dds',
     #  'to': 'objects/staticobjects/common/textures/transparent_c.dds',
-    #  'force_alpha': True}
+    #  'alpha_mode': 'RAY_MASK'}
 ]
 
 # Defines where to place point lights:
@@ -615,7 +635,6 @@ class TerrainBaker(BakerBase):
         self.terrain.hide_set(False)
         self.terrain.select_set(True)
         self.terrain.hide_render = False
-        context.view_layer.update()
 
         if self.row >= self.grid_size:
             # next column
@@ -679,6 +698,77 @@ class TerrainBaker(BakerBase):
 # -------------------
 # baking objects
 # -------------------
+
+def _add_texture_node(material, texture_file, texture_paths, reporter):
+    for texture_path in texture_paths:
+        abs_path = os.path.join(texture_path, texture_file)
+        if os.path.isfile(abs_path):
+            break
+    else:
+        if texture_paths:
+            reporter.warning(f"Texture file '{texture_file}' not found in any of the texture paths")
+        abs_path = ''
+    tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
+    if abs_path:
+        tex_node.image = bpy.data.images.load(abs_path, check_existing=True)
+        tex_node.image.alpha_mode = 'STRAIGHT'
+    return tex_node
+
+def _make_ray_visibility_mask():
+    if 'RayVisibilityMask' in bpy.data.node_groups:
+        node_tree = bpy.data.node_groups['RayVisibilityMask']
+        bpy.data.node_groups.remove(node_tree)
+
+    node_tree = bpy.data.node_groups.new('RayVisibilityMask', 'ShaderNodeTree')
+
+    group_inputs = node_tree.nodes.new('NodeGroupInput')
+    node_tree.interface.new_socket(name="Mask", in_out='INPUT', socket_type='NodeSocketFloat')
+    node_tree.interface.new_socket(name="Alpha", in_out='INPUT', socket_type='NodeSocketFloat')
+    group_outputs = node_tree.nodes.new('NodeGroupOutput')
+    node_tree.interface.new_socket(name="Alpha", in_out='OUTPUT', socket_type='NodeSocketFloat')
+
+    light_path = node_tree.nodes.new("ShaderNodeLightPath")
+    light_path.hide = True
+
+    # combines world (diffuse) light with other ligth sources
+    add_light = node_tree.nodes.new('ShaderNodeMath')
+    add_light.operation = 'ADD'
+    add_light.use_clamp = True
+
+    invert_shadow_ray = node_tree.nodes.new('ShaderNodeMapRange')
+    invert_shadow_ray.inputs['From Min'].default_value = 1.0
+    invert_shadow_ray.inputs['From Max'].default_value = 0.0
+
+    bypass = node_tree.nodes.new('ShaderNodeMath')
+    bypass.operation = 'MULTIPLY'
+    bypass.inputs[1].default_value = 0.0
+
+    invert_bypass = node_tree.nodes.new('ShaderNodeMapRange')
+    invert_bypass.inputs['From Min'].default_value = 1.0
+    invert_bypass.inputs['From Max'].default_value = 0.0
+
+    mult_alpha = node_tree.nodes.new('ShaderNodeMath')
+    mult_alpha.operation = 'MULTIPLY'
+
+    mix = node_tree.nodes.new("ShaderNodeMix")
+
+    node_tree.links.new(light_path.outputs['Is Shadow Ray'], add_light.inputs[0])
+    node_tree.links.new(light_path.outputs['Is Diffuse Ray'], add_light.inputs[1])
+
+    node_tree.links.new(group_inputs.outputs['Mask'], mix.inputs['Factor'])
+
+    node_tree.links.new(add_light.outputs['Value'], invert_shadow_ray.inputs['Value'])
+    node_tree.links.new(invert_shadow_ray.outputs['Result'], mix.inputs['A'])
+
+    node_tree.links.new(add_light.outputs['Value'], bypass.inputs[0])
+    node_tree.links.new(bypass.outputs['Value'], invert_bypass.inputs['Value'])
+    node_tree.links.new(invert_bypass.outputs['Result'], mult_alpha.inputs[0])
+    node_tree.links.new(group_inputs.outputs['Alpha'], mult_alpha.inputs[1])
+    node_tree.links.new(mult_alpha.outputs['Value'], mix.inputs['B'])
+
+    node_tree.links.new(mix.outputs['Result'], group_outputs.inputs['Alpha'])
+
+    return node_tree
 
 def _unplug_socket_from_bsdf(material, socket_name):
     if not material.is_bf2_material:
@@ -774,54 +864,49 @@ class ObjectBaker(BakerBase):
             self.reporter.warning(f"Skipping bake for '{root_obj.name}': {e}")
             return True
 
-        for geom_idx, geom in enumerate(geoms):
-            if geom_idx != 0: # TODO: Geom1 support
+        geom = geoms[0] # TODO: Geom1 support
+        for lod_idx in range(len(geom)-1, -1, -1): # enum lods in reversed order
+            lod_obj = geom[lod_idx]
+
+            if self.lod_mask is not None and lod_idx not in self.lod_mask:
                 continue
-            for lod_idx, lod_obj in enumerate(geom):
-                if self.lod_mask is not None and lod_idx not in self.lod_mask:
-                    continue
-                mesh = lod_obj.data
-                geom_temp_name = _strip_prefix(mesh.name)
-                lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
-                if lm_name in self.existing_lods:
-                    continue
+            mesh = lod_obj.data
+            geom_temp_name = _strip_prefix(mesh.name)
+            lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
+            if lm_name in self.existing_lods:
+                continue
 
-                lm_size = tuple(lod_obj.bf2_lightmap_size)
-                if lm_size == (0, 0):
-                    self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
-                    continue
+            lm_size = tuple(lod_obj.bf2_lightmap_size)
+            if lm_size == (0, 0):
+                self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
+                continue
 
-                if 'UV4' not in lod_obj.data.uv_layers:
-                    self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap UV layer (UV4) is missing")
-                    continue
+            if 'UV4' not in lod_obj.data.uv_layers:
+                self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap UV layer (UV4) is missing")
+                continue
 
-                # create bake image
-                if lm_name in bpy.data.images:
-                    bake_image = bpy.data.images[lm_name]
-                    bpy.data.images.remove(bake_image)
-
-                bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
-
-                # add bake lightmap texture for each material
-                normal_socket = None
-                for material in lod_obj.data.materials:
-                    _setup_material_for_baking(material, bake_image)
-                    if not self.normal_maps:
-                        normal_socket = _unplug_socket_from_bsdf(material, 'Normal')
-
-                self._select_lod_for_bake(geom, lod_idx)
-                context.view_layer.update()
-                bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
-                self.save_bake(bake_image)
+            # create bake image
+            bake_image = bpy.data.images.get(lm_name)
+            if bake_image:
                 bpy.data.images.remove(bake_image)
 
-                if normal_socket:
-                    for material in lod_obj.data.materials:
-                        _plug_socket_to_bsdf(material, 'Normal', normal_socket)
+            bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
 
-            self._select_lod_for_bake(geom, 0)
-            context.view_layer.update()
+            # add bake lightmap texture for each material
+            normal_socket = None
+            for material in lod_obj.data.materials:
+                _setup_material_for_baking(material, bake_image)
+                if not self.normal_maps:
+                    normal_socket = _unplug_socket_from_bsdf(material, 'Normal')
 
+            self._select_lod_for_bake(geom, lod_idx)
+            bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+            self.save_bake(bake_image)
+            bpy.data.images.remove(bake_image)
+
+            if normal_socket:
+                for material in lod_obj.data.materials:
+                    _plug_socket_to_bsdf(material, 'Normal', normal_socket)
         return True
 
 # -------------------
@@ -882,9 +967,9 @@ DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS = [
     {'size': 1024, 'min_area': 2056}
 ]
 
-def _calc_mesh_area(lod_obj):
+def _calc_mesh_area(mesh):
     bm = bmesh.new()
-    bm.from_mesh(lod_obj.data)
+    bm.from_mesh(mesh)
     area = sum(f.calc_area() for f in bm.faces)
     bm.free()
     return area
@@ -930,10 +1015,6 @@ def _load_heightmap(context, level_dir, water_attenuation):
 
     modifier = terrain.modifiers.new(type='NODES', name="FlattenAtWaterLevel")
     modifier.node_group = _make_flatten_at_watter_level(hm_cluster.water_level)
-
-IGNORE_OBJECT_CREATE = [
-    'defaultenvmap' # hardcoded type, only for BF2Editor
-]
 
 def _match_config_pattern(value, config, prop, get_pattern=None):
     for prop_val in getattr(config, prop, []):
@@ -1020,7 +1101,7 @@ def _get_template_configs(template, matrix, config, templates : Dict[str, Object
             child_matrix.translation = swap_zy(child.position)
             _get_template_configs(child.template, matrix @ child_matrix, config, templates, reporter)
 
-def _do_material_tweaks(config, geom_temp_name, mesh, texture_paths, reporter):
+def _do_material_tweaks(config, geom_temp_name, mesh, texture_paths, ray_vis_mask, reporter):
     for material in mesh.materials:
         modified = False
         backface_cull = True
@@ -1028,6 +1109,8 @@ def _do_material_tweaks(config, geom_temp_name, mesh, texture_paths, reporter):
             backface_cull = False
             modified = True
 
+        alpha_mode = None
+        ray_mask = None
         for name, path in get_material_maps(material).items():
             if name not in ('Base', 'Detail', 'Dirt', 'Crack'):
                 continue
@@ -1036,18 +1119,37 @@ def _do_material_tweaks(config, geom_temp_name, mesh, texture_paths, reporter):
             if not replace_cfg:
                 continue
 
-            index = STATICMESH_TEXUTRE_MAP_TYPES.index(name)
+            if alpha_mode and replace_cfg.get('alpha_mode', alpha_mode) != alpha_mode:
+                raise RuntimeError(f"Bad config, texture replace results in conflicting `alpha_mode`s on '{mesh.name}'")
+
+            alpha_mode = replace_cfg.get('alpha_mode', None)
+            if alpha_mode == 'RAY_MASK':
+                ray_mask = replace_cfg['to']
+                continue
 
             material.is_bf2_material = False # temporarily disable so update() doesn't trigger
+            index = STATICMESH_TEXUTRE_MAP_TYPES.index(name)
             setattr(material, f"texture_slot_{index}", replace_cfg['to'])
-            if replace_cfg.get('force_alpha', False):
+            if alpha_mode == 'ALPHA_TEST':
                 material.bf2_alpha_mode = 'ALPHA_TEST'
             material.is_bf2_material = True
+
             reporter.info(f"Replaced texture '{path}' for '{mesh.name}' as requested")
             modified = True
 
         if modified:
             setup_material(material, texture_paths=texture_paths, reporter=reporter, backface_cull=backface_cull) # re-apply
+
+        if ray_mask:
+            tex_node = _add_texture_node(material, ray_mask, texture_paths, reporter)
+            node_tree = material.node_tree
+            ray_vis_mask_node = node_tree.nodes.new('ShaderNodeGroup')
+            ray_vis_mask_node.node_tree = ray_vis_mask
+            alpha_socket = _unplug_socket_from_bsdf(material, 'Alpha')
+            node_tree.links.new(alpha_socket, ray_vis_mask_node.inputs['Alpha'])
+            _plug_socket_to_bsdf(material, 'Alpha', ray_vis_mask_node.outputs['Alpha'])
+            node_tree.links.new(tex_node.outputs['Alpha'], ray_vis_mask_node.inputs['Mask'])
+            reporter.info(f"Added ray mask '{path}' for '{mesh.name}' as requested")
 
 def _get_lm_size_thresholds(config, reporter):
     lm_size_thresholds = list()
@@ -1079,7 +1181,7 @@ def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
                water_attenuation=0.1, texture_paths=[], max_lod_to_load=None,
-               config=None, config_file='', run_all_con_files=True, reporter=DEFAULT_REPORTER):
+               config=None, config_file='', reporter=DEFAULT_REPORTER):
 
     level_dir = level_dir.rstrip('/').rstrip('\\')
     mod_dir = path.normpath(path.join(level_dir, '..', '..'))
@@ -1088,6 +1190,7 @@ def load_level(context, level_dir, use_cache=True,
         config = module_from_file(config_file)
 
     lm_size_thresholds = _get_lm_size_thresholds(config, reporter)
+    ray_vis_mask = _make_ray_visibility_mask()
 
     if not load_unpacked:
         mod_loader = ModLoader(mod_dir, use_cache)
@@ -1098,21 +1201,14 @@ def load_level(context, level_dir, use_cache=True,
             texture_paths.append(mod_dir)
         texture_paths.append(level_dir) # for objects inside levels dir
         BF2Engine().file_manager.root_dirs = texture_paths
-        if run_all_con_files:
-            _run_all_con_files(os.path.join(mod_dir, 'objects'))
-            _run_all_con_files(os.path.join(level_dir, 'objects'))
+        _run_all_con_files(os.path.join(mod_dir, 'objects'))
+        _run_all_con_files(os.path.join(level_dir, 'objects'))
 
     file_manager = BF2Engine().file_manager
     main_console = BF2Engine().main_console
 
     def report_cb(con_file, line_no, line, what):
         if line.lower().startswith('object.create'):
-            try:
-                template = line.split()[1]
-                if template.lower() in IGNORE_OBJECT_CREATE:
-                    return
-            except IndexError:
-                pass
             reporter.warning(f'{con_file}:{line_no}:{line}: {what}')
 
     main_console.report_cb = report_cb
@@ -1133,11 +1229,7 @@ def load_level(context, level_dir, use_cache=True,
                 pass
 
         if load_static_objects:
-            if run_all_con_files or load_unpacked:
-                args = []
-            else:
-                args = ['BF2Editor']
-            main_console.run_file(path.join(level_dir, 'StaticObjects.con'), args=args)
+            main_console.run_file(path.join(level_dir, 'StaticObjects.con'))
 
         if load_overgrowth:
             main_console.run_file(path.join(level_dir, 'Overgrowth', 'OvergrowthCollision.con'))
@@ -1218,16 +1310,14 @@ def load_level(context, level_dir, use_cache=True,
                     raise NotImplementedError() # TODO
 
                 if lm_size is None:
-                    # if lm_size is None:
-                    #     reporter.warning(f"Cannot determine LM size for mesh '{geom.location}' Lod{lod_idx} from samples file, it may not exist")
                     if lod0_lm_size is not None:
                         # halve the LOD0 size
                         lm_size = [max(int(i / (2**lod_idx)), MIN_LM_SIZE) for i in lod0_lm_size]
                     else:
                         # guess using surface area of the mesh
-                        mesh_area = _calc_mesh_area(lod_obj)
+                        mesh_area = _calc_mesh_area(lod_obj.data)
                         if not lm_size_thresholds:
-                            reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
+                            reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', .samples file not found and LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
                             lm_size = (0, 0)
                         else: 
                             for lms, min_area in reversed(lm_size_thresholds):
@@ -1245,7 +1335,7 @@ def load_level(context, level_dir, use_cache=True,
             # do material tweaks
             if 'StaticMesh' == geom_temp.geometry_type:
                 for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
-                    _do_material_tweaks(config, geom_temp.name, lod_obj.data, texture_paths, reporter)
+                    _do_material_tweaks(config, geom_temp.name, lod_obj.data, texture_paths, ray_vis_mask, reporter)
 
             # delete source objects, keep mesh instances
             delete_object(mesh_obj, remove_data=False)

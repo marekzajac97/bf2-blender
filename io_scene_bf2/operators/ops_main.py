@@ -75,10 +75,8 @@ def unregister():
     ops_material_props.unregister()
     ops_object_props.unregister()
 
-import sys
-
-
 def is_debug_enabled():
+    import sys
     try:
         if sys.gettrace() is not None:
             return True
@@ -99,9 +97,11 @@ def debug_set_mod_path():
     if len(prefs.mod_directories) != 0:
         return
     import os
-    BF2_PATHS = [# r'D:\Battlefield 2\mods\fh2',
-                 # r'D:\Battlefield 2\mods\bf2',
-                 r'D:\Project Reality\mods\pr']
+    BF2_PATHS = [
+                 r'D:\Battlefield 2\mods\fh2',
+                 r'D:\Battlefield 2\mods\bf2',
+                 # r'D:\Project Reality\mods\pr'
+                ]
     for path in BF2_PATHS:
         if not os.path.isdir(path):
             continue
