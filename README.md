@@ -1,5 +1,5 @@
 # Blender addon for Battlefield 2
-I'm probably like 15 years late but anyway, here are some Blender tools for working with Refractor 2 engine asset files and more!
+I'm probably like 15 years late but anyway, here are some Blender tools for working with Refractor 2 engine assets!
 
 ## Features:
 Import & export support of:
@@ -21,7 +21,7 @@ As well as many other utilities for:
 - Blender 4.2 or later required.
 - Supports all platforms with the following exceptions:
   * ARM (Any platform) - CollostionMesh export is significantly slower (see [BSP Builder](bsp_builder/README.md)).
-  * Windows ARM - DDS export not supported (ligtmapping/OG lod generations)
+  * Windows ARM - DDS export not supported
 
 ## Installation
 Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) (NOT `Source code (zip)`!) and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
@@ -32,5 +32,6 @@ Download the latest `io_scene_bf2` package from [Releases](https://github.com/ma
 ## Credits
 - [rpoxo](https://github.com/rpoxo) for the [BF2 mesh file parser](https://github.com/rpoxo/bf2mesh) (MIT License)
 - [matyalatte](https://github.com/rpoxo) for the [Texconv Custom DLL](https://github.com/matyalatte/Texconv-Custom-DLL) with [Python bindings](https://github.com/matyalatte/Blender-DDS-Addon) (MIT License)
+- Harmonikater for [BF2-3dsMax-Tools](https://git.cmp-gaming.com/Harmonikater/BF2-3dsMax-Tools) (served as "inspiration" for some of the tools)
 - Remdul for guidance and [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/) (a lot of the stuff is ported over from there)
 - Ason and DeWolfe for testing and feedback
