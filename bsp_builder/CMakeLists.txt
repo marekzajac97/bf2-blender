@@ -4,4 +4,5 @@ project(bsp_builder)
 set(CMAKE_CXX_STANDARD 14)
 set(PYBIND11_PYTHON_VERSION "3.11")
 
+add_subdirectory(pybind11)
 pybind11_add_module(bsp_builder src/main.cpp)
