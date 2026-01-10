@@ -24,7 +24,8 @@ jobs:
           - name: Windows-ARM64
             os: windows-latest
             artifact_name: bsp_builder-windows-arm64
-            cmake_flags: -A ARM64
+            # Use the ARM64 generator and tell CMake not to try to run the python interpreter
+            cmake_flags: -A ARM64 -DPython_FIND_REGISTRY=NEVER -DPython_FIND_STRATEGY=LOCATION
           - name: MacOS-Universal
             os: macos-latest
             artifact_name: bsp_builder-macos-universal
@@ -48,7 +49,8 @@ jobs:
         run: >
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
-          -DPYTHON_EXECUTABLE=${{ env.pythonLocation }}/python
+          -DPython_EXECUTABLE=${{ env.pythonLocation }}/python.exe
+          -DPython_ROOT_DIR=${{ env.pythonLocation }}
           ${{ matrix.cmake_flags }}
 
       - name: Build
@@ -58,7 +60,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          # Path grabs the raw .so or .pyd regardless of deep folder structures
           path: |
             bsp_builder/build/**/*.so
             bsp_builder/build/**/*.pyd
