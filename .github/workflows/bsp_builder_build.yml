@@ -1,0 +1,63 @@
+name: Build bsp_builder python extenstion
+
+on:
+  workflow_dispatch: # Allows manual triggering from the Actions tab
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ./bsp_builder
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux-x64
+            os: ubuntu-latest
+            artifact_name: bsp_builder-linux-x64
+          - name: Windows-x64
+            os: windows-latest
+            artifact_name: bsp_builder-windows-x64
+          - name: Windows-ARM64
+            os: windows-11-arm
+            artifact_name: bsp_builder-windows-arm64
+          - name: MacOS-Universal
+            os: macos-latest
+            artifact_name: bsp_builder-macos-universal
+            cmake_flags: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          # This ensures the architecture matches the runner
+          architecture: ${{ matrix.name == 'Windows-ARM64' && 'arm64' || 'x64' }}
+
+      - name: Configure CMake
+        shell: bash
+        run: |
+          PYTHON_EXT="${{ runner.os == 'Windows' && '.exe' || '' }}"
+          
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYTHON_EXECUTABLE="${{ env.pythonLocation }}/python${PYTHON_EXT}" \
+            ${{ matrix.cmake_flags }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            bsp_builder/build/**/*.so
+            bsp_builder/build/**/*.pyd

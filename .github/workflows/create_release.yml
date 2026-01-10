@@ -1,0 +1,113 @@
+name: Package and Release Addon
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Addon Version'
+        required: true
+      texconv_version:
+        description: 'Texconv Version (e.g., v0.5.0)'
+        required: true
+        default: 'v0.5.0'
+
+jobs:
+  package:
+    name: Package for ${{ matrix.platform_suffix }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - artifact: bsp_builder-linux-x64
+            platform_suffix: linux-x64
+            texconv_file_suffix: Linux-x64.tar.bz2
+            texconv_bin: libtexconv.so
+          - artifact: bsp_builder-windows-x64
+            platform_suffix: windows-x64
+            texconv_file_suffix: Windows-x64.zip
+            texconv_bin: texconv.dll
+          - artifact: bsp_builder-windows-arm64
+            platform_suffix: windows-arm64
+            texconv_file_suffix: Windows-arm64.zip
+            texconv_bin: texconv.dll
+          - artifact: bsp_builder-macos-universal
+            platform_suffix: macos-arm64
+            texconv_file_suffix: macOS-arm64.tar.bz2
+            texconv_bin: libtexconv.dylib
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download bsp_builder Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ./bsp_builder_binaries
+
+      - name: Fetch and Unpack Texconv
+        run: |
+          VERSION="${{ github.event.inputs.texconv_version }}"
+          FILE="TexconvCustomDLL-${VERSION}-${{ matrix.texconv_file_suffix }}"
+          URL="https://github.com/matyalatte/Texconv-Custom-DLL/releases/download/${VERSION}/${FILE}"
+          
+          echo "Downloading $URL"
+          curl -L -O "$URL"
+          
+          mkdir -p texconv_out
+          if [[ "$FILE" == *.zip ]]; then
+            unzip "$FILE" -d texconv_out
+          else
+            tar -xjf "$FILE" -C texconv_out
+          fi
+
+      - name: Prepare Addon Structure
+        run: |
+          # 1. Add bsp_builder
+          find ./bsp_builder_binaries -name "bsp_builder*" -exec cp {} io_scene_bf2/core/bf2/ \;
+
+          # 2. Add Texconv
+          mkdir -p io_scene_bf2/directx/
+          find texconv_out -name "${{ matrix.texconv_bin }}" -exec cp {} io_scene_bf2/directx/ \;
+
+      - name: Create Zip Archive (Contents Only)
+        id: create_zip # ID added to reference outputs
+        run: |
+          ZIP_NAME="io_scene_bf2-${{ github.event.inputs.version }}-${{ matrix.platform_suffix }}.zip"
+
+          cd io_scene_bf2
+          zip -r "../$ZIP_NAME" . -x "*.git*" "*__pycache__*"
+          cd ..
+
+          # Set output for the artifact name and path
+          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload Packaged Zip as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # This now uses the exact .zip filename as the artifact name
+          name: ${{ steps.create_zip.outputs.zip_name }}
+          path: ${{ steps.create_zip.outputs.zip_name }}
+
+  release:
+    name: Create Draft Release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all zipped artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: io_scene_bf2-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          draft: true
+          files: ./*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
