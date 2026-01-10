@@ -1,11 +1,15 @@
-name: Build Raw Binaries
+name: Manual Build bsp_builder Binaries
 
-on: [push, pull_request]
+on:
+  workflow_dispatch: # Allows manual triggering from the Actions tab
 
 jobs:
   build:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ./bsp_builder
     strategy:
       matrix:
         include:
@@ -46,22 +50,19 @@ jobs:
           # Get the platform-specific extension suffix from Python
           SUFFIX=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
           
-          # Search for the compiled file (handling different build folder structures)
-          # Windows usually puts it in Release/, Unix puts it in the root of build/
+          # Find the binary inside the subdirectory's build folder
           RAW_FILE=$(find build -name "*.so" -o -name "*.pyd" | head -n 1)
           
           echo "Found raw binary: $RAW_FILE"
           echo "Target suffix: $SUFFIX"
           
-          # Create the final filename
-          mkdir -p output
-          cp "$RAW_FILE" "output/bsp_builder$SUFFIX"
-          
-          # Special case: If macOS universal2 suffix isn't generated correctly by sysconfig, 
-          # you can manually force it, but usually, cp311-darwin.so is the standard.
+          # Create an output folder inside the subdirectory
+          mkdir -p final_dist
+          cp "$RAW_FILE" "final_dist/bsp_builder$SUFFIX"
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
         with:
           name: bsp_builder-${{ matrix.platform }}
-          path: output/
+          # Path is relative to the repository root, so we include the subdirectory
+          path: bsp_builder/final_dist/
