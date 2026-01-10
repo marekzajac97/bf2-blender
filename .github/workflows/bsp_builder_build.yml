@@ -1,0 +1,67 @@
+name: Build Raw Binaries
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: manylinux_x86_64
+          - os: windows-latest
+            platform: win_amd64
+          - os: macos-latest
+            platform: universal2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pybind11
+
+      - name: Configure CMake
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DPYTHON_EXECUTABLE=${{ env.pythonLocation }}/python
+          ${{ matrix.os == 'macos-latest' && '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"' || '' }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Rename and Prepare Binary
+        shell: bash
+        run: |
+          # Get the platform-specific extension suffix from Python
+          SUFFIX=$(python3 -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
+          
+          # Search for the compiled file (handling different build folder structures)
+          # Windows usually puts it in Release/, Unix puts it in the root of build/
+          RAW_FILE=$(find build -name "*.so" -o -name "*.pyd" | head -n 1)
+          
+          echo "Found raw binary: $RAW_FILE"
+          echo "Target suffix: $SUFFIX"
+          
+          # Create the final filename
+          mkdir -p output
+          cp "$RAW_FILE" "output/bsp_builder$SUFFIX"
+          
+          # Special case: If macOS universal2 suffix isn't generated correctly by sysconfig, 
+          # you can manually force it, but usually, cp311-darwin.so is the standard.
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: bsp_builder-${{ matrix.platform }}
+          path: output/

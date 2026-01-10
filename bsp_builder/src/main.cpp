@@ -2,6 +2,7 @@
 #include <pybind11/stl.h>
 #include <vector>
 #include <tuple>
+#include <limits>
 
 typedef std::tuple<int, int, int> Face;
 typedef std::tuple<float, float, float> Vertex;
