@@ -18,10 +18,7 @@ As well as many other utilities for:
 - BundledMesh skinning
 
 ## Compatibility
-- Blender 4.2 or later required.
-- Supports all platforms with the following exceptions:
-  * ARM (Any platform) - CollostionMesh export is significantly slower (see [BSP Builder](bsp_builder/README.md)).
-  * Windows ARM - DDS export not supported
+- Blender 4.2 or later required
 
 ## Installation
 Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) (NOT `Source code (zip)`!) and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)

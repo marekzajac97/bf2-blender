@@ -10,6 +10,9 @@ on:
         description: 'Texconv Version (e.g., v0.5.0)'
         required: true
         default: 'v0.5.0'
+      build_run_id:
+        description: 'The Run ID of the job that built the bsp_builder'
+        required: true
 
 jobs:
   package:
@@ -43,7 +46,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.artifact }}
+          run-id: ${{ github.event.inputs.build_run_id }}
           path: ./bsp_builder_binaries
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch and Unpack Texconv
         run: |
