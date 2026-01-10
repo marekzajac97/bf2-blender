@@ -1,14 +1,11 @@
 name: Build bsp_builder python extenstion
 
-# on:
-#   workflow_dispatch: # Allows manual triggering from the Actions tab
-
-on: [push]
+on:
+  workflow_dispatch: # Allows manual triggering from the Actions tab
 
 jobs:
   build:
     name: Build ${{ matrix.name }}
-    # Note: 'windows-11-arm' must be available in your GitHub organization's runner pool
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -24,7 +21,7 @@ jobs:
             os: windows-latest
             artifact_name: bsp_builder-windows-x64
           - name: Windows-ARM64
-            os: windows-11-arm64
+            os: windows-11-arm
             artifact_name: bsp_builder-windows-arm64
           - name: MacOS-Universal
             os: macos-latest
