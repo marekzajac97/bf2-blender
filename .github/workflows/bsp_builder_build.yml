@@ -1,7 +1,9 @@
 name: Manual Build bsp_builder Binaries
 
-on:
-  workflow_dispatch: # Allows manual triggering from the Actions tab
+# on:
+#   workflow_dispatch: # Allows manual triggering from the Actions tab
+
+on: [push]
 
 jobs:
   build:
