@@ -13,6 +13,7 @@ jobs:
       run:
         working-directory: ./bsp_builder
     strategy:
+      fail-fast: false
       matrix:
         include:
           - name: Linux-x64
@@ -24,8 +25,7 @@ jobs:
           - name: Windows-ARM64
             os: windows-latest
             artifact_name: bsp_builder-windows-arm64
-            # Use the ARM64 generator and tell CMake not to try to run the python interpreter
-            cmake_flags: -A ARM64 -DPython_FIND_REGISTRY=NEVER -DPython_FIND_STRATEGY=LOCATION
+            cmake_flags: -A ARM64 -DPython_FIND_REGISTRY=NEVER
           - name: MacOS-Universal
             os: macos-latest
             artifact_name: bsp_builder-macos-universal
@@ -35,22 +35,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: recursive # This is the critical part for your submodule
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install pybind11
+      # Removed 'pip install pybind11' as it is handled by your submodule
 
       - name: Configure CMake
         run: >
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
-          -DPython_EXECUTABLE=${{ env.pythonLocation }}/python.exe
+          -DPython_EXECUTABLE=${{ env.pythonLocation }}/python${{ runner.os == 'Windows' && '.exe' || '' }}
           -DPython_ROOT_DIR=${{ env.pythonLocation }}
+          -DPython_FIND_STRATEGY=LOCATION
           ${{ matrix.cmake_flags }}
 
       - name: Build
