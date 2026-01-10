@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Addon Version (e.g., 0.11.1)'
+        description: 'Addon Version'
         required: true
-        default: '0.11.1'
       texconv_version:
         description: 'Texconv Version (e.g., v0.5.0)'
         required: true
@@ -14,29 +13,26 @@ on:
 
 jobs:
   package:
-    name: Package for ${{ matrix.platform }}
+    name: Package for ${{ matrix.platform_suffix }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - platform: linux-x64
-            artifact: bsp_builder-linux-x64
-            suffix: linux-x64
-            texconv_file: Linux-x64.tar.bz2
+          - artifact: bsp_builder-linux-x64
+            platform_suffix: linux-x64
+            texconv_file_suffix: Linux-x64.tar.bz2
             texconv_bin: libtexconv.so
-          - platform: windows-x64
-            artifact: bsp_builder-windows-x64
-            suffix: win-x64
-            texconv_file: Windows-x64.zip
+          - artifact: bsp_builder-windows-x64
+            platform_suffix: windows-x64
+            texconv_file_suffix: Windows-x64.zip
             texconv_bin: texconv.dll
-          - platform: windows-arm64
-            artifact: bsp_builder-windows-arm64
-            suffix: win-arm64
-            texconv_file: Windows-arm64.zip
+          - artifact: bsp_builder-windows-arm64
+            platform_suffix: windows-arm64
+            texconv_file_suffix: Windows-arm64.zip
             texconv_bin: texconv.dll
-          - platform: macos-universal
-            artifact: bsp_builder-macos-universal
-            suffix: macos-arm64.tar.bz2 # Texconv uses arm64 specific for Mac
+          - artifact: bsp_builder-macos-universal
+            platform_suffix: macos-arm64
+            texconv_file_suffix: macOS-arm64.tar.bz2
             texconv_bin: libtexconv.dylib
 
     steps:
@@ -47,12 +43,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ./temp_binaries
+          path: ./bsp_builder_binaries
 
       - name: Fetch and Unpack Texconv
         run: |
           VERSION="${{ github.event.inputs.texconv_version }}"
-          FILE="TexconvCustomDLL-${VERSION}-${{ matrix.texconv_file }}"
+          FILE="TexconvCustomDLL-${VERSION}-${{ matrix.texconv_file_suffix }}"
           URL="https://github.com/matyalatte/Texconv-Custom-DLL/releases/download/${VERSION}/${FILE}"
           
           echo "Downloading $URL"
@@ -67,30 +63,31 @@ jobs:
 
       - name: Prepare Addon Structure
         run: |
-          # 1. Inject bsp_builder
-          mkdir -p io_scene_bf2/core/bf2/
-          find ./temp_binaries -name "bsp_builder*" -exec cp {} io_scene_bf2/core/bf2/ \;
-          
-          # 2. Inject Texconv
+          # 1. Add bsp_builder
+          find ./bsp_builder_binaries -name "bsp_builder*" -exec cp {} io_scene_bf2/core/bf2/ \;
+
+          # 2. Add Texconv
           mkdir -p io_scene_bf2/directx/
           find texconv_out -name "${{ matrix.texconv_bin }}" -exec cp {} io_scene_bf2/directx/ \;
-          
-          echo "Final directory check:"
-          ls -R io_scene_bf2/core/bf2/
-          ls -R io_scene_bf2/directx/
 
       - name: Create Zip Archive (Contents Only)
+        id: create_zip # ID added to reference outputs
         run: |
-          ZIP_NAME="io_scene_bf2-${{ github.event.inputs.version }}-${{ matrix.suffix }}.zip"
+          ZIP_NAME="io_scene_bf2-${{ github.event.inputs.version }}-${{ matrix.platform_suffix }}.zip"
+
           cd io_scene_bf2
           zip -r "../$ZIP_NAME" . -x "*.git*" "*__pycache__*"
-          echo "ZIP_PATH=$ZIP_NAME" >> $GITHUB_ENV
+          cd ..
+
+          # Set output for the artifact name and path
+          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload Packaged Zip as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: final-zip-${{ matrix.suffix }}
-          path: ${{ env.ZIP_PATH }}
+          # This now uses the exact .zip filename as the artifact name
+          name: ${{ steps.create_zip.outputs.zip_name }}
+          path: ${{ steps.create_zip.outputs.zip_name }}
 
   release:
     name: Create Draft Release
@@ -102,7 +99,7 @@ jobs:
       - name: Download all zipped artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: final-zip-*
+          pattern: io_scene_bf2-*
           merge-multiple: true
 
       - name: Create GitHub Release

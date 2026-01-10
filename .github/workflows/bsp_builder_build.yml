@@ -1,9 +1,7 @@
 name: Build bsp_builder python extenstion
 
-# on:
-#   workflow_dispatch: # Allows manual triggering from the Actions tab
-
-on: [push] # TODO: remove
+on:
+  workflow_dispatch: # Allows manual triggering from the Actions tab
 
 jobs:
   build:
