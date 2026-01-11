@@ -316,48 +316,90 @@ Some of the tutorials might be slightly outdated, always read the documenatation
 # Scripting
 The add-on import/export functions can be used in python scripts to automate tasks, some examples below.
 
+## Import & export
+
 ```python
 import bpy
 from os import path
 from bl_ext.user_default.io_scene_bf2 import *
 
-def get_filepath(rel_path):
-    mod_dir = get_mod_dir(bpy.context)
-    return path.join(mod_dir, rel_path)
+MOD_PATHS = [
+    r'D:\Battlefield 2\mods\fh2',
+    r'D:\Battlefield 2\mods\bf2'
+]
 
-SOLDIER = get_filepath('Objects/Soldiers/BA/Meshes/ba_light_soldier.skinnedmesh')
-KITS = get_filepath('Objects/Kits/BA/Meshes/ba_kits.skinnedmesh')
-WEAPON = get_filepath('Objects/Weapons/Handheld/m91carcano/Meshes/m91carcano.bundledmesh')
-SKELETON_1P = get_filepath('Objects/Soldiers/Common/Animations/1p_setup.ske')
-SKELETON_3P = get_filepath('Objects/Soldiers/Common/Animations/3p_setup.ske')
-ANIM_3P_SOLDIER = get_filepath('Objects/Soldiers/Common/Animations/3P/3p_reload.baf')
-ANIM_3P_WEAPON = get_filepath('Objects/Weapons/Handheld/m91carcano/Animations/3P/3p_m91carcano_reload.baf')
-ANIM_1P = get_filepath('Objects/Weapons/Handheld/m91carcano/Animations/1P/1p_m91_reload.baf')
-OBJ_TEMP_STATIC = get_filepath('Objects/StaticObjects/France/la_horgne/horgne_church/horgne_church.con')
-OBJ_TEMP_VEHICLE = get_filepath('Objects/vehicles/land/DE/sdkfz251_d/sdkfz251_d.con')
+def abs_path(rel_path):
+    return path.join(MOD_PATHS[0], rel_path)
+
+SOLDIER = abs_path('Objects/Soldiers/BA/Meshes/ba_light_soldier.skinnedmesh')
+KITS = abs_path('Objects/Kits/BA/Meshes/ba_kits.skinnedmesh')
+WEAPON = abs_path('Objects/Weapons/Handheld/m91carcano/Meshes/m91carcano.bundledmesh')
+SKELETON_1P = abs_path('Objects/Soldiers/Common/Animations/1p_setup.ske')
+SKELETON_3P = abs_path('Objects/Soldiers/Common/Animations/3p_setup.ske')
+ANIM_3P_SOLDIER = abs_path('Objects/Soldiers/Common/Animations/3P/3p_reload.baf')
+ANIM_3P_WEAPON = abs_path('Objects/Weapons/Handheld/m91carcano/Animations/3P/3p_m91carcano_reload.baf')
+ANIM_1P = abs_path('Objects/Weapons/Handheld/m91carcano/Animations/1P/1p_m91_reload.baf')
+OBJ_TEMP_STATIC = abs_path('Objects/StaticObjects/France/la_horgne/horgne_church/horgne_church.con')
+OBJ_TEMP_VEHICLE = abs_path('Objects/vehicles/land/DE/sdkfz251_d/sdkfz251_d.con')
+
+c = bpy.context
 
 # ---------- Import & export 3P animation ----------
-ske = import_skeleton(bpy.context, SKELETON_3P)
-IMPORT_OPTS = {'geom': 1, 'lod': 0, 'texture_path': MOD_PATH, 'geom_to_ske': {-1: ske}}
-import_mesh(bpy.context, SOLDIER, **IMPORT_OPTS)
-import_mesh(bpy.context, KITS, **IMPORT_OPTS)
-import_mesh(bpy.context, WEAPON, **IMPORT_OPTS)
-import_animation(bpy.context, ske, ANIM_3P_WEAPON)
-import_animation(bpy.context, ske, ANIM_3P_SOLDIER)
+ske = import_skeleton(c, SKELETON_3P)
+IMPORT_OPTS = {'geom': 1, 'lod': 0, 'texture_paths': MOD_PATHS, 'geom_to_ske': {-1: ske}}
+import_mesh(c, SOLDIER, **IMPORT_OPTS)
+import_mesh(c, KITS, **IMPORT_OPTS)
+import_mesh(c, WEAPON, **IMPORT_OPTS)
+import_animation(c, ske, ANIM_3P_WEAPON)
+import_animation(c, ske, ANIM_3P_SOLDIER)
 
-export_animation(bpy.context, ske, 'export/3p_anim.baf')
+export_animation(c, ske, 'export/3p_anim.baf')
 # ---------- Import & export 1P animation ----------
-ske = import_skeleton(bpy.context, SKELETON_1P)
-IMPORT_OPTS = {'geom': 0, 'lod': 0, 'texture_path': MOD_PATH, 'geom_to_ske': {-1: ske}}
-import_mesh(bpy.context, SOLDIER, **IMPORT_OPTS)
-import_mesh(bpy.context, WEAPON, **IMPORT_OPTS)
-import_animation(bpy.context, ske, ANIM_1P)
+ske = import_skeleton(c, SKELETON_1P)
+IMPORT_OPTS = {'geom': 0, 'lod': 0, 'texture_paths': MOD_PATHS, 'geom_to_ske': {-1: ske}}
+import_mesh(c, SOLDIER, **IMPORT_OPTS)
+import_mesh(c, WEAPON, **IMPORT_OPTS)
+import_animation(c, ske, ANIM_1P)
 
-export_animation(bpy.context, ske, 'export/1p_anim.baf')
+export_animation(c, ske, 'export/1p_anim.baf')
 # ---------- Import & export static object ----------
-obj_temp = import_object_template(bpy.context, OBJ_TEMP_STATIC, texture_path=MOD_PATH)
-export_object_template(obj_temp, 'export/static.con', texture_path=MOD_PATH, tangent_uv_map='UV1')
+obj_temp = import_object_template(c, OBJ_TEMP_STATIC, texture_paths=MOD_PATHS)
+export_object_template(obj_temp, 'export/static.con', texture_paths=MOD_PATHS, tangent_uv_map='UV1')
 # ---------- Import & export vehicle ----------
-obj_temp = import_object_template(bpy.context, OBJ_TEMP_VEHICLE, texture_path=MOD_PATH)
-export_object_template(obj_temp, 'export/vehicle.con', texture_path=MOD_PATH, tangent_uv_map='UV0')
+obj_temp = import_object_template(c, OBJ_TEMP_VEHICLE, texture_paths=MOD_PATHS)
+export_object_template(obj_temp, 'export/vehicle.con', texture_paths=MOD_PATHS, tangent_uv_map='UV0')
+```
+
+## Lightmapping
+
+```python
+import bpy
+from os import path
+from bl_ext.user_default.io_scene_bf2 import *
+
+MOD_PATHS = [
+    r'D:\Battlefield 2\mods\fh2',
+    r'D:\Battlefield 2\mods\bf2'
+]
+
+LEVEL_DIR = r'D:\Battlefield 2\mods\fh2\levels\the_battle_for_sfakia'
+CFG_FILE_PATH = r'D:\Battlefield 2\mods\fh2\lightmap_config.py'
+OUTPUT_DIR = r'C:\Users\Admin\AppData\Local\Temp'
+
+AMBIENT_LIGHT_INTENSITY = 0.5
+
+c = bpy.context
+load_level(c, LEVEL_DIR, texture_paths=MOD_PATHS, config_file=CFG_FILE_PATH)
+
+# adjust render settings
+c.scene.cycles.samples = 8192
+c.scene.cycles.adaptive_threshold = 0.001
+
+# adjust light settings (if needed)
+# bpy.data.ligts['Sun'].energy = ...
+# bpy.data.worlds['SkyLight'].node_tree.nodes["Background"].inputs['Strength'].default_value = ...
+
+ObjectBaker(c, OUTPUT_DIR).bake_all(c)
+TerrainBaker(c, OUTPUT_DIR).bake_all(c)
+PostProcessor(c, OUTPUT_DIR, ambient_light_intensity=AMBIENT_LIGHT_INTENSITY).process_all(c)
 ```

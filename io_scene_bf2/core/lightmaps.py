@@ -71,8 +71,8 @@ class BakerBase(ABC):
             name = image.name
         save_img_as_dds(image, path.join(self.output_dir, f'{name}.dds'), self.dds_fmt)
 
-    def bake_all(self):
-        while self.bake_next():
+    def bake_all(self, context):
+        while self.bake_next(context):
             pass
 
     def cleanup(self, context):
@@ -175,13 +175,16 @@ def _make_add_ambinet_light(ambient_light_level):
     return node_tree
 
 class PostProcessor:
-    def __init__(self, context, src_dir, out_dir, intensity, dds_fmt='NONE'):
+    def __init__(self, context, src_dir, out_dir='', ambient_light_intensity=0.5, dds_fmt='NONE'):
         if 'Render Result' in bpy.data.images:
             render_result = bpy.data.images['Render Result']
             bpy.data.images.remove(render_result)
 
+        if not out_dir:
+            out_dir = src_dir
+
         self.dds_fmt = dds_fmt
-        self.add_ambient_light = _make_add_ambinet_light(intensity)
+        self.add_ambient_light = _make_add_ambinet_light(ambient_light_intensity)
         context.scene.compositing_node_group = self.add_ambient_light
         self.out_dir = out_dir
         self.textures = list()
@@ -227,6 +230,10 @@ class PostProcessor:
             bpy.data.images.remove(render_result)
         
         return True
+
+    def process_all(self, context):
+        while self.process_next(context):
+            pass
 
 def get_all_lightmap_files(dir):
     files = set()
@@ -545,8 +552,6 @@ class TerrainBaker(BakerBase):
                  patch_count=None, patch_size=None, skip_existing=False,
                  reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
-        self.patch_count = patch_count
-        self.patch_size = patch_size
         self.reporter = reporter
         self.terrain = find_heightmap(context)
         self.existing_patches = set()
@@ -565,6 +570,9 @@ class TerrainBaker(BakerBase):
             if hm_size not in DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES:
                 raise RuntimeError(f'Cannot determine default values for patch_count and patch_size')
             patch_count, patch_size = DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES[hm_size]
+
+        self.patch_count = patch_count
+        self.patch_size = patch_size
 
         self.grid_size = math.isqrt(patch_count)
         if self.grid_size * self.grid_size != patch_count:
@@ -802,7 +810,7 @@ def _gen_lm_key(geom_template_name, position, lod):
 
 class ObjectBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE', lod_mask=None,
-                 only_selected=True, normal_maps=True, skip_existing=False,
+                 only_selected=False, normal_maps=False, skip_existing=False,
                  reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
         self.lod_mask = lod_mask

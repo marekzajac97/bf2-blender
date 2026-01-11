@@ -207,7 +207,9 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
             self.report({"ERROR"}, f"Choosen out path '{self.outdir}' is NOT a directory!")
             return {'CANCELLED'}
         
-        self.processor = PostProcessor(context, self.srcdir, self.outdir, self.intensity, self.dds_compression)
+        self.processor = PostProcessor(context, self.srcdir, self.outdir,
+                                       ambient_light_intensity=self.intensity,
+                                       dds_fmt=self.dds_compression)
 
         wm = context.window_manager
         self.timer = wm.event_timer_add(0, window=context.window)
