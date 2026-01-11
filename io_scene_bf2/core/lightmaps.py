@@ -1375,7 +1375,7 @@ def load_level(context, level_dir, use_cache=True,
         obj.rotation_quaternion = sun_dir.rotation_difference(Vector((0, 0, 1)))
 
         sin_alpha = abs(sun_dir.z)
-        sun_light.energy = (1 + 0.5 * sin_alpha) * 2 # TODO strength
+        sun_light.energy = (1 + 0.5 * sin_alpha) * 4 # TODO strength
         sun_light.color = (0, 1, 0)
 
         # skylight / soft shadows (blue channel)
@@ -1385,7 +1385,7 @@ def load_level(context, level_dir, use_cache=True,
         context.scene.world = bpy.data.worlds.new("SkyLight")
         background = context.scene.world.node_tree.nodes["Background"]
         background.inputs['Color'].default_value = (0, 0, 1, 1)
-        background.inputs['Strength'].default_value = 0.7 # TODO strength
+        background.inputs['Strength'].default_value = 1.4 # TODO strength
 
         COLOR_MAP = {'red': (1, 0, 0), 'green': (0, 1, 0), 'blue': (0, 0, 1)}
 
