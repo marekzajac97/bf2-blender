@@ -21,7 +21,7 @@ As well as many other utilities for:
 - Blender 4.2 or later required
 
 ## Installation
-Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) (NOT `Source code (zip)`!) and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
+Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) compatible with your system and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
 
 ## Usage
 - Head over to the [Documentation](docs/README.md) for details on how to use this add-on
