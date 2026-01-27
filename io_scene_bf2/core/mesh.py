@@ -541,7 +541,7 @@ class MeshExporter:
 
     def __init__(self, mesh_obj, mesh_file, mesh_type,
                  mesh_geoms=None, gen_lightmap_uv=True,
-                 texture_paths=[], tangent_uv_map='',
+                 texture_paths=[],
                  normal_weld_thres=0.999,
                  tangent_weld_thres=0.999,
                  save_backfaces=True,
@@ -554,7 +554,6 @@ class MeshExporter:
         self.bf2_mesh = _MESH_TYPES[mesh_type.upper()](name=mesh_obj.name)
         self.gen_lightmap_uv = gen_lightmap_uv
         self.texture_paths = texture_paths
-        self.tangent_uv_map = tangent_uv_map
         self.normal_weld_thres = normal_weld_thres
         self.tangent_weld_thres = tangent_weld_thres
         self.reporter = reporter
@@ -734,11 +733,6 @@ class MeshExporter:
         
         backface_attr = mesh.attributes.get('backface') if self.save_backfaces else None
 
-        if not self.tangent_uv_map:
-            raise ExportException("No UV selected for tangent space generation!\n Make sure your UV maps are called UV0, UV1 etc..")
-
-        mesh.calc_tangents(uvmap=self.tangent_uv_map)
-
         # lightmap UV, if not present, generate it
         if mesh_type == BF2StaticMesh and 'UV4' not in mesh.uv_layers and self.gen_lightmap_uv:
             light_uv_layer = mesh.uv_layers.new(name='UV4')
@@ -754,6 +748,16 @@ class MeshExporter:
         for uv_chan in range(uv_count):
             if f'UV{uv_chan}' in mesh.uv_layers:
                 uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
+
+        # generate tangent space
+        if mesh_type == BF2StaticMesh and uv_layers.get(1):
+            tangent_uv_channel = 1
+        elif uv_layers.get(0):
+            tangent_uv_channel = 0
+        else:
+            raise ExportException(f"'{mesh.name}': no valid UVs found to generate the tangent space!\n Make sure your UV maps are called correctly (UV0, UV1 etc..)")
+
+        mesh.calc_tangents(uvmap=f'UV{tangent_uv_channel}')
 
         # number of parts/bones
         if mesh_type == BF2StaticMesh:

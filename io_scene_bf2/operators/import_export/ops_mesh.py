@@ -140,38 +140,6 @@ class MeshExportBase(ExporterBase):
     EXPORT_FUNC = None
     FILE_DESC = None
 
-    def get_uv_layers(self, context):
-        items = []
-        root = find_root(context.view_layer.objects.active)
-        object_uv_layers = collect_uv_layers(root)
-        default = None
-
-        idname = self.bl_rna.identifier
-        if idname == 'BF2_MESH_OT_export_staticmesh':
-            default = 1 # Detail normal
-        elif idname == 'BF2_MESH_OT_export_bundledmesh' or idname == 'BF2_MESH_OT_export_skinnedmesh':
-            default = 0 # Diffuse/Normal
-
-        # XXX: it is not possible to define a default for dynamic enums
-        # the only way is to reorder items in such a way that the default one
-        # is the first one in the list, not ideal but works
-        start = 0
-        if default in object_uv_layers:
-            uv_layer = object_uv_layers.pop(default)
-            items.append((uv_layer, uv_layer, "", 0))
-            start = 1
-
-        for i, uv_layer in enumerate(object_uv_layers.values(), start=start):
-            items.append((uv_layer, uv_layer, "", i))
-
-        return items
-
-    tangent_uv_map : EnumProperty(
-        name="Tangent UV",
-        description="UV Layer that you've used to bake the normal map, needed for tangent space generation",
-        items=get_uv_layers
-    ) # type: ignore
-
     save_backfaces: BoolProperty(
         name="Backfaces",
         description="Exports faces with 'backface' attribute as double-sided",
@@ -194,7 +162,6 @@ class MeshExportBase(ExporterBase):
         root = find_root(context.view_layer.objects.active)
         self.__class__.EXPORT_FUNC(root, self.filepath,
                                    texture_paths=mod_paths,
-                                   tangent_uv_map=self.tangent_uv_map,
                                    save_backfaces=self.save_backfaces,
                                    apply_modifiers=self.apply_modifiers,
                                    triangulate=True,

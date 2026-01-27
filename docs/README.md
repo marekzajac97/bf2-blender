@@ -42,7 +42,7 @@ An explanation of BF2 terms and systems used throughout this documentation.
 - **Alpha Mode** - either `None`, `Alpha Test` (cheap, one-bit alpha), `Alpha Blend` (expensive, may increase overdraw)
 - **Shader** - name of the shader (.fx) file to use for drawing the material, usually matches the visible mesh type name.
 - **Technique** - a combination of names that describe the shader permutation (a set of shader features) to use for a particular material. These names are harcoded in the game engine.
-- **Animated UVs** - UV (texture) coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement and/or wheel rotation. Vertices that shall use this feature must be mapped to a specific UV transformation matrix depending on whether they belong to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 different combinations).
+- **Animated UVs** - UV (texture) coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement and/or road wheel rotation. Vertices that shall use this feature must be mapped to a specific UV transformation matrix depending on whether they belong to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 different combinations).
 
 ## Texturing
 
@@ -67,7 +67,7 @@ BundledMesh and SkinnedMesh materials use two texture maps: `Diffuse Color` and 
 For BundledMesh, the roughness map is embeded into the alpha channel of either the `Diffuse Color` map when Alpha Mode is set to `None` or the `Normal` map when Alpha Mode is set to either `Alpha Blend` or `Alpha Test`. SkinnedMesh materials always have their roughness map in the `Normal` map's alpha channel.
 
 # Initial Add-on setup
-After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (optional but needed to load textures) Then you can use the `BF2` submenu in the `File -> Import/Export` or drag-and-drop any supported BF2 file.
+After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (optional but needed to load textures) Then you can use the `File -> Import/Export -> BF2` submenu or drag-and-drop any supported BF2 file.
 
 # Animating
 The add-on ships with extensive toolset for creating BF2 animations including batch import/export, automated rig setup and more. This section contains all the info you need to get started.
@@ -110,7 +110,7 @@ Some very useful 3rd party add-ons for animating:
 - Blender does not support mesh deformations when using Object Space normal maps. This means most SkinnedMeshes will have shading issues when deformed/animated, no workaround found yet.
 
 # ObjectTemplate vs Mesh import/export
-There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure lacking some data present in the `.con` file, that's why its usage is limited. The second (and preferred) method is the `ObjecTemplate (.con)` option, which parses the ObjectTemplate definition allowing it to:
+There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure lacking some data present in the `.con` file, that's why its usablility is limited. The second (and preferred) method is the `ObjecTemplate (.con)` option, which parses the ObjectTemplate definition allowing it to:
 - load visible mesh of the proper type
 - separate all geometry parts into Blender objects
 - transform (move & rotate) all geometry parts
@@ -120,8 +120,8 @@ There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` me
 When you want to re-export a mesh that has been imported and modified, a proper option from the `Export -> BF2` menu has to be chosen based on the option used to import the mesh, meaning that when you import `.staticMesh` also export it as `.staticMesh`, other combinations will not work! Bare in mind that the `ObjectTemplate (.con)` exporter not only saves the ObjectTemplate's definition to a `.con` file but also exports visible mesh and collision mesh into the `Meshes` sub-directory.
 
 ## Known issues
-- Some vBF2 meshes and meshes exported with Autodesk 3ds Max may contain backfaces (another face defined over the same set of vertices but opossing normal directons). Such faces are (rightfully) illegal in Blender but for compatibility reasons are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face will be tagged using a custom per-face boolean [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) called `backface`. When exporting a mesh, each face having attribute `backface` set will be exported as double-sided. To see which faces will be treated as double-sided while in `Edit Mode` select `backface` from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribyte](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html).
-- Blender does not allow to import custom tangent data, therefore when re-exporting meshes, vertex tangents always get re-calculated. This may increase the number of unique vertices being exported. Generated tangents may also be totally wrong if the normal map used was not generated using Mikk TSpace method (which Blender uses).
+- Some vBF2 meshes and meshes exported with Autodesk 3ds Max may contain backfaces (another face defined over the same set of vertices but opossing normal directions). Such faces are (rightfully) illegal in Blender but for compatibility reasons are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face is tagged using a custom **boolean [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) in Face domain** called *`backface`*. When exporting a mesh, each face having attribute *`backface`* set will be exported as double-sided. To see exactly which faces are treated as double-sided while in `Edit Mode` select `backface` from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html).
+- Blender does not allow to import custom tangent data, therefore when re-exporting meshes, vertex tangents always get re-calculated. This may increase the number of unique vertices being exported. Use `Weld vertices` option when importing to mitigate this issue. Blender generates tangent space using Mikk TSpace algorithm, your normal map must be baked using the same method or it will cause shading bugs in game.
 
 # ObjectTemplate export guide
 
@@ -132,7 +132,7 @@ This section lists all the requirements needed for the finished model to become 
 - Each child of the Geom object must be an object that corresponds to Lod (prefixed with `G<index>L<index>__`) containing mesh data. There must be at least one Lod.
 - Lods should have their [origin set at center of the geometry](https://docs.blender.org/manual/en/latest/scene_layout/object/origin.html#set-origin). This optimizes bounding spheres and avoids frustum culling related bugs (objects disappearing at certain viewing angles).
 - For BundledMeshes, each Lod may contain multiple child objects that will be exported as separate geometry parts bound to child ObjectTemplates. Each Lod must contain the same hierarchy of objects (their names and transformations must match between Lods). Geometry parts cannot be empty Blender objects, each one must contain mesh data to export properly! However, the mesh data itself may have no geometry (verts & faces deleted), which is useful for exporting things as invisible but separate logical gameplay objects.
-- Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set. You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. It can be left empty when an object is intended to be exported as a separate geometry part but not bound to any child ObjectTemplate (mostly applies to exporting handheld weapon parts).
+- Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set. You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. It can be left empty when an object is intended to be exported as a separate geometry part but at the same time doesn't represent any ObjectTemplate (mostly applies to exporting animatable weapon parts such mags, bolts etc).
 
 ### Example object hierarchies
 
@@ -172,11 +172,10 @@ BunldedMesh_gun
   │   ├─G1L0__gun__COL1 [m]
   │   └─G1L0__gun__COL2 [m]
   ├─G1L1__gun [m]
-  │ ├─G1L1__gun_1_mag
-  │ ├─G1L1__gun_2_bolt
+  │ └─G1L1__gun_1_mag
   └─G1L2__gun [m]
-    ├─G1L2__gun_1_mag
-    └─G1L2__gun_2_bolt
+
+NOTE: some parts like mag and bolt are missing in consecutive LODs and are merged with the main mesh, since they won't be seen animated anyways. This still exports fine!
 ```
 </details>
 
@@ -262,7 +261,7 @@ SkinnedMesh_soldier
 - Each LOD's mesh must have a minimum of 1 and a maximum of 5 UV layers assigned and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
     - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, which can also be auto-generated when toggled in the export options.
     - For BundledMesh and SkinnedMesh there's only UV0 for all texture maps.
-- Export requires one UV map to be chosen for tangent space calculation, this must be the same UV used to bake the normal map, for static meshes (which reuse textures) it should likely be UV1 (Detail Normal).
+- Be aware that when making StaticMeshes, tangent space is generated using UV1 (Detail Normal). This means that if you also use Crack Normal maps you can't rotate or mirror the UVs (relativly to Detail Normal) otherwise the lighting calculations will be incorrect.
 
 ## Collision meshes
 - Each object may contain collision mesh data. To add it, you must create an empty child object prefixed with `NONVIS__`. This new object should have a maximum of 4 child objects (suffixed with `_COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added under the object's Lod0 hierarchies.
@@ -271,10 +270,10 @@ SkinnedMesh_soldier
 - CollisionMesh exports to a slightly older file format version (9) than 3ds Max exporter (10). Latest file version contains some extra face adjacency info for drawing debug meshes which is disabled by default in-game anyway.
 
 ## Skinning (BundledMesh)
-BF2 BundledMeshes support a basic method of skinning allowing one "bone" per vertex, where the "bone" is another object (geometry part). In other words, it enables "moving" some vertices from one object (geometry part) to another so that individual vertices that make up a face get split among different parts, which can be affected by the in-game physics differently and may cause some faces to stretch and deform. This technique is most commonly used for setting up tank tracks by splitting them up and "linking" track pieces to wheel objects. To achieve this in Blender create a new [Vertex Group](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/vertex_groups/index.html) named **exactly** the same as the child object that the vertices are supposed to be transferred to and add them to the group. A single vertex must be assigned to **exactly one** vertex group, or you will get an export error. You can ensure this by using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) in `Weight Paint Mode`.
+BF2 BundledMeshes support a cheap skinning method, allowing one "bone" per vertex, where the "bone" is another object (geometry part). In other words, it enables implicitly transferring some vertices from one object (geometry part) to another. When individual vertices that make up a face are distributed across different geometry parts, and when those parts get transformed, the faces can stretch and deform. This technique is most commonly used for tracked vehicles by splitting the tracks into pieces and "linking" them to road wheels. To do this, create a new [Vertex Group](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/vertex_groups/index.html) named **exactly** the same as the child object that the vertices are supposed to be transferred to and assign them to the group. A single vertex must be assigned to **exactly one** vertex group, or you will get an export error. You can ensure this by using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) in `Weight Paint Mode`.
 
 ## Animated UVs (BundledMesh)
-To set up animated UVs go to `Edit Mode`, select specific parts (vertices/faces) of your mesh that should use UV animation and assign them to proper sets using the `Mesh -> BF2` menu, choosing Left/Right Tracks/Wheels Translation/Rotation. You can also select vertices/faces currently assigned to those sets using the `Select -> BF2` menu. Vertices assigned to the "wheel rotation" set will additionally require setting up the centre point of UV rotation for each wheel individually. Select all vertices, position the 2D cursor to the wheel centre in the UV Editing view, then select `Mesh -> BF2 -> Set Animated UV Rotation Center`. Repeat the process for all wheels.
+To set up animated UVs go to `Edit Mode`, select specific parts (vertices/faces) of your mesh that should use UV animation and assign them to proper sets using the `Mesh -> BF2` menu, choosing Left/Right Tracks/Wheels Translation/Rotation. You can also select vertices/faces currently assigned to those sets using the `Select -> BF2` menu. Vertices assigned to the "wheel rotation" set will additionally require setting up the centre point of UV rotation for each road wheel individually. Select all vertices, position the 2D cursor to the wheel centre in the UV Editing view, then select `Mesh -> BF2 -> Set Animated UV Rotation Center`. Repeat the process for every road wheel.
 
 ## Skinning (SkinnedMesh)
 In order to skin your model, you must import the BF2 skeleton into your scene. When skinning soldiers you will need two skeletons `1p_setup.ske` for 1P (Geom 0) and `3p_setup.ske` 3P (Geom 1). The first step is to switch to `Pose Mode` and pose the armature(s) to align it with your mesh(es) as best as possible. When you are done, make sure you apply this pose as the rest pose [Pose -> Apply -> Apply Pose As Rest Pose](https://docs.blender.org/manual/en/latest/animation/armatures/posing/editing/apply.html), then switch to `Object Mode` and for each Lod object go to `Modifiers` tab and [Add Modifier -> Deform -> Armature](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/armature.html), in modifier settings select 'Object' to point to the name of the imported skeleton. Now the hard part, you have to set vertex weights for each Lod, meaning how much each bone affects each vertex of the mesh. You could use automatic weights (which should be a good starting point) as follows:
@@ -289,21 +288,22 @@ Bare in mind that to export properly, each vertex must have at most two weights 
 The add-on also ships with the OG LOD generation tool which can create a low quality OG mesh variant from the base mesh. The tool can be found under `Object` -> `BF2` submenu and its usage is quite straightforward. NOTE: You need to have the base OG imported as `ObjectTempalte (.con)`, not as `StaticMesh (.staticmesh)` for it to work. 
 
 # Lightmapping
-This is a short guide on how to bake lightmaps using Blender Cycles rendering engine. Given my lack of knowledge in this area the feature is still in experimental state and largely untested. You may require some manual tinkering to get decent results. Feel free to open a GitHub issue if something doesn't work as it should or feel like could be automated. The lightmapping tools are accessible from the [Sidebar](https://docs.blender.org/manual/en/latest/interface/window_system/regions.html#sidebar), BF2 section.
+This is a short guide on how to bake lightmaps using Blender Cycles rendering engine. Given my lack of knowledge in this area the feature is still in experimental state and largely untested. You may require some manual tinkering to get decent results. The lightmapping tools are accessible from the [Sidebar](https://docs.blender.org/manual/en/latest/interface/window_system/regions.html#sidebar), BF2 section.
 ## Setting up the scene
 The first (optional) step is to prepare a configuration file. This defines how to load and post-process assets for lightmapping, but most importantly it contains the list of objects that should emit light. Click on the `+` icon to create a new config template and follow the descriptions of fields provided in comments, add what you need and remember to save it afterwards! When your config file is ready, make sure that your map files are unpacked and proceed with importing them using the `Load level` button, be patient as it may take a few minutes. If loading succeeds, you should see these four collections being created:
 - **StaticObjects**: contains all the objects that should to receive lightmaps
 - **StaticObjects_SkipLightmaps**: contains all the objects that aren't StaticMeshes or have `GeometryTemplate.dontGenerateLightmaps 1`
 - **Lights**: contains all the point lights as well as the *Sun*
 - **Heightmaps**: contains just the primary heightmap. The heightmap will have a modifier applied which flattens all the vertices below the water level so that terrain shadows are casted on the water surface.
-## Post-load actions
-- First and foremost, check the [Info Logs](https://docs.blender.org/manual/en/latest/editors/info_editor.html) for errors and warnings from the loading process, and try to fix them. If some meshes fail to import they won't receive any lightmaps nor cast any shadows!
-- Verify and tweak configured lightmap sizes, especially if you used automatic lightmap size based on mesh surface area feature. You can use `Select -> BF2 -> By Lightmap Size` or check the size in *Object Properties* for each LOD. LODs can be skipped during lightmapping if their lightmap size is set to zero.
-- Adjust the intensity of the *Sun* light, its color should be green. Tweak the intensity of the sky light (in Blender called [World](https://docs.blender.org/manual/en/latest/render/lights/world.html) background) its color should be blue. Verify your point light placement and parameters (intensity, radius etc.), their color should be red (unless you need them to appear on the terrain).
+## Before you hit 'Bake'...
+- Check the [Info Logs](https://docs.blender.org/manual/en/latest/editors/info_editor.html) for errors and warnings from the loading process, and try to fix them. If some meshes fail to import they won't receive any lightmaps nor cast any shadows!
+- Make sure that you have configured [GPU Rendering](https://docs.blender.org/manual/en/latest/render/cycles/gpu_rendering.html). By default Blender uses CPU rendering which is a lot slower.
+- If necessary, tweak configured lightmap sizes (especially if they were auto assigned). You can use `Select -> BF2 -> By Lightmap Size` or check the size in *Object Properties* for each LOD. LODs can be skipped during lightmapping if their lightmap size is set to zero.
+- If necessary, adjust the intensity of the *Sun* light, its color should be green. Tweak the intensity of the sky light (in Blender called [World](https://docs.blender.org/manual/en/latest/render/lights/world.html) background) its color should be blue. Verify your point light placement and parameters (intensity, radius etc.), their color should be red (unless you need them to appear on the terrain).
 ## Baking
-First of all, make sure that you have configured [GPU Rendering](https://docs.blender.org/manual/en/latest/render/cycles/gpu_rendering.html). Make a test bake for a single object by unchecking *Terrain* and choosing *Only Selected* for *Objects*. If the result ends up too noisy adjust Render settings like [Sampling](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html). From my experiance, to achieve decent quality lightmaps you'll need to set the *Max Samples* to at least 8192 and the *Noise Treshold* to 0.001 or less. For a top quality bumping those to 16384 and 0.0005 respectivly should be enough. It may also help to uncheck *Normal Maps*. This will generally produce smoother lightmaps as Blender won't be trying to bake all the little shadows from normal maps that end up looking like noise on a low resolution lightmap. When your test bake looks good, you may switch *Objects* mode to *All*, hit *Bake* and be patient, this process may take DAYS. You can cancel baking by pressing ESC and resume it later.
+I strongly suggest to make a test bake for a single object first by unchecking *Terrain* and choosing *Only Selected* for *Objects*. If the result ends up too noisy adjust Render settings like [Sampling](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html). From my experiance, to achieve decent quality lightmaps you'll need to set the *Max Samples* to at least 8192 and the *Noise Treshold* to 0.001 or less. For a top quality bumping those to 16384 and 0.0005 respectivly should be enough. It may also help to uncheck *Normal Maps*. This will generally produce smoother lightmaps as Blender won't be trying to bake all the little shadows from normal maps that end up looking like noise on a low resolution lightmap. When your test bake looks good, you may switch *Objects* mode to *All*, hit *Bake* and be patient, this process may take DAYS. You can cancel baking by pressing ESC and resume it later.
 ## Post-processing (Ambient lights)
-After your lightmaps are baked you will notice that some areas like interiors that don't receive much sunlight or skylight are way too dark, so you may want to add some ambient light to the lightmaps. The ambient light is basically a "flat" light uniformly affecting every surface. I couldn't find a good way to implement such lightning in Blender therefore it can only be added to lightmaps post bake. This has a disadvantage of not beeing able to see it in the render preview but the benefit of rather quickly changing the amount of ambient light later without re-baking.
+After your lightmaps are baked you will notice that some areas like interiors that don't receive much sunlight or skylight are way too dark, so you may want to add some ambient light to the lightmaps. The ambient light is basically a "flat" light uniformly affecting every surface. I couldn't find a good way to implement such lighting in Blender therefore it can only be added to lightmaps post bake. This has a disadvantage of not beeing able to see it in the render preview but the benefit of rather quickly changing the amount of ambient light later without re-baking.
 
 # Video Tutorials
 Some of the tutorials might be slightly outdated, always read the documenatation first!
@@ -364,10 +364,10 @@ import_animation(c, ske, ANIM_1P)
 export_animation(c, ske, 'export/1p_anim.baf')
 # ---------- Import & export static object ----------
 obj_temp = import_object_template(c, OBJ_TEMP_STATIC, texture_paths=MOD_PATHS)
-export_object_template(obj_temp, 'export/static.con', texture_paths=MOD_PATHS, tangent_uv_map='UV1')
+export_object_template(obj_temp, 'export/static.con', texture_paths=MOD_PATHS)
 # ---------- Import & export vehicle ----------
 obj_temp = import_object_template(c, OBJ_TEMP_VEHICLE, texture_paths=MOD_PATHS)
-export_object_template(obj_temp, 'export/vehicle.con', texture_paths=MOD_PATHS, tangent_uv_map='UV0')
+export_object_template(obj_temp, 'export/vehicle.con', texture_paths=MOD_PATHS)
 ```
 
 ## Lightmapping

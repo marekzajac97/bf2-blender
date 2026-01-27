@@ -236,18 +236,53 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
     material.use_backface_culling_shadow = backface_cull
 
     if backface_cull:
+        attribute_backface = node_tree.nodes.new("ShaderNodeAttribute")
+        attribute_backface.name = "Attribute"
+        attribute_backface.hide = True
+        attribute_backface.attribute_name = "backface"
+        attribute_backface.attribute_type = 'GEOMETRY'
+        attribute_backface.location = (-3 * NODE_WIDTH, 4 * NODE_HEIGHT)
+
+        # abs(backface - 1)
+        backface_subtract_1 = node_tree.nodes.new("ShaderNodeMath")
+        backface_subtract_1.hide = True
+        backface_subtract_1.operation = 'SUBTRACT'
+        backface_subtract_1.inputs[1].default_value = 1.0
+        backface_subtract_1.location = (-2 * NODE_WIDTH, 3 * NODE_HEIGHT)
+
+        node_tree.links.new(attribute_backface.outputs['Factor'], backface_subtract_1.inputs[0])
+
+        backface_abs = node_tree.nodes.new("ShaderNodeMath")
+        backface_abs.hide = True
+        backface_abs.operation = 'ABSOLUTE'
+        backface_abs.location = (-1 * NODE_WIDTH, 3 * NODE_HEIGHT)
+
+        node_tree.links.new(backface_subtract_1.outputs['Value'], backface_abs.inputs[0])
+
         geometry = node_tree.nodes.new("ShaderNodeNewGeometry")
-        geometry.location = (0 * NODE_WIDTH, 3 * NODE_HEIGHT)
+        geometry.location = (-3 * NODE_WIDTH, 3 * NODE_HEIGHT)
         geometry.hide = True
-        light_path = node_tree.nodes.new("ShaderNodeLightPath")
-        light_path.location = (0 * NODE_WIDTH, 4 * NODE_HEIGHT)
-        light_path.hide = True
-        # use comapre as exclusive or gate
+
+        backface_mult = node_tree.nodes.new("ShaderNodeMath")
+        backface_mult.operation = 'MULTIPLY'
+        backface_mult.hide = True
+        backface_mult.location = (0 * NODE_WIDTH, 3 * NODE_HEIGHT)
+
+        # mult both == if backface set => treat face as double sided regardless of 'Backfacing' value
+        node_tree.links.new(backface_abs.outputs['Value'], backface_mult.inputs[0])
+        node_tree.links.new(geometry.outputs['Backfacing'], backface_mult.inputs[1])
+
+        # compare == *exclusive or* between 'Backfacing' and 'Is Shadow Ray'
         compare = node_tree.nodes.new("ShaderNodeMath")
         compare.operation = 'COMPARE'
         compare.location = (1 * NODE_WIDTH, 3 * NODE_HEIGHT)
         compare.hide = True
-        node_tree.links.new(geometry.outputs['Backfacing'], compare.inputs[1])
+
+        light_path = node_tree.nodes.new("ShaderNodeLightPath")
+        light_path.location = (0 * NODE_WIDTH, 4 * NODE_HEIGHT)
+        light_path.hide = True
+
+        node_tree.links.new(backface_mult.outputs['Value'], compare.inputs[1])
         node_tree.links.new(light_path.outputs['Is Shadow Ray'], compare.inputs[0])
         backface_cull_alpha = compare.outputs['Value']
     else:

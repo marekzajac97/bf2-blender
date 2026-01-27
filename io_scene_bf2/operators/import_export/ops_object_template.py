@@ -231,12 +231,6 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
         def_val = tuple(self.bl_rna.properties['samples_size'].default_array)
         return self.get('samples_size', def_val) 
 
-    tangent_uv_map : EnumProperty(
-        name="Tangent space UV",
-        description="UV Layer to be used for tangent space calculation, should be the same that you've used to bake the normal map",
-        items=get_uv_layers
-    ) # type: ignore
-
     gen_lightmap_uv: BoolProperty(
         name="Generate lightmap UVs",
         description="Generate Lightmap UVs for each Lod (UV4) if not present (for StaticMeshes only)",
@@ -329,13 +323,6 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
         if body:
             body.enabled = self.export_geometry
             row = body.row()
-            row.label(text="Tangent UV map:")
-            row.prop(self, "tangent_uv_map", text='')
-
-            if not self.tangent_uv_map:
-                body.label(text='ERROR: No valid UV map found!', icon='ERROR')
-
-            row = body.row()
             row.prop(self, "gen_lightmap_uv")
             row.enabled = is_sm
             body.prop(self, "save_backfaces") 
@@ -385,7 +372,6 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
             apply_modifiers=self.apply_modifiers,
             gen_lightmap_uv=self.gen_lightmap_uv,
             texture_paths=mod_paths,
-            tangent_uv_map=self.tangent_uv_map,
             normal_weld_thres=self.normal_weld_threshold,
             tangent_weld_thres=self.tangent_weld_threshold,
             samples_size=samples_size,
