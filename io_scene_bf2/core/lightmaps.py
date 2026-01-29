@@ -23,7 +23,9 @@ from .utils import (DEFAULT_REPORTER,
                     _convert_pos, _convert_rot,
                     to_matrix, save_img_as_dds,
                     delete_object, find_root,
-                    is_pow_two, obj_bounds)
+                    is_pow_two, obj_bounds,
+                    yaw_pitch_roll_to_matrix,
+                    strip_geom_lod_prefix as strip_prefix)
 from .heightmap import import_heightmap_from
 from .exceptions import ImportException
 from fnmatch import fnmatch
@@ -798,12 +800,6 @@ def _plug_socket_to_bsdf(material, socket_name, from_socket):
             node_socket = node.inputs[socket_name]
             material.node_tree.links.new(from_socket, node_socket)
 
-def _strip_prefix(s):
-    for char_idx, _ in enumerate(s):
-        if s[char_idx:].startswith('__'):
-            return s[char_idx+2:]
-    return s
-
 def _gen_lm_key(geom_template_name, position, lod):
     x, y, z = [str(int(i)) for i in position]
     return '='.join([geom_template_name.lower(), f'{lod:02d}', x, z, y])
@@ -879,7 +875,7 @@ class ObjectBaker(BakerBase):
             if self.lod_mask is not None and lod_idx not in self.lod_mask:
                 continue
             mesh = lod_obj.data
-            geom_temp_name = _strip_prefix(mesh.name)
+            geom_temp_name = strip_prefix(mesh.name)
             lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
             if lm_name in self.existing_lods:
                 continue
@@ -921,13 +917,6 @@ class ObjectBaker(BakerBase):
 # scene setup
 # -------------------
 
-def _yaw_pitch_roll_to_matrix(rotation):
-    rotation = tuple(map(lambda x: -math.radians(x), rotation))
-    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
-    pitch = Matrix.Rotation(rotation[1], 4, 'X')
-    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
-    return (yaw @ pitch @ roll)
-
 def _get_templates(template, matrix, templates=None):
     if templates is None:
         templates = list()
@@ -935,7 +924,7 @@ def _get_templates(template, matrix, templates=None):
     template.add_bundle_childs()
     for child in template.children:
         if child.template is not None:
-            child_matrix = _yaw_pitch_roll_to_matrix(child.rotation)
+            child_matrix = yaw_pitch_roll_to_matrix(child.rotation)
             child_matrix.translation = swap_zy(child.position)
             _get_templates(child.template, matrix @ child_matrix, templates)
     return templates
@@ -951,7 +940,7 @@ def _get_obj_matrix(bf2_object):
         return to_matrix(pos, rot)
     else:
         # statics
-        matrix_world = _yaw_pitch_roll_to_matrix(bf2_object.rot)
+        matrix_world = yaw_pitch_roll_to_matrix(bf2_object.rot)
         matrix_world.translation = swap_zy(bf2_object.absolute_pos)
         return matrix_world
 
@@ -1105,7 +1094,7 @@ def _get_template_configs(template, matrix, config, templates : Dict[str, Object
     # check children
     for child in template.children:
         if child.template is not None:
-            child_matrix = _yaw_pitch_roll_to_matrix(child.rotation)
+            child_matrix = yaw_pitch_roll_to_matrix(child.rotation)
             child_matrix.translation = swap_zy(child.position)
             _get_template_configs(child.template, matrix @ child_matrix, config, templates, reporter)
 
@@ -1200,17 +1189,8 @@ def load_level(context, level_dir, use_cache=True,
     lm_size_thresholds = _get_lm_size_thresholds(config, reporter)
     ray_vis_mask = _make_ray_visibility_mask()
 
-    if not load_unpacked:
-        mod_loader = ModLoader(mod_dir, use_cache)
-        mod_loader.reload_all()
-    else:
+    if load_unpacked:
         BF2Engine().shutdown()
-        if not any([mod_dir.lower() == t.rstrip('/').rstrip('\\').lower() for t in texture_paths]):
-            texture_paths.append(mod_dir)
-        texture_paths.append(level_dir) # for objects inside levels dir
-        BF2Engine().file_manager.root_dirs = texture_paths
-        _run_all_con_files(os.path.join(mod_dir, 'objects'))
-        _run_all_con_files(os.path.join(level_dir, 'objects'))
 
     file_manager = BF2Engine().file_manager
     main_console = BF2Engine().main_console
@@ -1225,6 +1205,11 @@ def load_level(context, level_dir, use_cache=True,
     if not load_unpacked:
         file_manager.mountArchive(path.join(level_dir, 'client.zip'), level_dir)
         file_manager.mountArchive(path.join(level_dir, 'server.zip'), level_dir)
+    else:
+        if not any([mod_dir.lower() == t.rstrip('/').rstrip('\\').lower() for t in texture_paths]):
+            texture_paths.append(mod_dir)
+        texture_paths.append(level_dir) # for objects inside levels dir
+        BF2Engine().file_manager.root_dirs = texture_paths
 
     # load statics & OG
     if load_static_objects or load_overgrowth:
@@ -1232,9 +1217,13 @@ def load_level(context, level_dir, use_cache=True,
         if not load_unpacked:
             try:
                 main_console.run_file(path.join(level_dir, 'serverarchives.con'))
-                mod_loader.load_objects(levels_only=True)
+                mod_loader = ModLoader(mod_dir, use_cache)
+                mod_loader.reload_all()
             except FileManagerFileNotFound:
                 pass
+        else:
+            _run_all_con_files(os.path.join(mod_dir, 'objects'))
+            _run_all_con_files(os.path.join(level_dir, 'objects'))
 
         if load_static_objects:
             main_console.run_file(path.join(level_dir, 'StaticObjects.con'))

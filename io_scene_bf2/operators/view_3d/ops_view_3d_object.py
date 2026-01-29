@@ -1,4 +1,5 @@
 import bpy # type: ignore
+import bmesh # type: ignore
 import traceback
 import os
 from pathlib import Path
@@ -7,11 +8,15 @@ from bpy.props import BoolProperty, StringProperty, EnumProperty, IntVectorPrope
 
 from ... import get_mod_dirs
 from ...core.utils import Reporter
-from ...core.utils import find_root, save_img_as_dds, next_power_of_2, prev_power_of_2
+from ...core.utils import (find_root, save_img_as_dds,
+                           next_power_of_2, prev_power_of_2,
+                           matrix_to_yaw_pitch_roll, swap_zy,
+                           strip_geom_lod_prefix,
+                           strip_numeric_suffix)
 from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 from ...core.og_lod_generator import generate_og_lod
+from ...core.fence_tool import make_objects_on_curve
 from ...core.mesh_material import setup_material
-
 
 LOD_TEXTURE_MAX_SIZE = 2048
 LOD_TEXTURE_MIN_SIZE = 16
@@ -248,12 +253,45 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
             cls.poll_message_set(str(e))
             return False
 
+
+# --------------------------------------------------------------------
+
+def _vec_to_str(vec):
+    return '/'.join(f'{num:.4f}' for num in vec)
+
+class OBJECT_OT_make_object_con_def(bpy.types.Operator):
+    bl_idname = "bf2.make_object_con_def"
+    bl_label = "Export .con definition to clipboard"
+    bl_description = "Generate .con definitions for selected objects and save it to the clipboard"
+
+    def execute(self, context):
+        result = ""
+        for obj in context.selected_objects:
+            matrix_world = obj.matrix_world
+            pos = swap_zy(matrix_world.translation)
+            rot = matrix_to_yaw_pitch_roll(matrix_world)
+            name = strip_numeric_suffix(obj.name)
+            name = strip_geom_lod_prefix(name)
+            result += f'rem *** {name} ***\n'
+            result += f'Object.create {name}\n'
+            if pos != (0.0, 0.0, 0.0):
+                result += f'Object.absolutePosition {_vec_to_str(pos)}\n'
+            if rot != (0.0, 0.0, 0.0):
+                result += f'Object.rotation {_vec_to_str(rot)}\n'
+            result += f'Object.layer 1\n\n'
+
+        context.window_manager.clipboard = result
+        return {'FINISHED'}
+
+# --------------------------------------------------------------------
+
 class OBJECT_MT_bf2_submenu(bpy.types.Menu):
     bl_idname = "OBJECT_MT_bf2_submenu"
     bl_label = "Battlefield 2"
 
     def draw(self, context):
         self.layout.operator(OBJECT_OT_bf2_gen_og_lod.bl_idname)
+        self.layout.operator(OBJECT_OT_make_object_con_def.bl_idname)
 
 def menu_func_object(self, context):
     self.layout.menu(OBJECT_MT_bf2_submenu.bl_idname, text="BF2")
@@ -342,7 +380,37 @@ class OBJECT_SELECT_MT_bf2_submenu(bpy.types.Menu):
 def menu_func_object_select(self, context):
     self.layout.menu(OBJECT_SELECT_MT_bf2_submenu.bl_idname, text="BF2")
 
+# --------------------------------------------------------------------
+
+class ADD_OT_bf2_fence_object(bpy.types.Operator):
+    bl_idname = "bf2.new_fence_object"
+    bl_label = "(BF2) Fence on Curve"
+    bl_description = "Create a fence generator object"
+
+    def execute(self, context):
+        mesh = bpy.data.meshes.new('FenceGen')
+        mesh.attributes.new('instance_ref', 'INT', 'POINT')
+        mesh.attributes.new('instance_pos', 'INT', 'POINT')
+        mesh.attributes.new('instance_size', 'FLOAT', 'POINT')
+        mesh.attributes.new('instance_offset', 'FLOAT', 'POINT')
+        mesh.attributes.new('instance_translation', 'FLOAT_VECTOR', 'POINT')
+        mesh.attributes.new('instance_rotation', 'QUATERNION', 'POINT')
+        obj = bpy.data.objects.new(mesh.name, mesh)
+        obj.location = context.scene.cursor.location
+        modifier = obj.modifiers.new(type='NODES', name="GenerateFence")
+        modifier.node_group = make_objects_on_curve()
+        context.scene.collection.objects.link(obj)
+        return {'FINISHED'}
+
+def menu_func_add(self, context):
+    self.layout.operator(ADD_OT_bf2_fence_object.bl_idname, icon='CURVE_PATH')
+
+# --------------------------------------------------------------------
+
 def register():
+    bpy.utils.register_class(ADD_OT_bf2_fence_object)
+    bpy.types.VIEW3D_MT_add.append(menu_func_add)
+
     bpy.utils.register_class(OBJECT_SELECT_OT_bf2_by_lm_size)
     bpy.utils.register_class(OBJECT_SELECT_MT_bf2_submenu)
     bpy.types.VIEW3D_MT_select_object.append(menu_func_object_select)
@@ -351,6 +419,7 @@ def register():
     bpy.utils.register_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
     bpy.types.VIEW3D_MT_object_showhide.append(menu_func_object_showhide)
 
+    bpy.utils.register_class(OBJECT_OT_make_object_con_def)
     bpy.utils.register_class(OBJECT_OT_bf2_gen_og_lod)
     bpy.utils.register_class(OBJECT_MT_bf2_submenu)
     bpy.types.VIEW3D_MT_object.append(menu_func_object)
@@ -359,6 +428,7 @@ def unregister():
     bpy.types.VIEW3D_MT_object.remove(menu_func_object)
     bpy.utils.unregister_class(OBJECT_MT_bf2_submenu)
     bpy.utils.unregister_class(OBJECT_OT_bf2_gen_og_lod)
+    bpy.utils.unregister_class(OBJECT_OT_make_object_con_def)
 
     bpy.types.VIEW3D_MT_object_showhide.remove(menu_func_object_showhide)
     bpy.utils.unregister_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
@@ -367,3 +437,6 @@ def unregister():
     bpy.types.VIEW3D_MT_select_object.remove(menu_func_object_select)
     bpy.utils.unregister_class(OBJECT_SELECT_MT_bf2_submenu)
     bpy.utils.unregister_class(OBJECT_SELECT_OT_bf2_by_lm_size)
+
+    bpy.types.VIEW3D_MT_add.remove(menu_func_add)
+    bpy.utils.unregister_class(ADD_OT_bf2_fence_object)

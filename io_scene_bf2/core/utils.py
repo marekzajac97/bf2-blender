@@ -374,3 +374,29 @@ def obj_bounds(obj, local=True):
         push_axis.append(info)
 
     return dict(zip(['x', 'y', 'z'], push_axis))
+
+def yaw_pitch_roll_to_matrix(rotation):
+    rotation = tuple(map(lambda x: -math.radians(x), rotation))
+    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
+    pitch = Matrix.Rotation(rotation[1], 4, 'X')
+    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
+    return (yaw @ pitch @ roll)
+
+def matrix_to_yaw_pitch_roll(m):
+    yaw = math.atan2(m[0][1], m[1][1])
+    pitch = math.asin(-m[2][1])
+    roll = math.atan2(m[2][0], m[2][2])
+    return tuple(map(math.degrees, (yaw, pitch, roll)))
+
+def strip_numeric_suffix(s):
+    if '.' not in s:
+        return s
+    head, tail = s.rsplit('.', 1)
+    if tail.isnumeric():
+        return head
+
+def strip_geom_lod_prefix(s):
+    for char_idx, _ in enumerate(s):
+        if s[char_idx:].startswith('__'):
+            return s[char_idx+2:]
+    return s

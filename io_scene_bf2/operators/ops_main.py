@@ -63,7 +63,7 @@ def register():
     bpy.utils.register_class(BF2_OT_bf2_mod_path_remove)
     bpy.utils.register_class(BF2_OT_bf2_mod_path_add)
 
-    # debug_set_mod_path()
+    debug_set_mod_path()
 
 def unregister():
     bpy.utils.unregister_class(BF2_OT_bf2_mod_path_add)

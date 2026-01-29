@@ -18,7 +18,11 @@ from .utils import (delete_object, check_suffix,
                     check_prefix, swap_zy,
                     apply_modifiers as _apply_modifiers,
                     triangulate as _triangulate,
-                    compare_val, DEFAULT_REPORTER)
+                    compare_val,
+                    yaw_pitch_roll_to_matrix,
+                    matrix_to_yaw_pitch_roll,
+                    strip_geom_lod_prefix as strip_prefix,
+                    DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
 NONVIS_PRFX = 'NONVIS_'
@@ -32,7 +36,7 @@ ANCHOR_PREFIX = 'ANCHOR__'
 class GeomPartInfo:
     def __init__(self, part_id, obj) -> None:
         self.part_id = part_id
-        self.name = _strip_prefix(obj.name)
+        self.name = strip_prefix(obj.name)
         self.bf2_object_type = obj.bf2_object_type
         self.location = obj.location.copy()
         self.rotation_quaternion = obj.rotation_quaternion.copy()
@@ -181,7 +185,7 @@ def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_par
         vertex_group_name = f'mesh{geom_part_id + 1}'
         part_name = f'{prfx}{obj_template.name}'
         part_position = Vector(swap_zy(position))
-        part_rotation = _yaw_pitch_roll_to_matrix(rotation).to_euler('XYZ')
+        part_rotation = yaw_pitch_roll_to_matrix(rotation).to_euler('XYZ')
 
         if vertex_group_name in geom_parts:
             geometry_part_obj = geom_parts[vertex_group_name]
@@ -428,13 +432,6 @@ def _weld_verts(obj):
     bpy.ops.mesh.remove_doubles(threshold=0.0001)
     bpy.ops.object.mode_set(mode='OBJECT')
 
-def _yaw_pitch_roll_to_matrix(rotation):
-    rotation = tuple(map(lambda x: -math.radians(x), rotation))
-    yaw   = Matrix.Rotation(rotation[0], 4, 'Z')
-    pitch = Matrix.Rotation(rotation[1], 4, 'X')
-    roll  = Matrix.Rotation(rotation[2], 4, 'Y')
-    return (yaw @ pitch @ roll)
-
 def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):
     if import_rig_mode == 'OFF':
         return None
@@ -676,14 +673,14 @@ def _find_geom_parts(mesh_geoms):
     return obj_to_part
 
 def _collect_geometry_parts(obj, obj_to_part):
-    object_name = _strip_prefix(obj.name)
+    object_name = strip_prefix(obj.name)
     geom_part = obj_to_part.get(object_name)
     if geom_part is None:
         part_id = len(obj_to_part)
         geom_part = GeomPartInfo(part_id, obj)
         obj_to_part[object_name] = geom_part        
 
-    for _, child_obj in sorted([(_strip_prefix(child.name), child) for child in obj.children]):
+    for _, child_obj in sorted([(strip_prefix(child.name), child) for child in obj.children]):
         if not _is_colmesh_dummy(child_obj):
             child_geom_part = _collect_geometry_parts(child_obj, obj_to_part)
             if child_geom_part not in geom_part.children:
@@ -725,7 +722,7 @@ def _collect_collmesh_parts(obj, collmesh_parts, obj_to_part_id):
         if _is_colmesh_dummy(child_obj):
             # map object template name to collistion part
             part_id = len(collmesh_parts)
-            object_name = _strip_prefix(obj.name)
+            object_name = strip_prefix(obj.name)
             obj_to_part_id[object_name] = part_id
             # map collision part to collision meshes
             cols = dict()
@@ -745,7 +742,7 @@ def _is_colmesh_dummy(obj):
     return obj.name.lower().startswith(NONVIS_PRFX.lower())
 
 def _verify_lods_consistency(root_geom_part, lod_obj):
-    lod_name = _strip_prefix(lod_obj.name)
+    lod_name = strip_prefix(lod_obj.name)
 
     if any([c.isspace() for c in lod_obj.name]):
         raise ExportException(f"'{lod_obj.name}' name contain spaces!")
@@ -773,7 +770,7 @@ def _verify_lods_consistency(root_geom_part, lod_obj):
         root_geom_children[child_geom_part.name] = child_geom_part
 
     for child_obj in lod_obj.children:
-        child_name = _strip_prefix(child_obj.name)
+        child_name = strip_prefix(child_obj.name)
         if _is_colmesh_dummy(child_obj):
             continue
         if child_name not in root_geom_children:
@@ -813,16 +810,10 @@ def _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id
         child_object = ObjectTemplate.ChildObject(child_template.name)
         child_object.template = child_template
         child_object.position = swap_zy(child_obj.location)
-        child_object.rotation = _matrix_to_yaw_pitch_roll(child_obj.matrix_local)
+        child_object.rotation = matrix_to_yaw_pitch_roll(child_obj.matrix_local)
         obj_template.children.append(child_object)
 
     return obj_template
-
-def _strip_prefix(s):
-    for char_idx, _ in enumerate(s):
-        if s[char_idx:].startswith('__'):
-            return s[char_idx+2:]
-    raise ExportException(f"'{s}' has no GxLx__ prefix!")
 
 def _strip_tmp_prefix(name):
     if name.startswith(TMP_PREFIX):
@@ -840,7 +831,7 @@ def _find_child(obj, child_name):
 
 def _create_mesh_vertex_group(obj, obj_to_vertex_group):
     org_obj_name = _strip_tmp_prefix(obj.name)
-    obj_name = _strip_prefix(org_obj_name)
+    obj_name = strip_prefix(org_obj_name)
     group_name = obj_to_vertex_group[obj_name]
 
     # reset object location
@@ -870,7 +861,7 @@ def _create_mesh_vertex_group(obj, obj_to_vertex_group):
         _transform_verts(obj, group.name, transform)
 
         child_groups.add(group.index)
-        child_name = _strip_prefix(group.name)
+        child_name = strip_prefix(group.name)
         child_group_name = obj_to_vertex_group[child_name]
         # rename this group to child group
         # after joining objects both groups will be merged into one
@@ -893,7 +884,7 @@ def _create_mesh_vertex_group(obj, obj_to_vertex_group):
 
 def _map_objects_to_vertex_groups(obj, obj_to_geom_part, obj_to_vertex_group):
     org_obj_name = _strip_tmp_prefix(obj.name)
-    obj_name = _strip_prefix(org_obj_name)
+    obj_name = strip_prefix(org_obj_name)
     part_id = obj_to_geom_part[obj_name].part_id
     group_name = f'mesh{part_id + 1}'
     obj_to_vertex_group[obj_name] = group_name
@@ -1000,9 +991,3 @@ def _dump_con_file(root_obj_template, con_file):
         root_obj_template.make_script(f)
         f.write(f'include {root_obj_template.name}.tweak')
         f.write('\n')
-
-def _matrix_to_yaw_pitch_roll(m):
-    yaw = math.atan2(m[0][1], m[1][1])
-    pitch = math.asin(-m[2][1])
-    roll = math.atan2(m[2][0], m[2][2])
-    return tuple(map(math.degrees, (yaw, pitch, roll)))
