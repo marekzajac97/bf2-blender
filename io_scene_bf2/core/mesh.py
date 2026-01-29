@@ -733,10 +733,21 @@ class MeshExporter:
         
         backface_attr = mesh.attributes.get('backface') if self.save_backfaces else None
 
+
+        # generate tangent space
+        if mesh_type == BF2StaticMesh and 'UV1' in mesh.uv_layers:
+            tangent_uv_map = 'UV1'
+        elif 'UV0' in mesh.uv_layers:
+            tangent_uv_map = 'UV0'
+        else:
+            raise ExportException(f"'{mesh.name}': no valid UVs found to generate the tangent space!\n Make sure your UV maps are called correctly (UV0, UV1 etc..)")
+
+        mesh.calc_tangents(uvmap=tangent_uv_map)
+
         # lightmap UV, if not present, generate it
         if mesh_type == BF2StaticMesh and 'UV4' not in mesh.uv_layers and self.gen_lightmap_uv:
-            light_uv_layer = mesh.uv_layers.new(name='UV4')
-            light_uv_layer.active = True
+            lightmap_uv_layer = mesh.uv_layers.new(name='UV4')
+            lightmap_uv_layer.active = True
             bpy.ops.object.select_all(action='DESELECT')
             lod_obj.select_set(True)
             bpy.context.view_layer.objects.active = lod_obj
@@ -748,16 +759,6 @@ class MeshExporter:
         for uv_chan in range(uv_count):
             if f'UV{uv_chan}' in mesh.uv_layers:
                 uv_layers[uv_chan] = mesh.uv_layers[f'UV{uv_chan}']
-
-        # generate tangent space
-        if mesh_type == BF2StaticMesh and uv_layers.get(1):
-            tangent_uv_channel = 1
-        elif uv_layers.get(0):
-            tangent_uv_channel = 0
-        else:
-            raise ExportException(f"'{mesh.name}': no valid UVs found to generate the tangent space!\n Make sure your UV maps are called correctly (UV0, UV1 etc..)")
-
-        mesh.calc_tangents(uvmap=f'UV{tangent_uv_channel}')
 
         # number of parts/bones
         if mesh_type == BF2StaticMesh:
