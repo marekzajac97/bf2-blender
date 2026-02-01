@@ -348,7 +348,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
     # these settings seem the most BF2-like
     shader_roughness.default_value = 0.4 # how sharp the reflection is, 0 == perfect mirror
     shader_ior_level.default_value = 0.3 # this just scales the IOR, value above 0.5 increases it while below 0.5 decreases it
-    shader_ior.default_value = 2.0 # this is max possible value assuming specular map is missing or all white
+    shader_ior.default_value = 1.0 # this is lowest possible value
 
     if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         UV_CHANNEL = 0

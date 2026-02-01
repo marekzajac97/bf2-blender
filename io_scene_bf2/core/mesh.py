@@ -256,11 +256,22 @@ class MeshImporter:
                 if _MESH_TYPES[material.bf2_shader] != type(bf2_mesh):
                     self.reporter.warning(f"'{name}': Material shader '{bf2_mat.fxfile}' doesn't match the mesh type")
 
+                is_basendetail = False
                 material.bf2_technique= bf2_mat.technique
-                if material.bf2_shader == 'STATICMESH' and 'parallaxdetail' in material.bf2_technique:
-                    if not self.silent:
-                        self.reporter.warning(f"'{name}': Ignoring technique 'parallaxdetail', (not supported)")
-                    material.bf2_technique = material.bf2_technique.replace('parallaxdetail', '')
+                if material.bf2_shader == 'STATICMESH':
+                    if 'parallaxdetail' in material.bf2_technique:
+                        if not self.silent:
+                            self.reporter.warning(f"'{name}': Technique 'parallaxdetail' is not supported and will be ignored")
+                        material.bf2_technique = material.bf2_technique.replace('parallaxdetail', '')
+                    elif material.bf2_technique.lower() in ('basendetail', 'basenbase'):
+                        # XXX: BF2 shaders seem to also support 'BaseNBase' (base with normal maps), I've never seen it used anywhere
+                        # 'BaseNDetail' is used on some meshes though and internally it gets changed to 'BaseNBase' by the game
+                        # but since it is rarely used there is no point in supporting it for now
+                        if not self.silent:
+                            self.reporter.warning(f"'{name}': Technique '{material.bf2_technique}' is not supported and will be replaced with 'BaseDetailNDetail' with a dummy base texture")
+                        material.bf2_technique = 'BaseDetailNDetail'
+                        bf2_mat.maps.insert(0, 'dummy_for_basendetail.dds') # won't import but we don't care
+                        is_basendetail = True
 
                 texture_map_types = TEXTURE_MAPS[material.bf2_shader]
                 texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
@@ -282,6 +293,11 @@ class MeshImporter:
 
                 material.is_bf2_material = True # MUST be set last!
                 setup_material(material, uvs=uvs.keys(), texture_paths=self.texture_paths, reporter=self.reporter)
+
+                # BaseNDetail workaround
+                if is_basendetail:
+                    base = material.node_tree.nodes.get('Base')
+                    material.node_tree.nodes.remove(base)
 
             try:
                 material_index = mesh_materials.index(material)

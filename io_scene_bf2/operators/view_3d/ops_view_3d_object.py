@@ -261,8 +261,13 @@ def _vec_to_str(vec):
 
 class OBJECT_OT_make_object_con_def(bpy.types.Operator):
     bl_idname = "bf2.make_object_con_def"
-    bl_label = "Export .con definition to clipboard"
+    bl_label = "Export as .con"
     bl_description = "Generate .con definitions for selected objects and save it to the clipboard"
+
+    @classmethod
+    def pol(cls, context):
+        cls.poll_message_set("No objects selected")
+        return context.selected_objects
 
     def execute(self, context):
         result = ""
@@ -279,8 +284,8 @@ class OBJECT_OT_make_object_con_def(bpy.types.Operator):
             if rot != (0.0, 0.0, 0.0):
                 result += f'Object.rotation {_vec_to_str(rot)}\n'
             result += f'Object.layer 1\n\n'
-
         context.window_manager.clipboard = result
+        self.report({"INFO"}, 'The result has been saved to the clipboard')
         return {'FINISHED'}
 
 # --------------------------------------------------------------------
