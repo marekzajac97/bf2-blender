@@ -59,15 +59,15 @@ StaticMesh materials in BF2 are designed to use [texture atlases](https://en.wik
 
 NOTE: Only some combinations of the above texture layers are valid.
 
-The roughness map is embeded into the alpha channel of either the `Detail` map when Alpha Mode is set to `None` or the `NDetail` map when Alpha Mode is set to either `Alpha Blend` or `Alpha Test`.
+The gloss map (used for scaling the amount of specular reflections) is embedded in the alpha channel of the `Detail` map when Alpha Mode is set to `None` or the `NDetail` map otherwise.
 
 ### BundledMesh/SkinnedMesh
 BundledMesh and SkinnedMesh materials use two texture maps: `Diffuse Color` and `Normal`. BundledMesh may use an extra `Wreck` texture map which gets multiplied with the `Diffuse Color` when a vehicle gets destroyed. SkinnedMesh materials may use either tangent space or object space normal maps with the latter one being more common, the engine differentiates them by `_b` or `_os` suffix.
 
-For BundledMesh, the roughness map is embeded into the alpha channel of either the `Diffuse Color` map when Alpha Mode is set to `None` or the `Normal` map when Alpha Mode is set to either `Alpha Blend` or `Alpha Test`. SkinnedMesh materials always have their roughness map in the `Normal` map's alpha channel.
+For BundledMesh, the gloss map is embedded in the alpha channel of the `Diffuse Color` map when Alpha Mode is set to `None` or the `Normal` map otherwise. SkinnedMesh materials always have their gloss map in the `Normal` map's alpha channel.
 
 # Initial Add-on setup
-After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> BF2 Tools -> Preferences`) (optional but needed to load textures) Then you can use the `File -> Import/Export -> BF2` submenu or drag-and-drop any supported BF2 file.
+After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> Battlefield 2 -> Preferences`) (optional but needed to load textures) Then you can use the `File -> Import/Export -> BF2` submenu or drag-and-drop any supported BF2 file.
 
 # Animating
 The add-on ships with extensive toolset for creating BF2 animations including batch import/export, automated rig setup and more. This section contains all the info you need to get started.

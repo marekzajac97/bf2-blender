@@ -339,16 +339,16 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
             tex_node.image.alpha_mode = 'NONE'
 
     shader_base_color = principled_BSDF.inputs['Base Color']
-    shader_specular = principled_BSDF.inputs['Specular IOR Level']
+    shader_ior_level = principled_BSDF.inputs['Specular IOR Level']
     shader_roughness = principled_BSDF.inputs['Roughness']
     shader_normal = principled_BSDF.inputs['Normal']
     shader_alpha = principled_BSDF.inputs['Alpha']
     shader_ior = principled_BSDF.inputs['IOR']
 
-    shader_roughness.default_value = 1
-    shader_specular.default_value = 0
-    shader_ior.default_value = 1.1
-    ROUGHNESS_BASE = 0.25
+    # these settings seem the most BF2-like
+    shader_roughness.default_value = 0.4 # how sharp the reflection is, 0 == perfect mirror
+    shader_ior_level.default_value = 0.3 # this just scales the IOR, value above 0.5 increases it while below 0.5 decreases it
+    shader_ior.default_value = 2.0 # this is max possible value assuming specular map is missing or all white
 
     if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         UV_CHANNEL = 0
@@ -408,25 +408,24 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
                 node_tree.links.new(shadow.outputs['Color'], multiply_diffuse.inputs['Color1'])
                 node_tree.links.new(specular_txt.outputs['Alpha'], multiply_diffuse.inputs['Color2'])
-                shadow_spec_out = multiply_diffuse.outputs['Color']
+                spec_out = multiply_diffuse.outputs['Color']
             else:
-                shadow_spec_out = specular_txt.outputs['Alpha']
+                spec_out = specular_txt.outputs['Alpha']
 
-            node_tree.links.new(shadow_spec_out, shader_specular)
+            # convert specular map value to fresnel IOR in range 1..2 by adding one
+            spec_to_ior = node_tree.nodes.new('ShaderNodeMath')
+            spec_to_ior.operation = 'ADD'
+            spec_to_ior.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
+            spec_to_ior.inputs[1].default_value = 1.0
+            spec_to_ior.hide = True
 
-            # remap range to reduce roughness, to appear more like in BF2
-            # (purely based on tiral & error, I don't know how this works in BF2 shaders)
-            reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
-            reduce_roughness.inputs['To Min'].default_value = ROUGHNESS_BASE
-            reduce_roughness.location = (3 * NODE_WIDTH, NODE_HEIGHT)
-            reduce_roughness.hide = True
-            node_tree.links.new(shadow_spec_out, reduce_roughness.inputs['Value'])
-            node_tree.links.new(reduce_roughness.outputs['Result'], shader_roughness)
+            node_tree.links.new(spec_out, spec_to_ior.inputs[0])
+            node_tree.links.new(spec_to_ior.outputs['Value'], shader_ior)
 
         # normal
         if normal:
             normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
-            normal_node.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
+            normal_node.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
             normal_node.hide = True
             node_tree.links.new(normal.outputs['Color'], normal_node.inputs['Color'])
 
@@ -610,21 +609,22 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
                 mult_ndetaila_values = _sockets(mult_ndetaila.inputs, 'Value')
                 node_tree.links.new(dirt_spec_out, mult_ndetaila_values[1])
                 node_tree.links.new(ndetail.outputs['Alpha'], mult_ndetaila_values[0])
-                has_alpha_out = mult_ndetaila.outputs['Value']
+                spec_out = mult_ndetaila.outputs['Value']
             elif detail:
-                has_alpha_out = dirt_spec_out
+                spec_out = dirt_spec_out
             else:
-                has_alpha_out = None
+                spec_out = None
 
-            if has_alpha_out:
-                node_tree.links.new(has_alpha_out, shader_specular)
+            if spec_out:
+                # convert specular map value to fresnel IOR in range 1..2 by adding one
+                spec_to_ior = node_tree.nodes.new('ShaderNodeMath')
+                spec_to_ior.operation = 'ADD'
+                spec_to_ior.location = (3 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                spec_to_ior.inputs[1].default_value = 1.0
+                spec_to_ior.hide = True
 
-                reduce_roughness = node_tree.nodes.new('ShaderNodeMapRange')
-                reduce_roughness.inputs['To Min'].default_value = ROUGHNESS_BASE
-                reduce_roughness.location = (3 * NODE_WIDTH, NODE_HEIGHT)
-                reduce_roughness.hide = True
-                node_tree.links.new(has_alpha_out, reduce_roughness.inputs['Value'])
-                node_tree.links.new(reduce_roughness.outputs["Result"], shader_roughness)
+                node_tree.links.new(spec_out, spec_to_ior.inputs[0])
+                node_tree.links.new(spec_to_ior.outputs['Value'], shader_ior)
 
         # ---- normal  ----
 
