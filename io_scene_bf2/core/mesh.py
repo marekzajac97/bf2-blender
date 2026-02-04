@@ -352,7 +352,18 @@ class MeshImporter:
 
         # apply normals
         if has_normals:
-            mesh.normals_split_custom_set_from_vertices(vertex_normals)
+            if isinstance(bf2_mesh, BF2SkinnedMesh):
+                # Note to self: by default 'sharp_face' is true so smooth shading (interpolated normals) is disabled
+                # but if mesh uses custom normals the normals get interpolated anyways...
+                # either way flat shading MUST be enabled before calculating custom split normals
+                # otherwise on defomration normals will be broken af
+                mesh.attributes['sharp_face'].data.foreach_set('value', [False] * len(mesh.polygons))
+                mesh.normals_split_custom_set_from_vertices(vertex_normals)
+            else:
+                # use per vertex normals in object space for non-deformable objects, docs says they are faster...
+                # https://docs.blender.org/manual/en/dev/modeling/meshes/structure.html#free-normals
+                custom_normal = mesh.attributes.new('custom_normal', 'FLOAT_VECTOR', 'POINT')
+                custom_normal.data.foreach_set('vector', [n for vn in vertex_normals for n in vn])
 
         # apply Animated UVs data
         if has_anim_uv:
@@ -472,6 +483,11 @@ class MeshImporter:
                 mesh_obj.vertex_groups[v_bone].add([vertex.index], v_bone_weight, "REPLACE")
         
         bpy.ops.object.mode_set(mode='OBJECT')
+
+        # add custom modifier which saves tangent & normal vectors to attributes
+        # need those from before mesh deformation to fix shading with OS normal maps later
+        modifier = mesh_obj.modifiers.new(type='NODES', name="SaveTangentSpace")
+        modifier.node_group = _make_rest_tangent_space_node()
 
         # add armature modifier to the object
         modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
@@ -1106,3 +1122,64 @@ def _get_anim_uv_ratio(texture_map_file, texture_paths):
                 v_ratio = tex_width / tex_height
             break
     return u_ratio, v_ratio
+
+def _make_rest_tangent_space_node(uv_map='UV0'):
+    name = 'RestPoseTangentSpace_' + 'UV0'
+
+    if name in bpy.data.node_groups:
+        return bpy.data.node_groups[name]
+    node_tree = bpy.data.node_groups.new(type='GeometryNodeTree', name=name)
+    node_tree.is_modifier = True
+
+    node_tree.description = "Preserves tangent space for shading, must be placed BEFORE 'Armature' modifier"
+    node_tree.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    node_tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+
+    group_input = node_tree.nodes.new("NodeGroupInput")
+    group_output = node_tree.nodes.new("NodeGroupOutput")
+
+    uv_tangent = node_tree.nodes.new("GeometryNodeUVTangent")
+    uv_tangent.name = "UV Tangent"
+
+    uv_attr = node_tree.nodes.new("GeometryNodeInputNamedAttribute")
+    uv_attr.data_type = 'FLOAT_VECTOR'
+    uv_attr.inputs['Name'].default_value = uv_map
+
+    store_tangent = node_tree.nodes.new("GeometryNodeStoreNamedAttribute")
+    store_tangent.data_type = 'FLOAT_VECTOR'
+    store_tangent.domain = 'POINT'
+    store_tangent.inputs[2].default_value = "rest_tangent"
+
+    normal = node_tree.nodes.new("GeometryNodeInputNormal")
+
+    store_normal = node_tree.nodes.new("GeometryNodeStoreNamedAttribute")
+    store_normal.data_type = 'FLOAT_VECTOR'
+    store_normal.domain = 'POINT'
+    store_normal.inputs[2].default_value = "rest_normal"
+
+    node_tree.links.new(
+        uv_attr.outputs['Attribute'],
+        uv_tangent.inputs['UV']
+    )
+    node_tree.links.new(
+        store_tangent.outputs['Geometry'],
+        group_output.inputs['Geometry']
+    )
+    node_tree.links.new(
+        uv_tangent.outputs['Tangent'],
+        store_tangent.inputs['Value']
+    )
+    node_tree.links.new(
+        group_input.outputs['Geometry'],
+        store_normal.inputs['Geometry']
+    )
+    node_tree.links.new(
+        store_normal.outputs['Geometry'],
+        store_tangent.inputs['Geometry']
+    )
+    node_tree.links.new(
+        normal.outputs['Normal'],
+        store_normal.inputs['Value']
+    )
+
+    return node_tree

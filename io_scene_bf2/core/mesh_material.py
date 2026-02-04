@@ -103,6 +103,100 @@ def _create_multiply_rgb_shader_node():
     multi_rgb.links.new(node_multiply_rgb.outputs[0], group_outputs.inputs['value'])
     return multi_rgb
 
+def _create_os_to_b_converter():
+    name = 'ConvToTangentSpace'
+    if name in bpy.data.node_groups:
+        return bpy.data.node_groups[name]
+    node_tree = bpy.data.node_groups.new(name, 'ShaderNodeTree')
+
+    node_tree.interface.new_socket(name="Color", in_out='OUTPUT', socket_type='NodeSocketColor')
+    node_tree.interface.new_socket(name="Color", in_out='INPUT', socket_type='NodeSocketColor')
+
+    group_output = node_tree.nodes.new("NodeGroupOutput")
+    group_output.location = (994.2379150390625, 181.35035705566406)
+
+    group_input = node_tree.nodes.new("NodeGroupInput")
+    group_input.location = (-923.6591796875, 228.047607421875)
+
+    # we gotta swap Z/Y axes for it to look correct
+    normal_map = node_tree.nodes.new("ShaderNodeNormalMap")
+    normal_map.space = 'OBJECT'
+    normal_map.location = (-690.7890625, 277.37982177734375)
+
+    axes_swap = node_tree.nodes.new('ShaderNodeGroup')
+    axes_swap.node_tree = _create_bf2_axes_swap()
+    axes_swap.location = (-432.96795654296875, 270.1278076171875)
+    axes_swap.hide = True
+
+    cross_product = node_tree.nodes.new("ShaderNodeVectorMath")
+    cross_product.hide = True
+    cross_product.operation = 'CROSS_PRODUCT'
+    cross_product.location = (-348.1199645996094, -160.49468994140625)
+
+    x_val = node_tree.nodes.new("ShaderNodeVectorMath")
+    x_val.hide = True
+    x_val.operation = 'DOT_PRODUCT'
+    x_val.location = (-26.9112548828125, 147.0039520263672)
+
+    y_val = node_tree.nodes.new("ShaderNodeVectorMath")
+    y_val.hide = True
+    y_val.operation = 'DOT_PRODUCT'
+    y_val.location = (-29.3994140625, 50.9498291015625)
+
+    z_val = node_tree.nodes.new("ShaderNodeVectorMath")
+    z_val.hide = True
+    z_val.operation = 'DOT_PRODUCT'
+    z_val.location = (-24.8734130859375, -46.870635986328125)
+
+    combine_xyz = node_tree.nodes.new("ShaderNodeCombineXYZ")
+    combine_xyz.hide = True
+    combine_xyz.location = (183.85723876953125, 56.20903778076172)
+
+    to_rgb_scale = node_tree.nodes.new("ShaderNodeVectorMath")
+    to_rgb_scale.hide = True
+    to_rgb_scale.operation = 'SCALE'
+    to_rgb_scale.inputs['Scale'].default_value = 0.5
+    to_rgb_scale.location = (383.8500061035156, 56.60145568847656)
+
+    to_rgb_add = node_tree.nodes.new("ShaderNodeVectorMath")
+    to_rgb_add.hide = True
+    to_rgb_add.operation = 'ADD'
+    to_rgb_add.inputs[1].default_value = (0.5, 0.5, 0.5)
+    to_rgb_add.location = (578.1530151367188, 57.50624084472656)
+
+    rest_tangent = node_tree.nodes.new("ShaderNodeAttribute")
+    rest_tangent.attribute_name = "rest_tangent"
+    rest_tangent.attribute_type = 'GEOMETRY'
+    rest_tangent.location = (-709.5729370117188, -186.66122436523438)
+
+    rest_normal = node_tree.nodes.new("ShaderNodeAttribute")
+    rest_normal.attribute_name = "rest_normal"
+    rest_normal.attribute_type = 'GEOMETRY'
+    rest_normal.location = (-715.3265991210938, 11.88730525970459)
+
+    node_tree.links.new(group_input.outputs['Color'], normal_map.inputs['Color'])
+    node_tree.links.new(normal_map.outputs['Normal'], axes_swap.inputs[0])
+
+    node_tree.links.new(axes_swap.outputs[0], x_val.inputs[0])
+    node_tree.links.new(rest_tangent.outputs['Vector'], x_val.inputs[1])
+
+    node_tree.links.new(rest_normal.outputs['Vector'], cross_product.inputs[0])
+    node_tree.links.new(rest_tangent.outputs['Vector'], cross_product.inputs[1])
+    node_tree.links.new(cross_product.outputs['Vector'], y_val.inputs[1])
+    node_tree.links.new(axes_swap.outputs[0], y_val.inputs[0])
+
+    node_tree.links.new(axes_swap.outputs[0], z_val.inputs[0])
+    node_tree.links.new(rest_normal.outputs['Vector'], z_val.inputs[1] )
+
+    node_tree.links.new(x_val.outputs['Value'], combine_xyz.inputs['X'])
+    node_tree.links.new(y_val.outputs['Value'], combine_xyz.inputs['Y'])
+    node_tree.links.new(z_val.outputs['Value'], combine_xyz.inputs['Z'])
+    node_tree.links.new(combine_xyz.outputs['Vector'], to_rgb_scale.inputs['Vector'])
+    node_tree.links.new(to_rgb_scale.outputs[0], to_rgb_add.inputs[0])
+    node_tree.links.new(to_rgb_add.outputs['Vector'], group_output.inputs['Color'])
+
+    return node_tree
+
 def _split_str_from_word_set(s : str, word_set : set):
     words = list()
     while s:
@@ -206,7 +300,7 @@ def _set_alpha_straigt(texture_node): # need this to render properly with Cycles
     if texture_node.image:
         texture_node.image.alpha_mode = 'STRAIGHT'
 
-def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, reporter=DEFAULT_REPORTER):
+def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, conv_os_normals=True, reporter=DEFAULT_REPORTER):
     material.use_nodes = True
 
     node_tree = material.node_tree
@@ -427,21 +521,24 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
             normal_node = node_tree.nodes.new('ShaderNodeNormalMap')
             normal_node.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
             normal_node.hide = True
-            node_tree.links.new(normal.outputs['Color'], normal_node.inputs['Color'])
+            normal_node.space = 'TANGENT'
+            normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
 
-            if material.bf2_shader == 'SKINNEDMESH':
-                normal_node.space = 'OBJECT'
-                # since this is object space normal we gotta swap Z/Y axes for it to look correct
-                axes_swap = node_tree.nodes.new('ShaderNodeGroup')
-                axes_swap.node_tree = _create_bf2_axes_swap()
-                axes_swap.location = (2 * NODE_WIDTH, -1 * NODE_HEIGHT)
-                axes_swap.hide = True
-        
-                node_tree.links.new(normal_node.outputs['Normal'], axes_swap.inputs['in'])
-                normal_out = axes_swap.outputs['out']
-            else:
-                normal_node.uv_map = uv_map_nodes[UV_CHANNEL].uv_map
-                normal_out = normal_node.outputs['Normal']
+            node_tree.links.new(normal.outputs['Color'], normal_node.inputs['Color'])
+            normal_out = normal_node.outputs['Normal']
+
+            is_os = file_name(normal.image.name).endswith('_os')
+            if material.bf2_shader == 'SKINNEDMESH' and is_os:
+                if conv_os_normals:
+                    # fixes bad shading with OS normal maps when mesh is deformed
+                    os_to_b = node_tree.nodes.new('ShaderNodeGroup')
+                    os_to_b.node_tree = _create_os_to_b_converter()
+                    os_to_b.location = (0.5 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                    os_to_b.hide = True
+                    node_tree.links.new(normal.outputs['Color'], os_to_b.inputs['Color'])
+                    node_tree.links.new(os_to_b.outputs['Color'], normal_node.inputs['Color'])
+                else:
+                    normal_node.space = 'OBJECT'
 
             node_tree.links.new(normal_out, shader_normal)
 
