@@ -192,51 +192,6 @@ def conv_blender_to_bf2(*args):
     else:
         return tuple(ret)
 
-# An geometry node tree which creates additional backfaces
-# based on 'backface' face attribute
-def _make_backface_modifier(name, only_backfaces=True):
-    if name in bpy.data.node_groups:
-        return bpy.data.node_groups[name]
-        # bpy.data.node_groups.remove(bpy.data.node_groups[name])
-    node_group = bpy.data.node_groups.new(name, type='GeometryNodeTree')
-    nodes = node_group.nodes
-    links = node_group.links
-
-    group_input = nodes.new(type='NodeGroupInput')
-    group_input.name = 'Group Input'
-    group_output = nodes.new(type='NodeGroupOutput')
-    group_output.name = 'Group Output'
-
-    node_group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
-    node_group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
-
-    backface = nodes.new(type="GeometryNodeInputNamedAttribute")
-    backface.data_type = 'BOOLEAN'
-    backface.inputs['Name'].default_value = 'backface'
-
-    duplicate = nodes.new(type="GeometryNodeDuplicateElements")
-    duplicate.domain = 'FACE'
-    links.new(group_input.outputs['Geometry'], duplicate.inputs['Geometry'])
-    links.new(backface.outputs['Attribute'], duplicate.inputs['Selection'])
-    
-    flip = nodes.new(type="GeometryNodeFlipFaces")
-    links.new(duplicate.outputs['Geometry'], flip.inputs['Mesh'])
-
-    join = nodes.new(type="GeometryNodeJoinGeometry")
-    links.new(flip.outputs['Mesh'], join.inputs['Geometry'])
-
-    if not only_backfaces:
-        links.new(group_input.outputs['Geometry'], join.inputs['Geometry'])
-
-    links.new(join.outputs['Geometry'], nodes['Group Output'].inputs['Geometry'])
-
-    node_group.is_modifier = True
-    return node_group
-
-def add_backface_modifier(obj, only_backfaces=True):
-    modifier = obj.modifiers.new(type='NODES', name="MaskBackfaces")
-    modifier.node_group = _make_backface_modifier('MaskBackfaces', only_backfaces)
-
 def find_root(obj):
     if obj.parent is None:
         return obj

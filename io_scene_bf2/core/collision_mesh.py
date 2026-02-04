@@ -11,7 +11,6 @@ from .utils import (delete_object,
                     check_prefix,
                     invert_face,
                     are_backfaces,
-                    add_backface_modifier,
                     apply_modifiers as _apply_modifiers,
                     triangulate as _triangulate,
                     DEFAULT_REPORTER)
@@ -29,8 +28,6 @@ MATERIAL_COLORS = [
     [0.477504, 0.821444, 0.318195, 1.],
     [0.741388, 0.873449, 0.149561, 1.]
 ]
-
-DEBUG_BACKFACES = False
 
 def _build_col_prefix(geompart=None, geom=None, col=None):
     if geompart is not None and geom is not None and col is not None:
@@ -110,10 +107,6 @@ class CollMeshImporter:
                     col_name = _build_col_prefix(geompart_idx, geom_idx, col_idx) + self.name
                     if self.reload: delete_object_if_exists(col_name)
                     col_obj = bpy.data.objects.new(col_name, col_mesh)
-
-                    if DEBUG_BACKFACES:
-                        add_backface_modifier(col_obj)
-
                     col_obj.parent = geom_obj
                     context.scene.collection.objects.link(col_obj)
 

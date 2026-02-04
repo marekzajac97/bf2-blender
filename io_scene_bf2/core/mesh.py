@@ -21,7 +21,6 @@ from .utils import (conv_bf2_to_blender,
                     flip_uv,
                     invert_face,
                     are_backfaces,
-                    add_backface_modifier,
                     apply_modifiers,
                     triangulate,
                     compare_val,
@@ -62,8 +61,6 @@ _MESH_TYPES = {
 # hardcoded BF2 limit
 # if you are a BF2142 modder you could increase this to 50 :)
 MAX_GEOM_LIMIT = MAX_BONE_LIMIT = 26
-
-DEBUG_BACKFACES = False
 
 def collect_uv_layers(mesh_obj, geom=0, lod=0):
     uv_layers = dict()
@@ -386,9 +383,6 @@ class MeshImporter:
             self._import_rig_skinned_mesh(mesh_obj, bf2_lod)
         elif isinstance(bf2_mesh, BF2BundledMesh):
             self._import_parts_bundled_mesh(mesh_obj, bf2_lod)
-
-        if DEBUG_BACKFACES:
-            add_backface_modifier(mesh_obj)
 
         return mesh_obj
 
