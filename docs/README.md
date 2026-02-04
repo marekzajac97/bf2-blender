@@ -106,8 +106,7 @@ Some very useful 3rd party add-ons for animating:
   * [Animation Auto Offset](https://extensions.blender.org/add-ons/anim-auto-offset/) works like auto-keying but transform changes affect the whole animation (3ds Max like behaviour)
 
 ## Known issues
-- Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions.
-- Blender does not support mesh deformations when using Object Space normal maps. This means most SkinnedMeshes will have shading issues when deformed/animated, no workaround found yet.
+- Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions. It's just a visual inconvenience and doesn't affect skinning.
 
 # ObjectTemplate vs Mesh import/export
 There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure lacking some data present in the `.con` file, that's why its usablility is limited. The second (and preferred) method is the `ObjecTemplate (.con)` option, which parses the ObjectTemplate definition allowing it to:
@@ -128,8 +127,9 @@ When you want to re-export a mesh that has been imported and modified, a proper 
 This section lists all the requirements needed for the finished model to become export-ready and usable in the game engine.
 
 ## The object hierarchy
-- The root of the hierarchy must be an empty object, must have no parent and needs to be prefixed with the geometry type (`StaticMesh`, `BundledMesh` or `SkinnedMesh`) followed by an underscore and the name of the root ObjectTemplate. Each child of the root object must be an empty object corresponding to Geom (prefixed with `G<index>__`). Statics may also contain an empty child object which defines its anchor point (prefixed with `ANCHOR__`).
-- Each child of the Geom object must be an object that corresponds to Lod (prefixed with `G<index>L<index>__`) containing mesh data. There must be at least one Lod.
+- The root of the hierarchy must be an empty object, must have no parent and needs to be prefixed with the geometry type (`StaticMesh`, `BundledMesh` or `SkinnedMesh`) followed by an underscore and the name of the root ObjectTemplate.
+- Each child of the root object must be an empty object corresponding to Geom (prefixed with `G<index>__`). Statics may also contain an empty child object which defines its anchor point (prefixed with `ANCHOR__`).
+- Each child of the Geom object must be an object corresponding to Lod (prefixed with `G<index>L<index>__`) containing mesh data. There must be at least one Lod.
 - Lods should have their [origin set at center of the geometry](https://docs.blender.org/manual/en/latest/scene_layout/object/origin.html#set-origin). This optimizes bounding spheres and avoids frustum culling related bugs (objects disappearing at certain viewing angles).
 - For BundledMeshes, each Lod may contain multiple child objects that will be exported as separate geometry parts bound to child ObjectTemplates. Each Lod must contain the same hierarchy of objects (their names and transformations must match between Lods). Geometry parts cannot be empty Blender objects, each one must contain mesh data to export properly! However, the mesh data itself may have no geometry (verts & faces deleted), which is useful for exporting things as invisible but separate logical gameplay objects.
 - Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set. You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. It can be left empty when an object is intended to be exported as a separate geometry part but at the same time doesn't represent any ObjectTemplate (mostly applies to exporting animatable weapon parts such mags, bolts etc).

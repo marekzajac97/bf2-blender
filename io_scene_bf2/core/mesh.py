@@ -501,8 +501,6 @@ class MeshImporter:
             if bf2_lod in geom.lods:
                 skeleton = self.geom_to_ske.get(geom_idx, default_skeleton)
                 break
-        if skeleton is None:
-            self.reporter.warning(f"No skeleton (amrature) found for Geom {geom_idx}")
         return skeleton
 
     def _cleanup_old_materials(self):
@@ -1072,7 +1070,7 @@ class MeshExporter:
 
             if mesh_type == BF2SkinnedMesh:
                 if not bone_list:
-                    self.reporter.warning(f"{lod_obj.name}: Material '{blend_material.name}' has no weights assigned")
+                    self.reporter.info(f"{lod_obj.name}: Material '{blend_material.name}' has no weights assigned")
                 if len(bone_list) > MAX_BONE_LIMIT:
                     self.reporter.warning(f"{lod_obj.name}: BF2 only supports a maximum of {MAX_BONE_LIMIT} bones per material,"
                                           f" but material '{blend_material.name}' has got {len(bone_list)} bones (vertex groups) assigned!")

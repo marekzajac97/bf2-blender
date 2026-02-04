@@ -265,7 +265,7 @@ class OBJECT_OT_make_object_con_def(bpy.types.Operator):
     bl_description = "Generate .con definitions for selected objects and save it to the clipboard"
 
     @classmethod
-    def pol(cls, context):
+    def poll(cls, context):
         cls.poll_message_set("No objects selected")
         return context.selected_objects
 

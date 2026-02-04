@@ -34,7 +34,7 @@ class MeshImportBase(ImporterBase):
 
     only_selected_lod: BoolProperty(
         name="Only selected LOD",
-        description="When unchecked, loads whole mesh hierarchy, ignoring above options",
+        description="Load only a single mesh instead of the whole hierarchy of Geoms & Lods",
         default=False
     ) # type: ignore
 
@@ -53,7 +53,7 @@ class MeshImportBase(ImporterBase):
     def draw(self, context):
         layout = self.layout
 
-        header, body = layout.panel("BF2_PT_export_geometry", default_closed=False)
+        header, body = layout.panel("BF2_PT_import_geometry", default_closed=False)
         header.prop(self, "only_selected_lod")
 
         if body:

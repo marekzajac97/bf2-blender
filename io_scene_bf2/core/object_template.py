@@ -441,11 +441,12 @@ def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_
         for s in find_all_skeletons():
             rigs[s.name] = s
 
-        def put_rig_safe(geom_idx, ske_name):
+        def put_rig_safe(geom_idx, ske_name, warn=True):
             rig = rigs.get(ske_name)
-            if rig is None:
+            if rig:
+                geom_to_ske[geom_idx] = rig  
+            elif warn:
                 reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type '{root_template.type}'")
-            geom_to_ske[geom_idx] = rig
 
         if import_rig_mode == 'AUTO':
             if geometry_type == 'SkinnedMesh':
@@ -458,12 +459,12 @@ def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_
                     if rigs:
                         geom_to_ske[-1] = list(rigs.values())[0]
                     else:
-                        reporter.warning(f"Armature '{ske_name}' not found for ObjectTemplate type 'AnimatedBundle'")
+                        reporter.warning(f"No armature found for ObjectTemplate type 'AnimatedBundle'")
                         geom_to_ske = None
             elif geometry_type == 'BundledMesh':
                 if root_template.type.lower() == 'genericfirearm':
-                    put_rig_safe(0, '1p_setup')
-                    put_rig_safe(1, '3p_setup')
+                    put_rig_safe(0, '1p_setup', warn=False)
+                    put_rig_safe(1, '3p_setup', warn=False)
                 else:
                     geom_to_ske = None
         elif import_rig_mode == 'MANUAL':
