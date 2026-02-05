@@ -344,7 +344,12 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         backface_subtract_1.inputs[1].default_value = 1.0
         backface_subtract_1.location = (-2 * NODE_WIDTH, 3 * NODE_HEIGHT)
 
-        node_tree.links.new(attribute_backface.outputs['Factor'], backface_subtract_1.inputs[0])
+        if 'Factor' in attribute_backface.outputs:
+            backface_factor = attribute_backface.outputs['Factor']
+        else:
+            backface_factor = attribute_backface.outputs['Fac'] # pre Blender 5.0
+
+        node_tree.links.new(backface_factor, backface_subtract_1.inputs[0])
 
         backface_abs = node_tree.nodes.new("ShaderNodeMath")
         backface_abs.hide = True
@@ -530,7 +535,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
             node_tree.links.new(normal.outputs['Color'], normal_node.inputs['Color'])
             normal_out = normal_node.outputs['Normal']
 
-            is_os = file_name(normal.image.name).endswith('_b_os')
+            is_os = normal.image and file_name(normal.image.name).endswith('_b_os')
             if material.bf2_shader == 'SKINNEDMESH' and is_os:
                 # dynamically convert object space normals to tangent space normals
                 # fixes bad shading when mesh is deformed
