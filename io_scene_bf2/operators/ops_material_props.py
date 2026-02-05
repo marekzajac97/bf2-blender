@@ -7,7 +7,7 @@ from bpy.types import Mesh, Material # type: ignore
 from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
 from .. import get_mod_dirs
 
-from ..core.utils import Reporter, show_error
+from ..core.utils import Reporter, show_error, file_name
 from ..core.mesh_material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
 from ..core.mesh import MaterialWithTransparency
 
@@ -37,8 +37,15 @@ class SkipMaterialUpdateCallback():
     def __exit__(self, exception_type, exception_value, exception_traceback):
         self.is_bf2_material = True
 
-INSENSITIVE_ALPHA_TEST = re.compile(re.escape('alpha_test'), re.IGNORECASE)
-INSENSITIVE_ALPHA = re.compile(re.escape('alpha'), re.IGNORECASE)
+PATTERN_ALPHA_TEST = re.compile(re.escape('Alpha_Test'), re.IGNORECASE)
+PATTERN_TANGENT = re.compile(re.escape('tangent'), re.IGNORECASE)
+
+def _add_technique(material, pattern):
+    if not pattern.search(material.bf2_technique):
+        material.bf2_technique += pattern.pattern
+
+def _del_technique(material, pattern):
+    material.bf2_technique = pattern.sub('', material.bf2_technique)
 
 class MESH_OT_bf2_apply_material(bpy.types.Operator):
     bl_idname = "bf2.material_apply"
@@ -103,9 +110,7 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                 item_layout = row.row(align=True)  
                 item_layout.prop_enum(material, "bf2_alpha_mode", identifier)
 
-                if identifier == 'ALPHA_TEST':
-                    item_layout.enabled = material.bf2_shader != 'SKINNEDMESH'
-                elif identifier == 'ALPHA_BLEND':
+                if identifier == 'ALPHA_BLEND':
                     item_layout.enabled = material.bf2_shader == 'BUNDLEDMESH'
             row.enabled = enabled
 
@@ -158,17 +163,15 @@ def _update_techinique_default_value(material):
     if material.bf2_shader == 'STATICMESH':
         material.bf2_technique = get_staticmesh_technique_from_maps(material)
     elif material.bf2_shader == 'BUNDLEDMESH':
-        if material.bf2_alpha_mode == 'ALPHA_BLEND':
-            if 'alpha' not in material.bf2_technique.lower():
-                material.bf2_technique += 'Alpha' # XXX: Remdul says this is wrong/not used anyway
-        elif material.bf2_alpha_mode == 'ALPHA_TEST':
-            if 'alpha_test' not in material.bf2_technique.lower():
-                material.bf2_technique += 'Alpha_Test'
-        elif material.bf2_technique == '':
-            material.bf2_technique = 'ColormapGloss'
+        if material.bf2_alpha_mode != 'ALPHA_TEST':
+            _del_technique(material, PATTERN_ALPHA_TEST)
     elif material.bf2_shader == 'SKINNEDMESH':
-        if material.bf2_technique == '':
-            material.bf2_technique = 'Humanskin'
+        if material.texture_slot_1 and file_name(material.texture_slot_1).endswith('_b'):
+            _add_technique(material, PATTERN_TANGENT)
+        if material.bf2_alpha_mode == 'ALPHA_TEST':
+            _add_technique(material, PATTERN_ALPHA_TEST)
+        else:
+            _del_technique(material, PATTERN_ALPHA_TEST)
 
 def on_shader_update(self, context):
     if not self.is_bf2_material:
@@ -181,8 +184,6 @@ def on_shader_update(self, context):
     _update_techinique_default_value(self)
 
 def on_alpha_mode_update(self, context):
-    self.bf2_technique = INSENSITIVE_ALPHA_TEST.sub('', self.bf2_technique)
-    self.bf2_technique = INSENSITIVE_ALPHA.sub('', self.bf2_technique)
     _update_techinique_default_value(self)
 
 def on_texture_map_update(self, context, index):
@@ -221,7 +222,7 @@ def on_texture_map_update(self, context, index):
     with SkipMaterialUpdateCallback(self):
         setattr(self, prop_name, prop_val)
 
-    if self.bf2_shader == 'STATICMESH':
+    if self.bf2_shader in ('STATICMESH', 'SKINNEDMESH'):
         _update_techinique_default_value(self)
 
 def on_is_vegitation_update(self, context):

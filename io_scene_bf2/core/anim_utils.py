@@ -521,7 +521,10 @@ def _setup_3p_controllers(context, rig, step):
     for pose_bone in rig.pose.bones:
         bone = pose_bone.bone
         if bone.name in blacklist or not _is_ctrl_of(bone) and bone.name not in whitelist:
-            bone.hide = True # hidden in Pose and Object modes
+            if hasattr(pose_bone, 'hide'):
+                pose_bone.hide = True # Blender 5.0 onwards
+            else:
+                bone.hide = True # Blender 4.5 and earlier
 
     _create_bone_collection(armature, 'BF2_LEFT_FINGERS', r'^left_(index|ring|thumb)\d$', 3) # green
     _create_bone_collection(armature, 'BF2_RIGHT_FINGERS', r'^right_(index|ring|thumb)\d$', 4) # blue
@@ -672,7 +675,10 @@ def _setup_1p_controllers(context, rig, step):
     for pose_bone in rig.pose.bones:
         bone = pose_bone.bone
         if not _is_ctrl_of(bone) and bone.name not in whitelist:
-            bone.hide = True # hidden in Pose and Object modes
+            if hasattr(pose_bone, 'hide'):
+                pose_bone.hide = True # Blender 5.0 onwards
+            else:
+                bone.hide = True # Blender 4.5 and earlier
 
     _create_bone_collection(armature, 'BF2_LEFT_ARM', r'^L_.*', 3) # green
     _create_bone_collection(armature, 'BF2_LEFT_FINGERS', r'^L_(pink|index|point|ring|thumb)_\d$', 3) # green

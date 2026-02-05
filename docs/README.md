@@ -3,8 +3,7 @@
 
 - [BF2 glossary](#bf2-glossary)
   * [Texturing](#texturing)
-    + [StaticMesh](#staticmesh)
-    + [BundledMesh/SkinnedMesh](#bundledmesh-skinnedmesh)
+  * [List of supported shader techniques](#list-of-supported-shader-techniques)
 - [Initial Add-on setup](#initial-add-on-setup)
 - [Animating](#animating)
   * [Animation Import](#animation-import)
@@ -29,19 +28,22 @@
 An explanation of BF2 terms and systems used throughout this documentation.
 
 - **Skeleton** - a set of bones with a defined hierarchy and transformations (position + rotation), exclusively used for skinning and animating SkinnedMeshes. Soldier skeletons (`1p_setup` and `3p_setup`) contain special `mesh` bones which are used for animating weapon parts (`mesh1` to `mesh16` for 1P and `mesh1` to `mesh8` for 3P). `3p_setup` also contains bones used for animating kit parts (`mesh9` to `mesh16`)
-- **Visible mesh** - refers to either the BundledMesh, SkinnedMesh or StaticMesh
+- **Visible mesh** - refers to one of the following:
+  * **StaticMesh** - Used for static, non-movable objects (e.g. bridges, buildings) with baked lighting via light maps.
+  * **BundledMesh** - Used for movable objects (e.g. vehicles, weapons)
+  * **SkinnedMesh** - Used for deformable objects (e.g. soldiers, flags)
 - **Geom** - "geometry". Each visible mesh type may define multiple sub-meshes refered to as geoms, each geom usually represents the same object viewed from a different perspective or in a different state e.g. for Soldiers/Weapons/Vehicles Geom0 and Geom1 refer to 1P and 3P meshes respectively. Statics and Vehicles may also have an extra Geom for their destroyed/wreck variant.
 - **Lod** - "level of detail". Multiple Lods can be defined per Geom. Each Lod should be a simplified version of the previous one with Lod0 being the most detailed version. Most BF2 models are rather low-poly and modern GPUs are _fast_, so optimizing the poly count will usually have little to no impact on the performance. Reducing the number of materials on Lods should be prioritized instead to limit the number of draw calls and CPU load, which is the main bottleneck in the BF2 engine.
-- **StaticMesh** - Used for static, non-movable objects (e.g. bridges, buildings) with baked lighting via light maps.
-- **BundledMesh** - Used for movable objects (e.g. vehicles, weapons)
-- **SkinnedMesh** - Used for deformable objects (e.g. soldiers, flags)
 - **CollisionMesh** - Used for object collision calculations, cosists of three sub-meshes, each used for calculating collision between different object types (projectiles, vehicles and soldiers). Static objects may use additional sub-mesh for AI navmesh generation.
 - **ObjectTemplate** - A blueprint for every in-game object, defines object type (e.g. `Bundle`, `PlayerControlObject`), its properties, visible mesh and collision mesh. ObjectTemplates (and objects) in BF2 are hierarchical, they may contain other ObjectTemplates as children (e.g. a root ObjectTemplate "tank" may define "turret" and "engine" as its children)
 - **Geometry part** - A fragment of the BundledMesh's geom which can be independently transformed (moved/rotated). Each geometry part is usually bound to one specific child ObjectTemplate. Handheld weapons are one exception in which they can define multiple geometry parts but only a single ObjectTemplate (they are just used for animating).
 - **Material** - defines a set of textures and shading properties. Every face and vertex is assigned to a material.
-- **Alpha Mode** - either `None`, `Alpha Test` (cheap, one-bit alpha), `Alpha Blend` (expensive, may increase overdraw)
+- **Alpha Mode** - transparency mode to use, one of the following:
+  * `None` - No transparency
+  * `Alpha Test` - parts of the material can be is either fully transparent or fully opaque, no in between. It's cheap to compute.
+  * `Alpha Blend` - Allows for semi-transparent materials. It's expensive to compute (may increase overdraw) and only supported by BundledMesh shaders.
 - **Shader** - name of the shader (.fx) file to use for drawing the material, usually matches the visible mesh type name.
-- **Technique** - a combination of names that describe the shader permutation (a set of shader features) to use for a particular material. These names are harcoded in the game engine.
+- **Technique** - a combination of names used as modifiers to enable or disable certain shader features when drawing the material. These names are harcoded in the game engine.
 - **Animated UVs** - UV (texture) coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement and/or road wheel rotation. Vertices that shall use this feature must be mapped to a specific UV transformation matrix depending on whether they belong to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 different combinations).
 
 ## Texturing
@@ -59,12 +61,28 @@ StaticMesh materials in BF2 are designed to use [texture atlases](https://en.wik
 
 NOTE: Only some combinations of the above texture layers are valid.
 
-The gloss map (used for scaling the amount of specular reflections) is embedded in the alpha channel of the `Detail` map when Alpha Mode is set to `None` or the `NDetail` map otherwise.
+The gloss map is embedded in the alpha channel of the `Detail` map when Alpha Mode is set to `None` or the `NDetail` map otherwise.
 
 ### BundledMesh/SkinnedMesh
 BundledMesh and SkinnedMesh materials use two texture maps: `Diffuse Color` and `Normal`. BundledMesh may use an extra `Wreck` texture map which gets multiplied with the `Diffuse Color` when a vehicle gets destroyed. SkinnedMesh materials may use either tangent space or object space normal maps with the latter one being more common, the engine differentiates them by `_b` or `_os` suffix.
 
-For BundledMesh, the gloss map is embedded in the alpha channel of the `Diffuse Color` map when Alpha Mode is set to `None` or the `Normal` map otherwise. SkinnedMesh materials always have their gloss map in the `Normal` map's alpha channel.
+The gloss map is embedded in the alpha channel of either the `Diffuse Color` or `Normal` map based on the `ColormapGloss` technqiue presence.
+
+## List of supported shader techniques
+
+BundledMesh:
+- `ColormapGloss` - if present, alpha channel of the `Diffuse Color` map is used as the `Gloss` map which scales the amount of specular reflections. If absent, the alpha channel is used for transparency.
+- `Alpha_Test` - if present, transparency is calculated using RGB values of the `Diffuse Color` map rather than its alpha channel. Only parts of the material where the texture is fully black (RGB == 0,0,0) will be given full transparency. This technique is commonly combined with `ColormapGloss` allowing to spare the alpha channel for the `Gloss` map.
+- `Animated` - enables dynamic transformation of texture coordinates
+- `EnvMap` - adds environment map based reflections
+- `Cockpit` - makes the lighting static, as the name implies used mostly for plane cockpits
+- `NoHemiLight` - if present, hemimap will not be used for shading
+- `Alpha_One` - special technique used on glow sprites, not sure what exactly is it for.
+
+SkinneMesh:
+- `Tangent` - must be defined if the material uses tangent space normal maps
+- `Alpha_Test` - must be defined if the material uses alpha testing 
+- `EnvMap` - not used in vBF2 but is known to be exploited by mods like Project Reality e.g. to make soldiers show up on thermals.
 
 # Initial Add-on setup
 After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> Battlefield 2 -> Preferences`) (optional but needed to load textures) Then you can use the `File -> Import/Export -> BF2` submenu or drag-and-drop any supported BF2 file.
@@ -273,7 +291,7 @@ SkinnedMesh_soldier
 BF2 BundledMeshes support a cheap skinning method, allowing one "bone" per vertex, where the "bone" is another object (geometry part). In other words, it enables implicitly transferring some vertices from one object (geometry part) to another. When individual vertices that make up a face are distributed across different geometry parts, and when those parts get transformed, the faces can stretch and deform. This technique is most commonly used for tracked vehicles by splitting the tracks into pieces and "linking" them to road wheels. To do this, create a new [Vertex Group](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/vertex_groups/index.html) named **exactly** the same as the child object that the vertices are supposed to be transferred to and assign them to the group. A single vertex must be assigned to **exactly one** vertex group, or you will get an export error. You can ensure this by using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) in `Weight Paint Mode`.
 
 ## Animated UVs (BundledMesh)
-To set up animated UVs go to `Edit Mode`, select specific parts (vertices/faces) of your mesh that should use UV animation and assign them to proper sets using the `Mesh -> BF2` menu, choosing Left/Right Tracks/Wheels Translation/Rotation. You can also select vertices/faces currently assigned to those sets using the `Select -> BF2` menu. Vertices assigned to the "wheel rotation" set will additionally require setting up the centre point of UV rotation for each road wheel individually. Select all vertices, position the 2D cursor to the wheel centre in the UV Editing view, then select `Mesh -> BF2 -> Set Animated UV Rotation Center`. Repeat the process for every road wheel.
+To set up animated UVs go to `Edit Mode`, select specific parts (vertices/faces) of your mesh that should use UV animation and assign them to proper sets using the `Mesh -> BF2` menu, choosing Left/Right Tracks/Wheels Translation/Rotation. You can also select vertices/faces currently assigned to those sets using the `Select -> BF2` menu. Vertices assigned to the "wheel rotation" set will additionally require setting up the centre point of UV rotation for each road wheel individually. Select all vertices, position the 2D cursor to the wheel centre in the UV Editing view, then select `Mesh -> BF2 -> Set Animated UV Rotation Center`. Repeat the process for every road wheel. Remember to also include `AnimatedUV` component in your material's technique!
 
 ## Skinning (SkinnedMesh)
 In order to skin your model, you must import the BF2 skeleton into your scene. When skinning soldiers you will need two skeletons `1p_setup.ske` for 1P (Geom 0) and `3p_setup.ske` 3P (Geom 1). The first step is to switch to `Pose Mode` and pose the armature(s) to align it with your mesh(es) as best as possible. When you are done, make sure you apply this pose as the rest pose [Pose -> Apply -> Apply Pose As Rest Pose](https://docs.blender.org/manual/en/latest/animation/armatures/posing/editing/apply.html), then switch to `Object Mode` and for each Lod object go to `Modifiers` tab and [Add Modifier -> Deform -> Armature](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/armature.html), in modifier settings select 'Object' to point to the name of the imported skeleton. Now the hard part, you have to set vertex weights for each Lod, meaning how much each bone affects each vertex of the mesh. You could use automatic weights (which should be a good starting point) as follows:

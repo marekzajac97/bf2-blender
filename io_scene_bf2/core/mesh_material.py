@@ -300,7 +300,7 @@ def _set_alpha_straigt(texture_node): # need this to render properly with Cycles
     if texture_node.image:
         texture_node.image.alpha_mode = 'STRAIGHT'
 
-def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, conv_os_normals=True, reporter=DEFAULT_REPORTER):
+def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, reporter=DEFAULT_REPORTER):
     material.use_nodes = True
 
     node_tree = material.node_tree
@@ -450,6 +450,8 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, con
         technique = material.bf2_technique.lower()
         has_envmap = 'envmap' in technique and material.bf2_shader == 'BUNDLEDMESH'
         has_alphatest = 'alpha_test' in technique and material.bf2_shader == 'SKINNEDMESH'
+        has_dot3alpha_test = 'alpha_test' in technique and material.bf2_shader == 'BUNDLEDMESH'
+        has_colormapgloss = 'colormapgloss' in technique and material.bf2_shader == 'BUNDLEDMESH'
 
         diffuse = texture_nodes['Diffuse']
         normal = texture_nodes.get('Normal')
@@ -486,11 +488,12 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, con
         specular_txt = None
         if material.bf2_shader == 'SKINNEDMESH':
             specular_txt = normal
-        elif has_alpha: # BM with alpha
-            specular_txt = normal
-        else:
+        elif has_colormapgloss:
             specular_txt = diffuse
+        else:
+            specular_txt = normal
 
+        spec_out = None
         if specular_txt:
             if shadow:
                 # multiply diffuse and shadow
@@ -527,34 +530,47 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, con
             node_tree.links.new(normal.outputs['Color'], normal_node.inputs['Color'])
             normal_out = normal_node.outputs['Normal']
 
-            is_os = file_name(normal.image.name).endswith('_os')
+            is_os = file_name(normal.image.name).endswith('_b_os')
             if material.bf2_shader == 'SKINNEDMESH' and is_os:
-                if conv_os_normals:
-                    # fixes bad shading with OS normal maps when mesh is deformed
-                    os_to_b = node_tree.nodes.new('ShaderNodeGroup')
-                    os_to_b.node_tree = _create_os_to_b_converter()
-                    os_to_b.location = (0.5 * NODE_WIDTH, -1 * NODE_HEIGHT)
-                    os_to_b.hide = True
-                    node_tree.links.new(normal.outputs['Color'], os_to_b.inputs['Color'])
-                    node_tree.links.new(os_to_b.outputs['Color'], normal_node.inputs['Color'])
-                else:
-                    normal_node.space = 'OBJECT'
+                # dynamically convert object space normals to tangent space normals
+                # fixes bad shading when mesh is deformed
+                os_to_b = node_tree.nodes.new('ShaderNodeGroup')
+                os_to_b.node_tree = _create_os_to_b_converter()
+                os_to_b.location = (0.5 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                os_to_b.hide = True
+                node_tree.links.new(normal.outputs['Color'], os_to_b.inputs['Color'])
+                node_tree.links.new(os_to_b.outputs['Color'], normal_node.inputs['Color'])
 
             node_tree.links.new(normal_out, shader_normal)
 
         # transparency
         alpha_out = None
-        if has_alpha or has_alphatest:
+        if has_alpha or has_alphatest or has_dot3alpha_test:
             _set_alpha_straigt(diffuse)
             alpha_out = diffuse.outputs['Alpha']
+
+            if has_dot3alpha_test:
+                dot_product = node_tree.nodes.new("ShaderNodeVectorMath")
+                dot_product.hide = True
+                dot_product.operation = 'DOT_PRODUCT'
+                dot_product.inputs[1].default_value = (1, 1, 1)
+                node_tree.links.new(diffuse.outputs['Alpha'], dot_product.inputs[0])
+
+                alpha_ref = node_tree.nodes.new('ShaderNodeMath')
+                alpha_ref.operation = 'GREATER_THAN'
+                alpha_ref.inputs[1].default_value = 0.03
+                node_tree.links.new(dot_product.outputs['Value'], alpha_ref.inputs[0])
+                alpha_out = alpha_ref.outputs['Value']
+
             if backface_cull:
                 mult_backface = node_tree.nodes.new('ShaderNodeMath')
                 mult_backface.operation = 'MULTIPLY'
                 mult_backface.location = (2 * NODE_WIDTH, 3 * NODE_HEIGHT)
                 mult_backface.hide = True
-                node_tree.links.new(diffuse.outputs['Alpha'], mult_backface.inputs[1])
+                node_tree.links.new(alpha_out, mult_backface.inputs[1])
                 node_tree.links.new(backface_cull_alpha, mult_backface.inputs[0])
                 alpha_out = mult_backface.outputs['Value']
+
         elif backface_cull:
             alpha_out = backface_cull_alpha
 
@@ -564,12 +580,18 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, con
         # envmap reflections
         if has_envmap:
             glossy_BSDF = node_tree.nodes.new('ShaderNodeBsdfGlossy')
-            glossy_BSDF.inputs['Roughness'].default_value = 0.1
+            glossy_BSDF.inputs['Roughness'].default_value = 0.15
             mix_envmap = node_tree.nodes.new('ShaderNodeMixShader')
 
             mix_envmap_shaders = _sockets(mix_envmap.inputs, 'Shader')
-            node_tree.links.new(principled_BSDF.outputs['BSDF'], mix_envmap_shaders[1])
-            node_tree.links.new(glossy_BSDF.outputs['BSDF'], mix_envmap_shaders[0])
+            node_tree.links.new(principled_BSDF.outputs['BSDF'], mix_envmap_shaders[0])
+            node_tree.links.new(glossy_BSDF.outputs['BSDF'], mix_envmap_shaders[1])
+
+            # scale envmap with gloss
+            mix_envmap.inputs['Factor'].default_value = 1.0
+            if spec_out:
+                node_tree.links.new(spec_out, mix_envmap.inputs['Factor'])
+
             mix_envmap_out = mix_envmap.outputs['Shader']
         else:
             mix_envmap_out = principled_BSDF.outputs['BSDF']

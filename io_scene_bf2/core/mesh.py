@@ -254,7 +254,7 @@ class MeshImporter:
                     self.reporter.warning(f"'{name}': Material shader '{bf2_mat.fxfile}' doesn't match the mesh type")
 
                 is_basendetail = False
-                material.bf2_technique= bf2_mat.technique
+                material.bf2_technique = bf2_mat.technique
                 if material.bf2_shader == 'STATICMESH':
                     if 'parallaxdetail' in material.bf2_technique:
                         if not self.silent:
@@ -380,6 +380,10 @@ class MeshImporter:
         self.context.scene.collection.objects.link(mesh_obj)
 
         if isinstance(bf2_mesh, BF2SkinnedMesh):
+            # add custom modifier which saves tangent & normal vectors to attributes
+            # need those from before mesh deformation to fix shading with OS normal maps later
+            modifier = mesh_obj.modifiers.new(type='NODES', name="SaveTangentSpace")
+            modifier.node_group = _make_rest_tangent_space_node()
             self._import_rig_skinned_mesh(mesh_obj, bf2_lod)
         elif isinstance(bf2_mesh, BF2BundledMesh):
             self._import_parts_bundled_mesh(mesh_obj, bf2_lod)
@@ -477,11 +481,6 @@ class MeshImporter:
                 mesh_obj.vertex_groups[v_bone].add([vertex.index], v_bone_weight, "REPLACE")
         
         bpy.ops.object.mode_set(mode='OBJECT')
-
-        # add custom modifier which saves tangent & normal vectors to attributes
-        # need those from before mesh deformation to fix shading with OS normal maps later
-        modifier = mesh_obj.modifiers.new(type='NODES', name="SaveTangentSpace")
-        modifier.node_group = _make_rest_tangent_space_node()
 
         # add armature modifier to the object
         modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
