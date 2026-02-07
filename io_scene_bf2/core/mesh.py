@@ -29,7 +29,7 @@ from .utils import (conv_bf2_to_blender,
 from .skeleton import (ske_get_bone_rot,
                        ske_weapon_part_ids,
                        find_rig_attached_to_object)
-from .mesh_material import (setup_material,
+from .material import (setup_material,
                             get_staticmesh_technique_from_maps, 
                             get_staticmesh_uv_channels,
                             get_tex_type_to_file_mapping,
@@ -355,7 +355,7 @@ class MeshImporter:
             if isinstance(bf2_mesh, BF2SkinnedMesh):
                 # Note to self: by default 'sharp_face' is true so smooth shading (interpolated normals) is disabled
                 # but if mesh uses custom normals the normals get interpolated anyways...
-                # either way flat shading MUST be enabled before calculating custom split normals
+                # either way smooth shading MUST be enabled before calculating custom split normals
                 # otherwise on defomration normals will be broken af
                 mesh.attributes['sharp_face'].data.foreach_set('value', [False] * len(mesh.polygons))
                 mesh.normals_split_custom_set_from_vertices(vertex_normals)

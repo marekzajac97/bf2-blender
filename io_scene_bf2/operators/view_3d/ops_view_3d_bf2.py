@@ -7,14 +7,14 @@ from bpy.props import BoolProperty, EnumProperty, StringProperty, IntProperty, F
 from bpy_extras.io_utils import ImportHelper # type: ignore
 
 from ... import get_mod_dirs
-from ...core.anim_utils import (
+from ...core.tools.anim_utils import (
     toggle_mesh_mask_mesh_for_active_bone,
     setup_controllers,
     Mode,
     AnimationContext)
 from ...core.utils import Reporter, next_power_of_2, prev_power_of_2
 from ...core.skeleton import is_bf2_skeleton
-from ...core.lightmaps import (load_level,
+from ...core.tools.lightmaping import (load_level,
                                ObjectBaker,
                                TerrainBaker,
                                PostProcessor,

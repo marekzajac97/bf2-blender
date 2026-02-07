@@ -3,7 +3,7 @@ import bpy # type: ignore
 from .ops_view_3d_bf2 import VIEW3D_OT_bf2_anim_ctrl_setup_begin
 
 from ...core.utils import Reporter
-from ...core.anim_utils import reparent_bones
+from ...core.tools.anim_utils import reparent_bones
 
 class POSE_OT_bf2_change_parent(bpy.types.Operator):
     bl_idname = "bf2.pose_change_parent"

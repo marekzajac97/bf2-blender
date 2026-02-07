@@ -6,8 +6,8 @@ from .core.collision_mesh import import_collisionmesh, export_collisionmesh
 from .core.skeleton import import_skeleton, export_skeleton
 from .core.object_template import import_object_template, export_object_template
 from .core.occluders import import_occluders, export_occluders
-from .core.anim_utils import reparent_bones, setup_controllers as setup_anim_controllers
-from .core.lightmaps import load_level, ObjectBaker, TerrainBaker, PostProcessor
+from .core.tools.anim_utils import reparent_bones, setup_controllers as setup_anim_controllers
+from .core.tools.lightmaping import load_level, ObjectBaker, TerrainBaker, PostProcessor
 
 def get_mod_dirs(context):
     return [prop.mod_directory for prop in context.preferences.addons[__package__].preferences.mod_directories if prop.mod_directory]

@@ -4,10 +4,10 @@ import bmesh # type: ignore
 import tempfile
 import os
 import math
-from .. import rectpack
+from ... import rectpack
 
-from .object_template import collect_anchor_geoms_lods, parse_geom_type
-from .utils import next_power_of_2, obj_bounds
+from ..object_template import collect_anchor_geoms_lods, parse_geom_type
+from ..utils import next_power_of_2, obj_bounds
 
 class PlaneConfig:
     def __init__(self, plane_axes, camera_rot, dir, flip_uv):

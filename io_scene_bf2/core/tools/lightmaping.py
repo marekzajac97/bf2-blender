@@ -8,17 +8,17 @@ from mathutils import Matrix, Vector # type: ignore
 from abc import ABC, abstractmethod
 
 from typing import Dict, List
-from .bf2.bf2_engine import (BF2Engine,
+from ..bf2.bf2_engine import (BF2Engine,
                             FileManagerFileNotFound,
                             ObjectTemplate,
                             GeometryTemplate,
                             HeightmapCluster,
                             Object)
-from .bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh, BF2Samples
-from .mod_loader import ModLoader
-from .mesh_material import setup_material, get_material_maps, STATICMESH_TEXUTRE_MAP_TYPES
-from .mesh import MeshImporter, MeshExporter
-from .utils import (DEFAULT_REPORTER,
+from ..bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh, BF2Samples
+from ..mod_loader import ModLoader
+from ..material import setup_material, get_material_maps, STATICMESH_TEXUTRE_MAP_TYPES
+from ..mesh import MeshImporter, MeshExporter
+from ..utils import (DEFAULT_REPORTER,
                     swap_zy, file_name,
                     _convert_pos, _convert_rot,
                     to_matrix, save_img_as_dds,
@@ -26,8 +26,8 @@ from .utils import (DEFAULT_REPORTER,
                     is_pow_two, obj_bounds,
                     yaw_pitch_roll_to_matrix,
                     strip_geom_lod_prefix as strip_prefix)
-from .heightmap import import_heightmap_from
-from .exceptions import ImportException
+from ..heightmap import import_heightmap_from
+from ..exceptions import ImportException
 from fnmatch import fnmatch
 
 MESH_TYPES = {

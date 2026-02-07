@@ -8,7 +8,7 @@ from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
 from .. import get_mod_dirs
 
 from ..core.utils import Reporter, show_error, file_name
-from ..core.mesh_material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
+from ..core.material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
 from ..core.mesh import MaterialWithTransparency
 
 MATERIAL_TYPES = [

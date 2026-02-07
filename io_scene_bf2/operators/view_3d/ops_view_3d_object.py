@@ -14,9 +14,9 @@ from ...core.utils import (find_root, save_img_as_dds,
                            strip_geom_lod_prefix,
                            strip_numeric_suffix)
 from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
-from ...core.og_lod_generator import generate_og_lod
-from ...core.fence_tool import make_objects_on_curve
-from ...core.mesh_material import setup_material
+from ...core.tools.og_lod_generator import generate_og_lod
+from ...core.tools.fence_generator import make_objects_on_curve
+from ...core.material import setup_material
 
 LOD_TEXTURE_MAX_SIZE = 2048
 LOD_TEXTURE_MIN_SIZE = 16

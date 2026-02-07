@@ -5,8 +5,8 @@ import re
 import enum
 
 from mathutils import Matrix, Vector # type: ignore
-from .utils import DEFAULT_REPORTER, delete_object_if_exists
-from .skeleton import (find_animated_weapon_object,
+from ..utils import DEFAULT_REPORTER, delete_object_if_exists
+from ..skeleton import (find_animated_weapon_object,
                        ske_weapon_part_ids)
 
 AUTO_SETUP_ID = 'bf2_auto_setup' # identifier for custom bones and constraints
