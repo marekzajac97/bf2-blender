@@ -388,20 +388,20 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         backface_cull_alpha = None
 
     # alpha mode
-    has_alpha = False
+    has_alphatest = has_alphablend = False
     if is_trunk:
         material.blend_method = 'OPAQUE'
     elif is_leaf:
-        has_alpha = True
+        has_alphatest = True
         material.blend_method = 'CLIP'
     else:
         if material.bf2_alpha_mode == 'NONE':
             material.blend_method = 'OPAQUE'
         elif material.bf2_alpha_mode == 'ALPHA_TEST':
-            has_alpha = True
+            has_alphatest = True
             material.blend_method = 'CLIP'
         elif material.bf2_alpha_mode == 'ALPHA_BLEND':
-            has_alpha = True
+            has_alphablend = True
             material.blend_method = 'BLEND'
         else:
             raise RuntimeError(f"Unknown alpha mode '{material.bf2_alpha_mode}'")
@@ -454,9 +454,8 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
         technique = material.bf2_technique.lower()
         has_envmap = 'envmap' in technique and material.bf2_shader == 'BUNDLEDMESH'
-        has_alphatest = 'alpha_test' in technique and material.bf2_shader == 'SKINNEDMESH'
-        has_dot3alpha_test = 'alpha_test' in technique and material.bf2_shader == 'BUNDLEDMESH'
         has_colormapgloss = 'colormapgloss' in technique and material.bf2_shader == 'BUNDLEDMESH'
+        has_dot3alpha_test = has_alphatest and has_colormapgloss
 
         diffuse = texture_nodes['Diffuse']
         normal = texture_nodes.get('Normal')
@@ -491,9 +490,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         # specular/roughness
 
         specular_txt = None
-        if material.bf2_shader == 'SKINNEDMESH':
-            specular_txt = normal
-        elif has_colormapgloss:
+        if has_colormapgloss:
             specular_txt = diffuse
         else:
             specular_txt = normal
@@ -550,7 +547,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
         # transparency
         alpha_out = None
-        if has_alpha or has_alphatest or has_dot3alpha_test:
+        if has_alphablend or has_alphatest:
             _set_alpha_straigt(diffuse)
             alpha_out = diffuse.outputs['Alpha']
 
@@ -723,7 +720,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
             else:
                 dirt_spec_out = None
 
-            if has_alpha and ndetail:
+            if has_alphatest and ndetail:
                 # mult with detaimap normal alpha
                 mult_ndetaila = node_tree.nodes.new('ShaderNodeMath')
                 mult_ndetaila.operation = 'MULTIPLY'
@@ -785,7 +782,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
         # ---- transparency ------
         alpha_out = None
-        if has_alpha:
+        if has_alphatest:
             if detail:
                 _set_alpha_straigt(detail)
                 alpha_out = detail.outputs['Alpha']

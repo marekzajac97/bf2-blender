@@ -24,6 +24,7 @@ from .utils import (conv_bf2_to_blender,
                     apply_modifiers,
                     triangulate,
                     compare_val,
+                    file_name,
                     DEFAULT_REPORTER)
 from .skeleton import (ske_get_bone_rot,
                        ske_weapon_part_ids,
@@ -280,8 +281,10 @@ class MeshImporter:
                     type_index = texture_map_types.index(map_type)
                     setattr(material, f'texture_slot_{type_index}', map_file)
 
-                if isinstance(bf2_mat, MaterialWithTransparency):
+                if isinstance(bf2_mat, MaterialWithTransparency): # BundledMesh, StaticMesh
                     material.bf2_alpha_mode = bf2_mat.alpha_mode.name
+                elif 'alpha_test' in material.bf2_technique.lower(): # SkinnedMesh
+                    material.bf2_alpha_mode = 'ALPHA_TEST'
                 else:
                     material.bf2_alpha_mode = 'NONE'
 
@@ -899,9 +902,11 @@ class MeshExporter:
                         self.reporter.warning(f"{lod_obj.name}: Missing required UV layer 'UV{uv_chan}', make sure it exists and the name is correct")
 
             elif mesh_type == BF2BundledMesh or mesh_type == BF2SkinnedMesh:
-                # XXX: many SkinnedMeshes have just empty technique (idk why) and just work
-                if mesh_type == BF2BundledMesh and not blend_material.bf2_technique:
-                    self.reporter.warning(f"{blend_material.name}: Material is missing technique, check material settings!")
+                if mesh_type == BF2SkinnedMesh:
+                    if blend_material.bf2_alpha_mode == 'ALPHA_TEST' and 'alpha_test' not in blend_material.bf2_technique.lower():
+                        self.reporter.warning(f"{blend_material.name}: Material has Alpha Mode set to Alpha Test but 'Alpha_Test' hasn't been included in its technique")
+                    if 'Normal' in texture_maps and file_name(texture_maps['Normal']).endswith('_b') and 'tangent' not in blend_material.bf2_technique.lower():
+                        self.reporter.warning(f"{blend_material.name}: Material has tangent space normal map but 'tangent' hasn't been included in its technique")
 
                 bf2_mat.technique = blend_material.bf2_technique
                 if 'Diffuse' not in texture_maps:
