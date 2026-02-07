@@ -556,7 +556,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
                 dot_product.hide = True
                 dot_product.operation = 'DOT_PRODUCT'
                 dot_product.inputs[1].default_value = (1, 1, 1)
-                node_tree.links.new(diffuse.outputs['Alpha'], dot_product.inputs[0])
+                node_tree.links.new(diffuse.outputs['Color'], dot_product.inputs[0])
 
                 alpha_ref = node_tree.nodes.new('ShaderNodeMath')
                 alpha_ref.operation = 'GREATER_THAN'
@@ -585,14 +585,24 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
             glossy_BSDF.inputs['Roughness'].default_value = 0.15
             mix_envmap = node_tree.nodes.new('ShaderNodeMixShader')
 
-            mix_envmap_shaders = _sockets(mix_envmap.inputs, 'Shader')
-            node_tree.links.new(principled_BSDF.outputs['BSDF'], mix_envmap_shaders[0])
-            node_tree.links.new(glossy_BSDF.outputs['BSDF'], mix_envmap_shaders[1])
-
             # scale envmap with gloss
             mix_envmap.inputs['Factor'].default_value = 1.0
             if spec_out:
                 node_tree.links.new(spec_out, mix_envmap.inputs['Factor'])
+
+            # add transparency
+            if alpha_out:
+                transparent_BSDF = node_tree.nodes.new('ShaderNodeBsdfTransparent')
+                mix_transparency = node_tree.nodes.new('ShaderNodeMixShader')
+                node_tree.links.new(transparent_BSDF.outputs['BSDF'], _sockets(mix_transparency.inputs, 'Shader')[0])
+                node_tree.links.new(glossy_BSDF.outputs['BSDF'], _sockets(mix_transparency.inputs, 'Shader')[1])
+                node_tree.links.new(alpha_out, mix_transparency.inputs['Factor'])
+                glossy_out = mix_transparency.outputs['Shader']
+            else:
+                glossy_out = glossy_BSDF.outputs['BSDF']
+
+            node_tree.links.new(principled_BSDF.outputs['BSDF'], _sockets(mix_envmap.inputs, 'Shader')[0])
+            node_tree.links.new(glossy_out, _sockets(mix_envmap.inputs, 'Shader')[1])
 
             mix_envmap_out = mix_envmap.outputs['Shader']
         else:
