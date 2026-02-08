@@ -25,8 +25,8 @@ STATICMESH_TECHNIQUES = [
 ]
 
 STATICMESH_TEXUTRE_MAP_TYPES = ['Base', 'Detail', 'Dirt', 'Crack', 'NDetail', 'NCrack']
-BUNDLEDMESH_TEXTURE_MAP_TYPES = ['Diffuse', 'Normal', 'Wreck']
-SKINNEDMESH_TEXTURE_MAP_TYPES = ['Diffuse', 'Normal']
+BUNDLEDMESH_TEXTURE_MAP_TYPES = ['Color', 'Normal', 'Wreck']
+SKINNEDMESH_TEXTURE_MAP_TYPES = ['Color', 'Normal']
 
 TEXTURE_MAPS = {
     'STATICMESH': STATICMESH_TEXUTRE_MAP_TYPES,
@@ -36,7 +36,7 @@ TEXTURE_MAPS = {
 
 TEXTURE_TYPE_TO_SUFFIXES = {
     # BundledMesh/SkinnedMesh
-    'Diffuse': ('_c',),
+    'Color': ('_c',),
     'Normal': ('_b', '_b_os'),
     'Wreck': ('_w',),
     # StaticMesh
@@ -259,7 +259,7 @@ def get_tex_type_to_file_mapping(material, texture_files):
 
     map_name_to_file = dict()
     if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
-        map_name_to_file['Diffuse'] = texture_files[0]
+        map_name_to_file['Color'] = texture_files[0]
         if len(texture_files) > 1:
             if material.bf2_shader == 'SKINNEDMESH':
                 map_name_to_file['Normal'] = texture_files[1]
@@ -457,7 +457,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         has_colormapgloss = 'colormapgloss' in technique and material.bf2_shader == 'BUNDLEDMESH'
         has_dot3alpha_test = has_alphatest and has_colormapgloss
 
-        diffuse = texture_nodes['Diffuse']
+        diffuse = texture_nodes['Color']
         normal = texture_nodes.get('Normal')
         shadow = texture_nodes.get('Wreck')
 

@@ -42,11 +42,11 @@ The `Base`, `Detail` and `Dirt` layers are multiplied with each other, whereas t
 StaticMesh only supports `Alpha Testing` render state for transparency. If `Alpha Testing` is used, the opacity map is sored in the `Detail` map's alpha channel and the gloss map is then stored in the `NDetail` map's alpha channel. If `Alpha Testing` is not used, the gloss map is stored int the `Detail` map's alpha channel.
 
 ### BundledMesh
-BundledMesh materials may use up to three texture maps: `Diffuse Color`, `Normal` and `Wreck`. The `Wreck` map (if present) gets multiplied with the `Diffuse Color` and it's mostly used in Geom2 materials on vehicles. BundledMesh supports both `Alpha Testing` and `Alpha Blending` render states for transparency. The opacity map is always stored in the alpha channel of the `Diffuse Color`, the location of the gloss map however varies based on the technique used.
+BundledMesh materials may use up to three texture maps: `Color`, `Normal` and `Wreck`. The `Wreck` map (if present) gets multiplied with the `Color` and it's mostly used in Geom2 materials on vehicles. BundledMesh supports both `Alpha Testing` and `Alpha Blending` render states for transparency. The opacity map is always stored in the alpha channel of the `Color`, the location of the gloss map however varies based on the technique used.
 
 The following techniques are known to be supported by BundledMesh shader:
-- `ColormapGloss` - if present, repurposes the alpha channel of the `Diffuse Color` map to be used as the gloss map instead of the opacity map. Effectively this makes the object fully opaque. If absent, the gloss map is taken from the `Normal` map's alpha channel if the map is present.
-- `Alpha_Test` - by itself this technique has zero effect, but if combined with `ColormapGloss` it makes parts of the surface where the `Diffuse Color` is black (RGB == 0,0,0) fully transparent. It's used mainly when you want both transparency and gloss map but there's no `Normal` map present that could store it.
+- `ColormapGloss` - if present, repurposes the alpha channel of the `Color` map to be used as the gloss map instead of the opacity map. Effectively this makes the object fully opaque. If absent, the gloss map is taken from the `Normal` map's alpha channel if the map is present.
+- `Alpha_Test` - by itself this technique has zero effect, but if combined with `ColormapGloss` it makes parts of the surface where the `Color` is black (RGB == 0,0,0) fully transparent. It's used mainly when you want both transparency and gloss map but there's no `Normal` map present that could store it.
 - `AnimatedUV` - enables dynamic transformation of texture coordinates, mostly used on tracked vehicles.
 - `EnvMap` - adds environment map based reflections (scaled using gloss map), mostly used on glass and stuff like that.
 - `Cockpit` - makes the lighting static, as the name implies used mostly for first person plane cockpits.
@@ -56,7 +56,7 @@ The following techniques are known to be supported by BundledMesh shader:
 NOTE: A common misconception with BundledMesh materials is that you are required to have `Alpha` or `Alpha_Test` in your technique in order for `Alpha Blending` or `Alpha Testing` render states to work, but this is not true (it's just a quirk specific to the 3ds max mesh exporter).
 
 ### SkinnedMesh
-SkinnedMesh materials may use up to two texture maps: `Diffuse Color` and `Normal`. The material may use either tangent space or object space normal maps with the latter one being more common (the engine differentiates them by `_b` or `_b_os` suffix). The gloss map is always embedded in the alpha channel of the `Normal` map.
+SkinnedMesh materials may use up to two texture maps: `Color` and `Normal`. The material may use either tangent space or object space normal maps with the latter one being more common (the engine differentiates them by `_b` or `_b_os` suffix). The gloss map is always embedded in the alpha channel of the `Normal` map.
 
 The following techniques are known to be supported by SkinnedMesh shader:
 - `Tangent` - must be defined if the material uses tangent space normal maps

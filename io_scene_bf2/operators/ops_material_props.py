@@ -41,7 +41,7 @@ class MESH_OT_bf2_apply_material(bpy.types.Operator):
                 return material.bf2_technique
             else:
                 cls.poll_message_set("must set at least the 'Color' texture map")
-                return material.texture_slot_0 # has diffuse
+                return material.texture_slot_0 # has color
         return False
 
     def execute(self, context):
@@ -362,7 +362,7 @@ def register():
     )
     Material.bf2_use_alpha_test = _create_technique_prop(
         name='Alpha_Test',
-        description="By itself, enabling it will have no effect. When combined with `ColormapGloss` it makes parts of the surface where the `Diffuse Color` is black (RGB == 0,0,0) fully transparent."
+        description="By itself, enabling it will have no effect. When combined with `ColormapGloss` it makes parts of the surface where the `Color` map is black (RGB == 0,0,0) fully transparent."
     )
     Material.bf2_use_envmap = _create_technique_prop(
         name='EnvMap',

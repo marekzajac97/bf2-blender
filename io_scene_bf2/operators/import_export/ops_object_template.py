@@ -194,7 +194,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
         if geom_type == 'StaticMesh':
             default = 1 # Detail normal
         elif geom_type == 'BundledMesh' or geom_type == 'SkinnedMesh':
-            default = 0 # Diffuse/Normal
+            default = 0 # Color/Normal
 
         # XXX: it is not possible to define a default for dynamic enums
         # the only way is to reorder items in such a way that the default one

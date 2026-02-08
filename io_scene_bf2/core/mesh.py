@@ -915,9 +915,9 @@ class MeshExporter:
                         self.reporter.warning(f"{blend_material.name}: Material has tangent space normal map but 'tangent' hasn't been included in its technique")
 
                 bf2_mat.technique = blend_material.bf2_technique
-                if 'Diffuse' not in texture_maps:
-                    raise ExportException(f"{blend_material.name}: Material is missing 'Diffuse' Texture map, check material settings!")
-                bf2_mat.maps.append(texture_maps['Diffuse'])
+                if 'Color' not in texture_maps:
+                    raise ExportException(f"{blend_material.name}: Material is missing 'Color' Texture map, check material settings!")
+                bf2_mat.maps.append(texture_maps['Color'])
                 if 'Normal' in texture_maps:
                     bf2_mat.maps.append(texture_maps['Normal'])
                 bf2_mat.maps.append(SPECULAR_LUT)
@@ -1025,7 +1025,7 @@ class MeshExporter:
                         if animuv_rot_center and blendindices[3] in ANIM_UV_ROTATION_MATRICES:
                             if uv_ratio is None:
                                 try:
-                                    uv_ratio = _get_anim_uv_ratio(texture_maps['Diffuse'], self.texture_paths)
+                                    uv_ratio = _get_anim_uv_ratio(texture_maps['Color'], self.texture_paths)
                                 except (ValueError, FileNotFoundError) as e:
                                     raise ExportException(f"{lod_obj.name} (mat: {blend_material.name}): Cannot determine texture size ratio due to error: {e}")
 
