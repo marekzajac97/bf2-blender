@@ -81,15 +81,22 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
             if material.bf2_shader == 'STATICMESH':
                 main.prop(material, "is_bf2_vegitation")
 
-            col = main.column()
-            col.prop(material, "bf2_technique")
-            col.enabled = False # TODO
+            if material.bf2_shader != 'STATICMESH':
+                row = main.row(heading="Technique")
+                row.prop(material, "bf2_technique_typein_mode", text="")
+                subrow = row.row()
+                subrow.enabled = material.bf2_technique_typein_mode
+                subrow.prop(material, "bf2_technique", text="")
+            else:
+                row = main.row()
+                row.enabled = False
+                row.prop(material, "bf2_technique")   
 
             main.separator(factor=1.0, type='SPACE')
 
             if material.bf2_shader == 'BUNDLEDMESH':
                 col = main.column(align=True)
-                col.enabled = True # TODO: not manual mode
+                col.enabled = not material.bf2_technique_typein_mode
                 row = col.row(align=True)
                 row.prop(material, "bf2_use_colormapgloss", toggle=True)
                 row.prop(material, "bf2_use_alpha_test", toggle=True)
@@ -321,6 +328,13 @@ def register():
             default=''
     )
 
+    Material.bf2_technique_typein_mode = BoolProperty(
+        name="Manual Type-in",
+        description="Specify the technique manually",
+        default=False,
+        options=set()
+    )
+
     Material.bf2_shader = EnumProperty(
         name="Shader",
         description="BF2 Shader to export",
@@ -390,6 +404,7 @@ def unregister():
     del Material.texture_slot_1
     del Material.texture_slot_0
     del Material.bf2_shader
+    del Material.bf2_technique_typein_mode
     del Material.bf2_technique
     del Material.bf2_alpha_mode
     del Material.bf2_alpha_mode_restricted
