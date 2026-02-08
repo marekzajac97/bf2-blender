@@ -635,14 +635,19 @@ class MeshExporter:
                 self.bf2_mesh.add_vert_attr('FLOAT2', 'TEXCOORD4')
         self.bf2_mesh.add_vert_attr('FLOAT3', 'TANGENT')
 
+    def _any_material_has_anim_uv(self, lod_obj):
+        for material in lod_obj.data.materials:
+            if material.is_bf2_material and 'animateduv' in material.bf2_technique.lower():
+                return True
+        return False
+
     def _has_anim_uv(self):
         if not isinstance(self.bf2_mesh, BF2BundledMesh):
             return False
         for geom_obj in self.mesh_geoms:
             for lod_obj in geom_obj:
-                for material in lod_obj.data.materials:
-                    if material.is_bf2_material and 'animateduv' in material.bf2_technique.lower():
-                        return True
+                if self._any_material_has_anim_uv(lod_obj):
+                    return True
         return False
 
     def _has_lightmap_uv(self):
@@ -756,9 +761,10 @@ class MeshExporter:
         if mesh_type != BF2BundledMesh: # just in case someone does this...
             animuv_matrix_index = None
             animuv_rot_center = None
-        
-        backface_attr = mesh.attributes.get('backface') if self.save_backfaces else None
+        elif (animuv_matrix_index or animuv_rot_center) and not self._any_material_has_anim_uv(lod_obj):
+            self.reporter.warning(f"{lod_obj.name}: has animated UV attributes but there's no material with 'AnimatedUV' technique defined")
 
+        backface_attr = mesh.attributes.get('backface') if self.save_backfaces else None
 
         # generate tangent space
         if mesh_type == BF2StaticMesh and 'UV1' in mesh.uv_layers:

@@ -11,20 +11,10 @@ from ..core.utils import Reporter, show_error, file_name
 from ..core.material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
 from ..core.mesh import MaterialWithTransparency
 
-MATERIAL_TYPES = [
-    ('STATICMESH', 'StaticMesh', "", 0),
-    ('BUNDLEDMESH', 'BundledMesh', "", 1),
-    ('SKINNEDMESH', 'SkinnedMesh', "", 2)
-]
+AlphaMode = MaterialWithTransparency.AlphaMode
 
 def to_blender_enum(e, visible_name):
     return (e.name, visible_name, "", e.value)
-
-ALPHA_MODES = [
-    to_blender_enum(MaterialWithTransparency.AlphaMode.NONE, 'None'),
-    to_blender_enum(MaterialWithTransparency.AlphaMode.ALPHA_BLEND, 'Alpha Blend'),
-    to_blender_enum(MaterialWithTransparency.AlphaMode.ALPHA_TEST, 'Alpha Test')
-]
 
 class SkipMaterialUpdateCallback():
     def __init__(self, material):
@@ -37,28 +27,20 @@ class SkipMaterialUpdateCallback():
     def __exit__(self, exception_type, exception_value, exception_traceback):
         self.is_bf2_material = True
 
-PATTERN_ALPHA_TEST = re.compile(re.escape('Alpha_Test'), re.IGNORECASE)
-PATTERN_TANGENT = re.compile(re.escape('tangent'), re.IGNORECASE)
-
-def _add_technique(material, pattern):
-    if not pattern.search(material.bf2_technique):
-        material.bf2_technique += pattern.pattern
-
-def _del_technique(material, pattern):
-    material.bf2_technique = pattern.sub('', material.bf2_technique)
-
 class MESH_OT_bf2_apply_material(bpy.types.Operator):
     bl_idname = "bf2.material_apply"
     bl_label = "Apply Material"
-    bl_description = "Create Shader Nodes that mimic the BF2 material with the selected material settings"
+    bl_description = "Creates shader nodes that imitate BF2 material using selected material settings"
 
     @classmethod
     def poll(cls, context):
         material = context.material
         if material and material.is_bf2_material:
             if material.bf2_shader == 'STATICMESH':
+                cls.poll_message_set("msut set at least the 'Base' texture map")
                 return material.bf2_technique
             else:
+                cls.poll_message_set("must set at least the 'Color' texture map")
                 return material.texture_slot_0 # has diffuse
         return False
 
@@ -83,77 +65,90 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
         return context.material
 
     def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
         material = context.material
 
         if material:
-            col = self.layout.column()
+            col = layout.column()
             col.prop(material, "is_bf2_material")
 
-            enabled = material.is_bf2_material
+            main = layout.column()
+            main.enabled = material.is_bf2_material
 
-            col = self.layout.column()
-            col.prop(material, "bf2_shader")
-            col.enabled = enabled
+            main.prop(material, "bf2_shader")
 
-            col = self.layout.column()
+            if material.bf2_shader == 'STATICMESH':
+                main.prop(material, "is_bf2_vegitation")
+
+            col = main.column()
             col.prop(material, "bf2_technique")
-            col.enabled = enabled and material.bf2_shader != 'STATICMESH'
+            col.enabled = False # TODO
 
-            col = self.layout.column()
-            col.prop(material, "is_bf2_vegitation")
-            col.enabled = enabled and material.bf2_shader == 'STATICMESH'
+            main.separator(factor=1.0, type='SPACE')
 
-            row = self.layout.row(align=True)
-            row.label(text="Alpha Mode")
-            for item in ALPHA_MODES:
-                identifier = item[0]
-                item_layout = row.row(align=True)  
-                item_layout.prop_enum(material, "bf2_alpha_mode", identifier)
+            if material.bf2_shader == 'BUNDLEDMESH':
+                col = main.column(align=True)
+                col.enabled = True # TODO: not manual mode
+                row = col.row(align=True)
+                row.prop(material, "bf2_use_colormapgloss", toggle=True)
+                row.prop(material, "bf2_use_alpha_test", toggle=True)
+                row.prop(material, "bf2_use_envmap", toggle=True)
+                row = col.row(align=True)
+                row.prop(material, "bf2_use_animateduv", toggle=True)
+                row.prop(material, "bf2_use_cockpit", toggle=True)
+                row.prop(material, "bf2_use_nohemilight", toggle=True)
 
-                if identifier == 'ALPHA_BLEND':
-                    item_layout.enabled = material.bf2_shader == 'BUNDLEDMESH'
-            row.enabled = enabled
+            main.separator(factor=1.0, type='SPACE')
+
+            if material.bf2_shader == 'BUNDLEDMESH':
+                main.prop(material, "bf2_alpha_mode", expand=True)
+            else:
+                main.prop(material, "bf2_alpha_mode_restricted", expand=True)
+
+            main.separator(factor=1.0, type='SPACE')
 
             if material.bf2_shader in ('BUNDLEDMESH', 'SKINNEDMESH'):
-                col = self.layout.column()
-                col.prop(material, "texture_slot_0", text="Diffuse")
+                main.prop(material, "texture_slot_0", text="Color")
+
+                col = main.column()
                 col.prop(material, "texture_slot_1", text="Normal")
+                col.enabled = bool(material.texture_slot_0)
                 if material.bf2_shader == 'BUNDLEDMESH':
+                    col = main.column()
                     col.prop(material, "texture_slot_2", text="Wreck")
-                col.enabled = enabled
+                    col.enabled = bool(material.texture_slot_0)
             else:
                 is_vegitation = material.is_bf2_vegitation
 
-                col = self.layout.column()
-                col.prop(material, "texture_slot_0", text="Base")
-                col.enabled = enabled
+                main.prop(material, "texture_slot_0", text="Base")
 
-                col = self.layout.column()
+                col = main.column()
                 col.prop(material, "texture_slot_1", text="Detail")
-                col.enabled = enabled and is_staticmesh_map_allowed(material, "Detail")
+                col.enabled = is_staticmesh_map_allowed(material, "Detail")
 
-                col = self.layout.column()
+                col = main.column()
                 col.prop(material, "texture_slot_2", text="Dirt")
-                col.enabled = enabled and not is_vegitation and is_staticmesh_map_allowed(material, "Dirt")
+                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "Dirt")
 
-                col = self.layout.column()
+                col = main.column()
                 col.prop(material, "texture_slot_3", text="Crack")
-                col.enabled = enabled and not is_vegitation and is_staticmesh_map_allowed(material, "Crack")
+                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "Crack")
 
-                col = self.layout.column()
+                col = main.column()
                 col.prop(material, "texture_slot_4", text="Detail Normal")
-                col.enabled = enabled and is_staticmesh_map_allowed(material, "NDetail")
+                col.enabled = is_staticmesh_map_allowed(material, "NDetail")
 
-                col = self.layout.column()
+                col = main.column()
                 col.prop(material, "texture_slot_5", text="Crack Normal")
-                col.enabled = enabled and not is_vegitation and is_staticmesh_map_allowed(material, "NCrack")
+                col.enabled = not is_vegitation and is_staticmesh_map_allowed(material, "NCrack")
 
             mod_paths = get_mod_dirs(context)
             if not mod_paths:
-                col = self.layout.column()
+                col = layout.column()
                 col.label(text='WARNING: Mod Path is not defined in add-on preferences, textures will not load', icon='ERROR')
 
-            col = self.layout.column()
+            col = layout.column()
             col.operator(MESH_OT_bf2_apply_material.bl_idname, text="Apply Material")
 
 def _update_techinique_default_value(material):
@@ -164,14 +159,14 @@ def _update_techinique_default_value(material):
         material.bf2_technique = get_staticmesh_technique_from_maps(material)
     elif material.bf2_shader == 'BUNDLEDMESH':
         if material.bf2_alpha_mode != 'ALPHA_TEST':
-            _del_technique(material, PATTERN_ALPHA_TEST)
+            material.bf2_use_alpha_test = False
     elif material.bf2_shader == 'SKINNEDMESH':
         if material.texture_slot_1 and file_name(material.texture_slot_1).endswith('_b'):
-            _add_technique(material, PATTERN_TANGENT)
+            material.bf2_use_tangent = True
         if material.bf2_alpha_mode == 'ALPHA_TEST':
-            _add_technique(material, PATTERN_ALPHA_TEST)
+            material.bf2_use_alpha_test = True
         else:
-            _del_technique(material, PATTERN_ALPHA_TEST)
+            material.bf2_use_alpha_test = False
 
 def on_shader_update(self, context):
     if not self.is_bf2_material:
@@ -181,6 +176,10 @@ def on_shader_update(self, context):
         self.bf2_technique = ''
         if self.bf2_shader != 'STATICMESH':
             self.is_bf2_vegitation = False
+
+        if self.bf2_shader != 'BUNDLEDMESH' and self.bf2_alpha_mode == 'ALPHA_BLEND':
+            self.bf2_alpha_mode = 'NONE'
+
     _update_techinique_default_value(self)
 
 def on_alpha_mode_update(self, context):
@@ -241,10 +240,29 @@ def on_is_vegitation_update(self, context):
         self.texture_slot_5 = ''
     _update_techinique_default_value(self)
 
+def _create_technique_prop(name, description=''):
+    pattern = re.compile(re.escape(name), re.IGNORECASE)
+    def setter(self, value):
+        if value and not pattern.search(self.bf2_technique):
+            self.bf2_technique += name
+        else:
+            self.bf2_technique = pattern.sub('', self.bf2_technique)
+
+    def getter(self):
+        return pattern.search(self.bf2_technique) is not None
+
+    return BoolProperty(
+        name=name,
+        description=description,
+        get=getter,
+        set=setter,
+        options=set()
+    )
+
 def _create_texture_slot(index):
     return StringProperty(
         name=f"Texture{index} Path",
-        description="Filepath used for texture slot {index}",
+        description=f"Filepath used for texture slot {index}",
         maxlen=1024,
         subtype='FILE_PATH',
         update=lambda self, context: on_texture_map_update(self, context, index)
@@ -253,26 +271,50 @@ def _create_texture_slot(index):
 def register():
     Material.is_bf2_material = BoolProperty(
         name="Is BF2 Material",
-        description="Enable this to mark the material to export as BF2 material",
-        default=False
+        description="Enable this to mark the material for export as BF2 material",
+        default=False,
+        options=set()
     )
 
     Material.is_bf2_vegitation = BoolProperty(
         name="Is Vegitation",
-        description="Enable this if StaticMesh shall use vegitation shaders (it does not affect export)",
+        description="Whether to use special vegitation leaf/trunk shaders. (it does not affect export)",
         default=False,
-        update=on_is_vegitation_update
+        update=on_is_vegitation_update,
+        options=set()
     )
 
     Material.bf2_alpha_mode = EnumProperty(
         name="Alpha Mode",
-        description="BF2 Alpha mode to export, NOTE: switching the value overrides material's Alpha Blending mode",
+        description="Sets what BF2 transparency render states to use",
         default=0,
-        items=ALPHA_MODES,
-        update=on_alpha_mode_update
+        items=[
+            to_blender_enum(AlphaMode.NONE, 'None'),
+            to_blender_enum(AlphaMode.ALPHA_BLEND, 'Alpha Blend'),
+            to_blender_enum(AlphaMode.ALPHA_TEST, 'Alpha Test')
+        ],
+        update=on_alpha_mode_update,
+        options=set()
     )
 
-    # TODO: figure out what possible techiniques are and make it an enum
+    def set_alpha_mode_restricted(self, int_val):
+        self.bf2_alpha_mode = AlphaMode(int_val).name
+
+    def get_alpha_mode_restricted(self):
+        return AlphaMode[self.bf2_alpha_mode].value
+
+    Material.bf2_alpha_mode_restricted = EnumProperty(
+        name="Alpha Mode",
+        description="Sets what BF2 transparency render states to use",
+        items=[
+            to_blender_enum(AlphaMode.NONE, 'None'),
+            to_blender_enum(AlphaMode.ALPHA_TEST, 'Alpha Test')
+        ],
+        get=get_alpha_mode_restricted,
+        set=set_alpha_mode_restricted,
+        options=set()
+    ) # type: ignore
+
     Material.bf2_technique = StringProperty(
             name="Technique",
             description="BF2 Shader Technique to export",
@@ -283,8 +325,13 @@ def register():
         name="Shader",
         description="BF2 Shader to export",
         default=0,
-        items=MATERIAL_TYPES,
-        update=on_shader_update
+        items=[
+            ('STATICMESH', 'StaticMesh', "", 0),
+            ('BUNDLEDMESH', 'BundledMesh', "", 1),
+            ('SKINNEDMESH', 'SkinnedMesh', "", 2)
+        ],
+        update=on_shader_update,
+        options=set()
     )
 
     Material.texture_slot_0 = _create_texture_slot(0)
@@ -294,12 +341,48 @@ def register():
     Material.texture_slot_4 = _create_texture_slot(4)
     Material.texture_slot_5 = _create_texture_slot(5)
 
+    Material.bf2_use_colormapgloss = _create_technique_prop(
+        name='ColormapGloss',
+        description="If enabled, The alpha channel of the `Color` map will be used as the gloss map instead of the opacity map. "
+                    "If disabled, the gloss map is taken from the `Normal` map's alpha channel if provided."
+    )
+    Material.bf2_use_alpha_test = _create_technique_prop(
+        name='Alpha_Test',
+        description="By itself, enabling it will have no effect. When combined with `ColormapGloss` it makes parts of the surface where the `Diffuse Color` is black (RGB == 0,0,0) fully transparent."
+    )
+    Material.bf2_use_envmap = _create_technique_prop(
+        name='EnvMap',
+        description="Enables environment map based reflections (scaled using gloss map)"
+    )
+    Material.bf2_use_animateduv = _create_technique_prop( # TODO: add alt 'animated'
+        name='AnimatedUV',
+        description="Enables transformation of texture coordinates"
+    )
+    Material.bf2_use_cockpit = _create_technique_prop(
+        name='Cockpit',
+        description="Enables static lighting"
+    )
+    Material.bf2_use_nohemilight = _create_technique_prop(
+        name='NoHemiLight',
+        description="Disables hemimap"
+    )
+    Material.bf2_use_tangent = _create_technique_prop(
+        name='tangent'
+    )
+
     bpy.utils.register_class(MESH_OT_bf2_apply_material)
     bpy.utils.register_class(MESH_PT_bf2_materials)
 
 def unregister():
     bpy.utils.unregister_class(MESH_PT_bf2_materials)
     bpy.utils.unregister_class(MESH_OT_bf2_apply_material)
+    del Material.bf2_use_tangent
+    del Material.bf2_use_nohemilight
+    del Material.bf2_use_cockpit
+    del Material.bf2_use_animateduv
+    del Material.bf2_use_envmap
+    del Material.bf2_use_alpha_test
+    del Material.bf2_use_colormapgloss
     del Material.texture_slot_5
     del Material.texture_slot_4
     del Material.texture_slot_3
@@ -309,5 +392,6 @@ def unregister():
     del Material.bf2_shader
     del Material.bf2_technique
     del Material.bf2_alpha_mode
+    del Material.bf2_alpha_mode_restricted
     del Material.is_bf2_vegitation
     del Material.is_bf2_material
