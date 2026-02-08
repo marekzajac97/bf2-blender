@@ -99,7 +99,9 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                 col.enabled = not material.bf2_technique_typein_mode
                 row = col.row(align=True)
                 row.prop(material, "bf2_use_colormapgloss", toggle=True)
-                row.prop(material, "bf2_use_alpha_test", toggle=True)
+                subrow = row.row(align=True)
+                subrow.prop(material, "bf2_use_alpha_test", toggle=True)
+                subrow.active = material.bf2_use_colormapgloss
                 row.prop(material, "bf2_use_envmap", toggle=True)
                 row = col.row(align=True)
                 row.prop(material, "bf2_use_animateduv", toggle=True)
@@ -168,8 +170,11 @@ def _update_techinique_default_value(material):
         if material.bf2_alpha_mode != 'ALPHA_TEST':
             material.bf2_use_alpha_test = False
     elif material.bf2_shader == 'SKINNEDMESH':
-        if material.texture_slot_1 and file_name(material.texture_slot_1).endswith('_b'):
-            material.bf2_use_tangent = True
+        if material.texture_slot_1:
+            if file_name(material.texture_slot_1).endswith('_b'):
+                material.bf2_use_tangent = True
+            else:
+                material.bf2_use_tangent = False
         if material.bf2_alpha_mode == 'ALPHA_TEST':
             material.bf2_use_alpha_test = True
         else:
@@ -250,8 +255,9 @@ def on_is_vegitation_update(self, context):
 def _create_technique_prop(name, description=''):
     pattern = re.compile(re.escape(name), re.IGNORECASE)
     def setter(self, value):
-        if value and not pattern.search(self.bf2_technique):
-            self.bf2_technique += name
+        if value:
+            if not pattern.search(self.bf2_technique):
+                self.bf2_technique += name
         else:
             self.bf2_technique = pattern.sub('', self.bf2_technique)
 
