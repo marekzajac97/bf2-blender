@@ -383,10 +383,12 @@ class MeshImporter:
         self.context.scene.collection.objects.link(mesh_obj)
 
         if isinstance(bf2_mesh, BF2SkinnedMesh):
-            # add custom modifier which saves tangent & normal vectors to attributes
-            # need those from before mesh deformation to fix shading with OS normal maps later
-            modifier = mesh_obj.modifiers.new(type='NODES', name="SaveTangentSpace")
-            modifier.node_group = _make_rest_tangent_space_node()
+            if hasattr(bpy.types,'GeometryNodeUVTangent'): # only suppored in Blender 5.0 :/
+                # add custom modifier which saves tangent & normal vectors to attributes
+                # need those from before mesh deformation to fix shading with OS normal maps later
+                modifier = mesh_obj.modifiers.new(type='NODES', name="SaveTangentSpace")
+                modifier.node_group = _make_rest_tangent_space_node()
+
             self._import_rig_skinned_mesh(mesh_obj, bf2_lod)
         elif isinstance(bf2_mesh, BF2BundledMesh):
             self._import_parts_bundled_mesh(mesh_obj, bf2_lod)

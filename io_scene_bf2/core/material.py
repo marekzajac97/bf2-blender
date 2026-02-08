@@ -534,14 +534,25 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
             is_os = normal.image and file_name(normal.image.name).endswith('_b_os')
             if material.bf2_shader == 'SKINNEDMESH' and is_os:
-                # dynamically convert object space normals to tangent space normals
-                # fixes bad shading when mesh is deformed
-                os_to_b = node_tree.nodes.new('ShaderNodeGroup')
-                os_to_b.node_tree = _create_os_to_b_converter()
-                os_to_b.location = (0.5 * NODE_WIDTH, -1 * NODE_HEIGHT)
-                os_to_b.hide = True
-                node_tree.links.new(normal.outputs['Color'], os_to_b.inputs['Color'])
-                node_tree.links.new(os_to_b.outputs['Color'], normal_node.inputs['Color'])
+                if hasattr(bpy.types,'GeometryNodeUVTangent'):
+                    # dynamically convert object space normals to tangent space normals
+                    # fixes bad shading when mesh is deformed
+                    os_to_b = node_tree.nodes.new('ShaderNodeGroup')
+                    os_to_b.node_tree = _create_os_to_b_converter()
+                    os_to_b.location = (0.5 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                    os_to_b.hide = True
+                    node_tree.links.new(normal.outputs['Color'], os_to_b.inputs['Color'])
+                    node_tree.links.new(os_to_b.outputs['Color'], normal_node.inputs['Color'])
+                else:
+                    # not Blender 5.0, use normal Object Space normal mapping
+                    normal_node.space = 'OBJECT'
+                    axes_swap = node_tree.nodes.new('ShaderNodeGroup')
+                    axes_swap.node_tree = _create_bf2_axes_swap()
+                    axes_swap.location = (0.5 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                    axes_swap.hide = True
+                    node_tree.links.new(normal.outputs['Color'], normal_node.inputs['Color'])
+                    node_tree.links.new(normal_out, axes_swap.inputs['in'])
+                    normal_out = axes_swap.outputs['out']
 
             node_tree.links.new(normal_out, shader_normal)
 
