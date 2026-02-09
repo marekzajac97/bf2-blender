@@ -2,7 +2,9 @@ import bpy # type: ignore
 import os
 from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty, EnumProperty # type: ignore
 from bpy_extras.io_utils import poll_file_object_drop # type: ignore
+
 from .ops_common import ImporterBase, ExporterBase
+from ..utils import RegisterFactory
 
 from ...core.animation import import_animation, export_animation, get_bones_for_export, save_bones_for_export
 from ...core.skeleton import find_active_skeleton
@@ -10,7 +12,10 @@ from ...core.tools.anim_utils import SUPPORTS_ACTION_SLOTS, AnimationContext
 
 # -------------------------- Import --------------------------
 
-class IMPORT_OT_bf2_animation(bpy.types.Operator, ImporterBase):
+class BafMeta:
+    FILE_DESC = "Animation (.baf)"
+
+class IMPORT_OT_bf2_animation(bpy.types.Operator, ImporterBase, BafMeta):
     bl_description = "Battlefield 2 animation"
     bl_label = "Import animation"
     bl_idname= "bf2.baf_import"
@@ -93,7 +98,7 @@ class SelectableItemCollection(bpy.types.PropertyGroup):
     name: StringProperty(name="", default="") # type: ignore
     included: BoolProperty(name="", default=True) # type: ignore
 
-class EXPORT_OT_bf2_animation(bpy.types.Operator, ExporterBase):
+class EXPORT_OT_bf2_animation(bpy.types.Operator, ExporterBase, BafMeta):
     bl_description = "Battlefield 2 animation file"
     bl_label = "Export Animation"
     bl_idname = "bf2.baf_export"
@@ -135,6 +140,29 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExporterBase):
     def poll(cls, context):
         cls.poll_message_set("No active skeleton found")
         return find_active_skeleton(context) is not None
+
+    @classmethod
+    def register(cls):
+        super(EXPORT_OT_bf2_animation, cls).register()
+        # dump operator presets
+        op_presets = os.path.join("presets", "operator", EXPORT_OT_bf2_animation.bl_idname)
+        preset_dir = bpy.utils.user_resource('SCRIPTS', path=op_presets, create=True)
+        for preset_name, bone_list in ANIM_EXPORT_DEFAULT_PRESETS:
+            preset_file = os.path.join(preset_dir, f'{preset_name}.py')
+            try:
+                if os.path.isfile(preset_file):
+                    return
+                with open(preset_file, 'w') as f:
+                    f.write("import bpy\n")
+                    f.write("op = bpy.context.active_operator\n\n")
+                    f.write("BONE_LIST = {}\n".format(bone_list))
+                    f.write("for item in op.bones_for_export:\n")
+                    f.write("    if item.name in BONE_LIST:\n")
+                    f.write("        item.included = True\n")
+                    f.write("    else:\n")
+                    f.write("        item.included = False\n")
+            except OSError as e:
+                print(e)
 
     def draw(self, context):
         layout = self.layout
@@ -226,47 +254,13 @@ class IMPORT_EXPORT_FH_baf(bpy.types.FileHandler):
     def poll_drop(cls, context):
         return poll_file_object_drop(context)
 
+def init(rc : RegisterFactory):
+    rc.reg_class(SelectableItemCollection)
+    rc.reg_class(IMPORT_OT_bf2_animation)
+    rc.reg_class(EXPORT_OT_bf2_animation)
+    rc.reg_class(IMPORT_EXPORT_FH_baf)
 
-FILE_DESC = "Animation (.baf)"
-
-def draw_import(layout):
-    layout.operator(IMPORT_OT_bf2_animation.bl_idname, text=FILE_DESC)
-
-def draw_export(layout):
-    layout.operator(EXPORT_OT_bf2_animation.bl_idname, text=FILE_DESC)
-
-def register():
-    dump_presets()
-    bpy.utils.register_class(SelectableItemCollection)
-    bpy.utils.register_class(IMPORT_OT_bf2_animation)
-    bpy.utils.register_class(EXPORT_OT_bf2_animation)
-    bpy.utils.register_class(IMPORT_EXPORT_FH_baf)
-
-def unregister():
-    bpy.utils.unregister_class(IMPORT_EXPORT_FH_baf)
-    bpy.utils.unregister_class(EXPORT_OT_bf2_animation)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_animation)
-    bpy.utils.unregister_class(SelectableItemCollection)
-
-def dump_presets(force=False):
-    op_presets = os.path.join("presets", "operator", EXPORT_OT_bf2_animation.bl_idname)
-    preset_dir = bpy.utils.user_resource('SCRIPTS', path=op_presets, create=True)
-    for preset_name, bone_list in ANIM_EXPORT_DEFAULT_PRESETS:
-        preset_file = os.path.join(preset_dir, f'{preset_name}.py')
-        try:
-            if os.path.isfile(preset_file) and not force:
-                return
-            with open(preset_file, 'w') as f:
-                f.write("import bpy\n")
-                f.write("op = bpy.context.active_operator\n\n")
-                f.write("BONE_LIST = {}\n".format(bone_list))
-                f.write("for item in op.bones_for_export:\n")
-                f.write("    if item.name in BONE_LIST:\n")
-                f.write("        item.included = True\n")
-                f.write("    else:\n")
-                f.write("        item.included = False\n")
-        except OSError as e:
-            print(e)
+register, unregister = RegisterFactory.create(init)
 
 ANIM_EXPORT_DEFAULT_PRESETS = [
         ('1P', ['Camerabone', 'torus',

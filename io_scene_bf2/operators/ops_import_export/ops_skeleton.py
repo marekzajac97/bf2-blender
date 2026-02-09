@@ -3,11 +3,14 @@ import traceback
 from bpy.props import StringProperty # type: ignore
 from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
+from ..utils import RegisterFactory
 from .ops_common import ImporterBase, ExporterBase
 from ...core.skeleton import import_skeleton, export_skeleton
 
+class SkeMeta:
+    FILE_DESC = "Skeleton (.ske)"
 
-class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImporterBase):
+class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImporterBase, SkeMeta):
     bl_idname = "bf2.ske_import"
     bl_description = 'Battlefield 2 Skeleton file'
     bl_label = "Import Skeleton"
@@ -19,7 +22,7 @@ class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImporterBase):
             import_skeleton(context, self.filepath)
 
 
-class EXPORT_OT_bf2_skeleton(bpy.types.Operator, ExporterBase):
+class EXPORT_OT_bf2_skeleton(bpy.types.Operator, ExporterBase, SkeMeta):
     bl_idname = "bf2.ske_export"
     bl_description = 'Battlefield 2 Skeleton file'
     bl_label = "Export Skeleton"
@@ -52,21 +55,9 @@ class IMPORT_EXPORT_FH_ske(bpy.types.FileHandler):
     def poll_drop(cls, context):
         return poll_file_object_drop(context)
 
+def init(rc : RegisterFactory):
+    rc.reg_class(EXPORT_OT_bf2_skeleton)
+    rc.reg_class(IMPORT_OT_bf2_skeleton)
+    rc.reg_class(IMPORT_EXPORT_FH_ske)
 
-FILE_DESC = "Skeleton (.ske)"
-
-def draw_import(layout):
-    layout.operator(IMPORT_OT_bf2_skeleton.bl_idname, text=FILE_DESC)
-
-def draw_export(layout):
-    layout.operator(EXPORT_OT_bf2_skeleton.bl_idname, text=FILE_DESC)
-
-def register():
-    bpy.utils.register_class(IMPORT_EXPORT_FH_ske)
-    bpy.utils.register_class(IMPORT_OT_bf2_skeleton)
-    bpy.utils.register_class(EXPORT_OT_bf2_skeleton)
-
-def unregister():
-    bpy.utils.unregister_class(IMPORT_EXPORT_FH_ske)
-    bpy.utils.unregister_class(EXPORT_OT_bf2_skeleton)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_skeleton)
+register, unregister = RegisterFactory.create(init)

@@ -6,7 +6,9 @@ from pathlib import Path
 from bpy.props import BoolProperty, EnumProperty, StringProperty, IntProperty, FloatProperty, PointerProperty # type: ignore
 from bpy_extras.io_utils import ImportHelper # type: ignore
 
+from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
+
 from ...core.tools.anim_utils import (
     toggle_mesh_mask_mesh_for_active_bone,
     setup_controllers,
@@ -616,139 +618,143 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
 
 # ---------------------------------------------------
 
-def register():
+def init(rc : RegisterFactory):
     # animation
-    bpy.utils.register_class(VIEW3D_OT_bf2_anim_ctrl_setup_begin)
-    bpy.utils.register_class(VIEW3D_OT_bf2_anim_ctrl_setup_end)
-    bpy.utils.register_class(VIEW3D_OT_bf2_anim_ctrl_setup_mask)
-    bpy.utils.register_class(VIEW3D_PT_bf2_animation_Panel)
+    rc.reg_class(VIEW3D_OT_bf2_anim_ctrl_setup_begin)
+    rc.reg_class(VIEW3D_OT_bf2_anim_ctrl_setup_end)
+    rc.reg_class(VIEW3D_OT_bf2_anim_ctrl_setup_mask)
+    rc.reg_class(VIEW3D_PT_bf2_animation_Panel)
 
     # lightmapping
-    bpy.utils.register_class(VIEW3D_OT_bf2_lm_post_process)
-    bpy.utils.register_class(VIEW3D_OT_bf2_new_lm_config)
-    bpy.utils.register_class(VIEW3D_OT_bf2_load_level)
-    bpy.utils.register_class(VIEW3D_OT_bf2_bake)
+    rc.reg_class(VIEW3D_OT_bf2_lm_post_process)
+    rc.reg_class(VIEW3D_OT_bf2_new_lm_config)
+    rc.reg_class(VIEW3D_OT_bf2_load_level)
+    rc.reg_class(VIEW3D_OT_bf2_bake)
 
-    bpy.types.Scene.bf2_lm_bake_objects = BoolProperty(
-        name="Objects",
-        description="Bake lightmaps for static objects",
-        default=True,
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    from bpy.types import Scene # type: ignore
 
-    bpy.types.Scene.bf2_lm_bake_terrain = BoolProperty(
-        name="Terrain",
-        description="Bake lightmaps for terrain",
-        default=True,
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_bake_objects',
+        BoolProperty(
+            name="Objects",
+            description="Bake lightmaps for static objects",
+            default=True,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_bake_objects_mode = EnumProperty(
-        name="Objects",
-        default=0,
-        items=[
-            ('ALL', "All", "Bake will run for every object in the StaticObjects collection", 0),
-            ('ONLY_SELECTED', "Only Selected", "Bake will run only for the selected objects", 1)
-        ],
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_bake_terrain',
+        BoolProperty(
+            name="Terrain",
+            description="Bake lightmaps for terrain",
+            default=True,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
+    
+    rc.reg_prop(Scene, 'bf2_lm_bake_objects_mode',
+        EnumProperty(
+            name="Objects",
+            default=0,
+            items=[
+                ('ALL', "All", "Bake will run for every object in the StaticObjects collection", 0),
+                ('ONLY_SELECTED', "Only Selected", "Bake will run only for the selected objects", 1)
+            ],
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_dds_compression = EnumProperty(
-        name="DDS compression",
-        default=1,
-        items=[
-            ('DXT1', "DXT1", "", 0),
-            ('NONE', "NONE", "", 1)
-        ],
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_dds_compression',
+        EnumProperty(
+            name="DDS compression",
+            default=1,
+            items=[
+                ('DXT1', "DXT1", "", 0),
+                ('NONE', "NONE", "", 1)
+            ],
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_outdir = StringProperty (
+    rc.reg_prop(Scene, 'bf2_lm_outdir',
+        StringProperty (
             name="Output directory",
             subtype="DIR_PATH"
         ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_post_process_outdir = StringProperty (
+    rc.reg_prop(Scene, 'bf2_lm_post_process_outdir',
+        StringProperty (
             name="Output directory for lightmap post-processing",
             subtype="DIR_PATH"
         ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_patch_count = IntProperty(
-        name="Patch count",
-        description="Number of terrain patches, must be a power of four",
-        default=64,
-        get=get_patch_count,
-        set=set_patch_count,
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_patch_count',
+        IntProperty(
+            name="Patch count",
+            description="Number of terrain patches, must be a power of four",
+            default=64,
+            get=get_patch_count,
+            set=set_patch_count,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_patch_size = IntProperty(
-        name="Patch size",
-        description="Texture size of a single terrain patch",
-        default=1024,
-        get=get_patch_size,
-        set=set_patch_size,
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_patch_size',
+        IntProperty(
+            name="Patch size",
+            description="Texture size of a single terrain patch",
+            default=1024,
+            get=get_patch_size,
+            set=set_patch_size,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_config_file = PointerProperty(
-        type=bpy.types.Text,
-        name="Lightmapping configuration file",
-        description="Pointer to text file containing optional actions to perform when loading the level, e.g. what objects to skip, where to place point lights etc"
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_config_file',
+        PointerProperty(
+            type=bpy.types.Text,
+            name="Lightmapping configuration file",
+            description="Pointer to text file containing optional actions to perform when loading the level, e.g. what objects to skip, where to place point lights etc"
+        ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_progress_value = FloatProperty()
-    bpy.types.Scene.bf2_lm_progress_msg = StringProperty()
+    rc.reg_prop(Scene, 'bf2_lm_progress_value',
+        FloatProperty()
+    )
 
-    bpy.types.Scene.bf2_lm_ambient_light_level = FloatProperty(
-        name="Ambient light intensity",
-        min=0.0,
-        max=1.0,
-        default=0.663,
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_progress_msg',
+        StringProperty()
+    )
 
-    bpy.types.Scene.bf2_lm_normal_maps = BoolProperty(
-        name="Normal Maps",
-        description="When disabled, bakes lightmaps without normal maps on materials. Usually results in less noisy lightmaps",
-        default=False,
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_ambient_light_level',
+        FloatProperty(
+            name="Ambient light intensity",
+            min=0.0,
+            max=1.0,
+            default=0.663,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
 
-    bpy.types.Scene.bf2_lm_resume = BoolProperty(
-        name="Resume",
-        description="Resume previously canceled bake by skipping Objects which has been lightmapped already",
-        default=False,
-        options=set()  # Remove ANIMATABLE default option.
-    ) # type: ignore
+    rc.reg_prop(Scene, 'bf2_lm_normal_maps',
+        BoolProperty(
+            name="Normal Maps",
+            description="When disabled, bakes lightmaps without normal maps on materials. Usually results in less noisy lightmaps",
+            default=False,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
 
-    bpy.utils.register_class(VIEW3D_PT_bf2_lightmapping_Panel)
+    rc.reg_prop(Scene, 'bf2_lm_resume',
+        BoolProperty(
+            name="Resume",
+            description="Resume previously canceled bake by skipping Objects which has been lightmapped already",
+            default=False,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
 
-def unregister():
-    # lightmapping
-    bpy.utils.unregister_class(VIEW3D_PT_bf2_lightmapping_Panel)
-    bpy.utils.unregister_class(VIEW3D_OT_bf2_bake)
-    bpy.utils.unregister_class(VIEW3D_OT_bf2_load_level)
-    bpy.utils.unregister_class(VIEW3D_OT_bf2_new_lm_config)
-    bpy.utils.unregister_class(VIEW3D_OT_bf2_lm_post_process)
+    rc.reg_class(VIEW3D_PT_bf2_lightmapping_Panel)
 
-    del bpy.types.Scene.bf2_lm_resume
-    del bpy.types.Scene.bf2_lm_normal_maps
-    del bpy.types.Scene.bf2_lm_ambient_light_level
-    del bpy.types.Scene.bf2_lm_progress_value
-    del bpy.types.Scene.bf2_lm_progress_msg
-    del bpy.types.Scene.bf2_lm_config_file
-    del bpy.types.Scene.bf2_lm_patch_count
-    del bpy.types.Scene.bf2_lm_patch_size
-    del bpy.types.Scene.bf2_lm_post_process_outdir
-    del bpy.types.Scene.bf2_lm_outdir
-    del bpy.types.Scene.bf2_lm_dds_compression
-    del bpy.types.Scene.bf2_lm_bake_objects_mode
-    del bpy.types.Scene.bf2_lm_bake_terrain
-    del bpy.types.Scene.bf2_lm_bake_objects
-
-    # animation
-    bpy.utils.unregister_class(VIEW3D_PT_bf2_animation_Panel)
-    bpy.utils.unregister_class(VIEW3D_OT_bf2_anim_ctrl_setup_mask)
-    bpy.utils.unregister_class(VIEW3D_OT_bf2_anim_ctrl_setup_end)
-    bpy.utils.unregister_class(VIEW3D_OT_bf2_anim_ctrl_setup_begin)
+register, unregister = RegisterFactory.create(init)

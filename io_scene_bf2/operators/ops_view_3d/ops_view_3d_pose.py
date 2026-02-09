@@ -4,6 +4,7 @@ from .ops_view_3d_bf2 import VIEW3D_OT_bf2_anim_ctrl_setup_begin
 
 from ...core.utils import Reporter
 from ...core.tools.anim_utils import reparent_bones
+from ..utils import RegisterFactory
 
 class POSE_OT_bf2_change_parent(bpy.types.Operator):
     bl_idname = "bf2.pose_change_parent"
@@ -57,15 +58,10 @@ class POSE_MT_bf2_submenu(bpy.types.Menu):
 def menu_func_pose(self, context):
     self.layout.menu(POSE_MT_bf2_submenu.bl_idname, text="BF2")
 
-def register():
-    bpy.utils.register_class(POSE_OT_bf2_change_parent)
-    bpy.utils.register_class(POSE_OT_bf2_clear_parent)
-    bpy.utils.register_class(POSE_MT_bf2_submenu)
-    bpy.types.VIEW3D_MT_pose.append(menu_func_pose)
+def init(rc : RegisterFactory):
+    rc.reg_class(POSE_OT_bf2_change_parent)
+    rc.reg_class(POSE_OT_bf2_clear_parent)
+    rc.reg_class(POSE_MT_bf2_submenu)
+    rc.add_menu(bpy.types.VIEW3D_MT_pose, menu_func_pose)
 
-
-def unregister():
-    bpy.types.VIEW3D_MT_pose.remove(menu_func_pose)
-    bpy.utils.unregister_class(POSE_MT_bf2_submenu)
-    bpy.utils.unregister_class(POSE_OT_bf2_clear_parent)
-    bpy.utils.unregister_class(POSE_OT_bf2_change_parent)
+register, unregister = RegisterFactory.create(init)

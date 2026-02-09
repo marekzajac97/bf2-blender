@@ -6,7 +6,9 @@ from pathlib import Path
 
 from bpy.props import BoolProperty, StringProperty, EnumProperty, IntVectorProperty # type: ignore
 
+from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
+
 from ...core.utils import Reporter
 from ...core.utils import (find_root, save_img_as_dds,
                            next_power_of_2, prev_power_of_2,
@@ -412,36 +414,21 @@ def menu_func_add(self, context):
 
 # --------------------------------------------------------------------
 
-def register():
-    bpy.utils.register_class(ADD_OT_bf2_fence_object)
-    bpy.types.VIEW3D_MT_add.append(menu_func_add)
+def init(rc : RegisterFactory):
+    rc.reg_class(ADD_OT_bf2_fence_object)
+    rc.add_menu(bpy.types.VIEW3D_MT_add, menu_func_add)
 
-    bpy.utils.register_class(OBJECT_SELECT_OT_bf2_by_lm_size)
-    bpy.utils.register_class(OBJECT_SELECT_MT_bf2_submenu)
-    bpy.types.VIEW3D_MT_select_object.append(menu_func_object_select)
+    rc.reg_class(OBJECT_SELECT_OT_bf2_by_lm_size)
+    rc.reg_class(OBJECT_SELECT_MT_bf2_submenu)
+    rc.add_menu(bpy.types.VIEW3D_MT_select_object, menu_func_object_select)
 
-    bpy.utils.register_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
-    bpy.utils.register_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
-    bpy.types.VIEW3D_MT_object_showhide.append(menu_func_object_showhide)
+    rc.reg_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
+    rc.reg_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
+    rc.add_menu(bpy.types.VIEW3D_MT_object_showhide, menu_func_object_showhide)
 
-    bpy.utils.register_class(OBJECT_OT_make_object_con_def)
-    bpy.utils.register_class(OBJECT_OT_bf2_gen_og_lod)
-    bpy.utils.register_class(OBJECT_MT_bf2_submenu)
-    bpy.types.VIEW3D_MT_object.append(menu_func_object)
+    rc.reg_class(OBJECT_OT_make_object_con_def)
+    rc.reg_class(OBJECT_OT_bf2_gen_og_lod)
+    rc.reg_class(OBJECT_MT_bf2_submenu)
+    rc.add_menu(bpy.types.VIEW3D_MT_object, menu_func_object)
 
-def unregister():
-    bpy.types.VIEW3D_MT_object.remove(menu_func_object)
-    bpy.utils.unregister_class(OBJECT_MT_bf2_submenu)
-    bpy.utils.unregister_class(OBJECT_OT_bf2_gen_og_lod)
-    bpy.utils.unregister_class(OBJECT_OT_make_object_con_def)
-
-    bpy.types.VIEW3D_MT_object_showhide.remove(menu_func_object_showhide)
-    bpy.utils.unregister_class(OBJECT_SHOWHIDE_MT_bf2_submenu)
-    bpy.utils.unregister_class(OBJECT_SHOWHIDE_OT_bf2_show_hide)
-
-    bpy.types.VIEW3D_MT_select_object.remove(menu_func_object_select)
-    bpy.utils.unregister_class(OBJECT_SELECT_MT_bf2_submenu)
-    bpy.utils.unregister_class(OBJECT_SELECT_OT_bf2_by_lm_size)
-
-    bpy.types.VIEW3D_MT_add.remove(menu_func_add)
-    bpy.utils.unregister_class(ADD_OT_bf2_fence_object)
+register, unregister = RegisterFactory.create(init)

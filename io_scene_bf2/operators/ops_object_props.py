@@ -1,13 +1,14 @@
 import bpy # type: ignore
 import bmesh # type: ignore
-import math
-from mathutils import Matrix, Vector, Euler, Quaternion # type: ignore
+from mathutils import Euler # type: ignore
+from bpy.types import Object # type: ignore
 from bpy.props import (StringProperty, EnumProperty, BoolProperty, # type: ignore
                        IntProperty, IntVectorProperty, CollectionProperty,
                        PointerProperty, FloatProperty, FloatVectorProperty)
 from ..core.bf2.bf2_engine import BF2_OBJECT_TEMPLATE_TYPES
 from ..core.utils import next_power_of_2, prev_power_of_2, find_root, show_error
 from ..core.object_template import parse_geom_type_safe
+from .utils import RegisterFactory
 
 BF2_OBJECTS_ENUM = [(n, n, "", i) for i, n in enumerate(BF2_OBJECT_TEMPLATE_TYPES)]
 
@@ -278,83 +279,85 @@ class OBJECT_PT_bf2_fence(bpy.types.Panel):
 
 # --------------------------------------------------------------------
 
-def register():
-    bpy.types.Object.bf2_object_type = StringProperty(
+def init(rc : RegisterFactory):
+    rc.reg_prop(Object, 'bf2_object_type',
+        StringProperty(
             name="BF2 ObjectTemplate Type",
             description="Type of BF2 ObjectTemplate this Blender Object represents, the value is relevant only for the Geom's children",
             default = 'SimpleObject'
         ) # type: ignore
-    
-    bpy.types.Object.bf2_object_type_enum = EnumProperty(
+    )
+
+    rc.reg_prop(Object, 'bf2_object_type_enum',
+        EnumProperty(
             name="BF2 ObjectTemplate Type",
             description="Type of BF2 ObjectTemplate this Blender Object represents, the value is relevant only for the Geom's children",
             default=BF2_OBJECT_TEMPLATE_TYPES.index('SimpleObject'),
             items=BF2_OBJECTS_ENUM,
             update=on_bf2_obj_type_enum_update
         ) # type: ignore
+    )
 
-    bpy.types.Object.bf2_object_type_manual_mode = BoolProperty(
+    rc.reg_prop(Object, 'bf2_object_type_manual_mode',
+        BoolProperty(
             name="Lock selection",
             description="Type-in the ObjectTemplate type manually or choose from a list of valid types",
             default=True,
             update=on_bf2_obj_type_manual_mode_update
         ) # type: ignore
+    )
 
     # --------------------------------------------------------------------
 
-    bpy.types.Object.bf2_link_lightmap_size = BoolProperty(
-        name="Link Lightmap Size",
-        description="Change both X and Y size uniformly",
-        default=True
-    ) # type: ignore
+    rc.reg_prop(Object, 'bf2_link_lightmap_size',
+        BoolProperty(
+            name="Link Lightmap Size",
+            description="Change both X and Y size uniformly",
+            default=True
+        ) # type: ignore
+    )
 
-    bpy.types.Object.bf2_lightmap_size = IntVectorProperty(
-        name="Lightmap size",
-        description="Lightmap bitmap dimensions for baking & samples generation, the value is relevant only for StaticMesh Lod objects (Geom's immediate child)",
-        default=(0, 0),
-        size=2,
-        set=set_lm_size,
-        get=get_lm_size
-    ) # type: ignore
+    rc.reg_prop(Object, 'bf2_lightmap_size',
+        IntVectorProperty(
+            name="Lightmap size",
+            description="Lightmap bitmap dimensions for baking & samples generation, the value is relevant only for StaticMesh Lod objects (Geom's immediate child)",
+            default=(0, 0),
+            size=2,
+            set=set_lm_size,
+            get=get_lm_size
+        ) # type: ignore
+    )
 
-    bpy.utils.register_class(OBJECT_PT_bf2_object)
+    rc.reg_class(OBJECT_PT_bf2_object)
 
     # --------------------------------------------------------------------
 
-    bpy.types.Object.bf2_fence_collection = PointerProperty(
-        name="Segments",
-        description = "Collection with all the segments used for generating the fence",
-        type=bpy.types.Collection,
-        update=on_collection_update
-    ) # type: ignore
+    rc.reg_prop(Object, 'bf2_fence_collection',
+        PointerProperty(
+            name="Segments",
+            description = "Collection with all the segments used for generating the fence",
+            type=bpy.types.Collection,
+            update=on_collection_update
+        ) # type: ignore
+    )
 
-    bpy.types.Object.bf2_fence_curve = PointerProperty(
-        name="Curve",
-        description = "Curve on which to generate the fence",
-        type=bpy.types.Object,
-        update=on_curve_update
-    ) # type: ignore
+    rc.reg_prop(Object, 'bf2_fence_curve',
+        PointerProperty(
+            name="Curve",
+            description = "Curve on which to generate the fence",
+            type=bpy.types.Object,
+            update=on_curve_update
+        ) # type: ignore
+    )
 
-    bpy.utils.register_class(FenceSegmentsCollection)
-    bpy.types.Object.bf2_fence_custom_segments = CollectionProperty(type=FenceSegmentsCollection) # type: ignore
+    rc.reg_class(FenceSegmentsCollection)
+    rc.reg_prop(Object, 'bf2_fence_custom_segments',
+        CollectionProperty(type=FenceSegmentsCollection) # type: ignore
+    )
 
-    bpy.utils.register_class(BF2_OT_bf2_fence_duplicate_item)
-    bpy.utils.register_class(BF2_OT_bf2_fence_remove_item)
-    bpy.utils.register_class(BF2_OT_bf2_fence_add_item)
-    bpy.utils.register_class(OBJECT_PT_bf2_fence)
+    rc.reg_class(BF2_OT_bf2_fence_duplicate_item)
+    rc.reg_class(BF2_OT_bf2_fence_remove_item)
+    rc.reg_class(BF2_OT_bf2_fence_add_item)
+    rc.reg_class(OBJECT_PT_bf2_fence)
 
-def unregister():
-    bpy.utils.unregister_class(OBJECT_PT_bf2_fence)
-    bpy.utils.unregister_class(BF2_OT_bf2_fence_add_item)
-    bpy.utils.unregister_class(BF2_OT_bf2_fence_remove_item)
-    bpy.utils.unregister_class(BF2_OT_bf2_fence_duplicate_item)
-    del bpy.types.Object.bf2_fence_custom_segments
-    bpy.utils.unregister_class(FenceSegmentsCollection)
-    del bpy.types.Object.bf2_fence_curve
-    del bpy.types.Object.bf2_fence_collection
-    bpy.utils.unregister_class(OBJECT_PT_bf2_object)
-    del bpy.types.Object.bf2_lightmap_size
-    del bpy.types.Object.bf2_link_lightmap_size
-    del bpy.types.Object.bf2_object_type_manual_mode
-    del bpy.types.Object.bf2_object_type_enum
-    del bpy.types.Object.bf2_object_type
+register, unregister = RegisterFactory.create(init)

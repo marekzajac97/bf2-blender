@@ -2,10 +2,14 @@ import bpy # type: ignore
 from bpy.props import StringProperty # type: ignore
 from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
+from ..utils import RegisterFactory
 from .ops_common import ImporterBase, ExporterBase
 from ...core.occluders import import_occluders, export_occluders
 
-class IMPORT_OT_bf2_occluders(bpy.types.Operator, ImporterBase):
+class OccMeta:
+    FILE_DESC = "Occlusion Mesh (.occ)"
+
+class IMPORT_OT_bf2_occluders(bpy.types.Operator, ImporterBase, OccMeta):
     bl_idname= "bf2.occ_import"
     bl_description = 'Battlefield 2 occluder planes file'
     bl_label = "Import occluder planes"
@@ -16,7 +20,7 @@ class IMPORT_OT_bf2_occluders(bpy.types.Operator, ImporterBase):
         context.view_layer.objects.active = \
             import_occluders(context, self.filepath)
 
-class EXPORT_OT_bf2_occluders(bpy.types.Operator, ExporterBase):
+class EXPORT_OT_bf2_occluders(bpy.types.Operator, ExporterBase, OccMeta):
     bl_idname = "bf2.occ_export"
     bl_description = 'Battlefield 2 occluder planes file'
     bl_label = "Export occluder planes"
@@ -48,21 +52,9 @@ class IMPORT_EXPORT_FH_occ(bpy.types.FileHandler):
     def poll_drop(cls, context):
         return poll_file_object_drop(context)
 
+def init(rc : RegisterFactory):
+    rc.reg_class(EXPORT_OT_bf2_occluders)
+    rc.reg_class(IMPORT_OT_bf2_occluders)
+    rc.reg_class(IMPORT_EXPORT_FH_occ)
 
-FILE_DESC = "Occlusion Mesh (.occ)"
-
-def draw_import(layout):
-    layout.operator(IMPORT_OT_bf2_occluders.bl_idname, text=FILE_DESC)
-
-def draw_export(layout):
-    layout.operator(EXPORT_OT_bf2_occluders.bl_idname, text=FILE_DESC)
-
-def register():
-    bpy.utils.register_class(IMPORT_EXPORT_FH_occ)
-    bpy.utils.register_class(IMPORT_OT_bf2_occluders)
-    bpy.utils.register_class(EXPORT_OT_bf2_occluders)
-
-def unregister():
-    bpy.utils.unregister_class(IMPORT_EXPORT_FH_occ)
-    bpy.utils.unregister_class(EXPORT_OT_bf2_occluders)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_occluders)
+register, unregister = RegisterFactory.create(init)

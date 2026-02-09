@@ -1,6 +1,7 @@
 import bpy # type: ignore
 from bpy.props import StringProperty, CollectionProperty, IntProperty # type: ignore
 
+from .utils import RegisterFactory
 from .. import __package__
 
 def get_mod_dirs(context):
@@ -37,6 +38,10 @@ class BF2AddonPreferences(bpy.types.AddonPreferences):
 
     mod_directories: CollectionProperty(type=ModPathCollection) # type: ignore
 
+    @classmethod
+    def register(cls):
+        debug_set_mod_path()
+
     def draw(self, context):
         layout = self.layout
         layout.label(text="BF2 mod directories")
@@ -50,20 +55,6 @@ class BF2AddonPreferences(bpy.types.AddonPreferences):
         row.operator(BF2_OT_bf2_mod_path_add.bl_idname, icon='ADD')
 
 # ----------------------------------------------------------
-
-def register():
-    bpy.utils.register_class(ModPathCollection)
-    bpy.utils.register_class(BF2AddonPreferences)
-    bpy.utils.register_class(BF2_OT_bf2_mod_path_remove)
-    bpy.utils.register_class(BF2_OT_bf2_mod_path_add)
-
-    debug_set_mod_path()
-
-def unregister():
-    bpy.utils.unregister_class(BF2_OT_bf2_mod_path_add)
-    bpy.utils.unregister_class(BF2_OT_bf2_mod_path_remove)
-    bpy.utils.unregister_class(BF2AddonPreferences)
-    bpy.utils.unregister_class(ModPathCollection)
 
 def is_debug_enabled():
     import sys
@@ -98,3 +89,13 @@ def debug_set_mod_path():
         item = prefs.mod_directories.add()
         item.mod_directory = path
         print(f"DEBUG: Auto-configured BF2 path {path}")
+
+# ----------------------------------------------------------
+
+def init(rc : RegisterFactory):
+    rc.reg_class(ModPathCollection)
+    rc.reg_class(BF2AddonPreferences)
+    rc.reg_class(BF2_OT_bf2_mod_path_remove)
+    rc.reg_class(BF2_OT_bf2_mod_path_add)
+
+register, unregister = RegisterFactory.create(init)

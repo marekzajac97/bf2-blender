@@ -3,14 +3,17 @@ import traceback
 from bpy.props import StringProperty, BoolProperty, EnumProperty, IntProperty, IntVectorProperty, FloatProperty, CollectionProperty # type: ignore
 from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
+from ..utils import RegisterFactory
 from .ops_common import ImporterBase, ExporterBase
 from ...core.object_template import (import_object_template, export_object_template,
                                      parse_geom_type, NATIVE_BSP_EXPORT)
-from ...core.mesh import collect_uv_layers
 from ...core.skeleton import find_all_skeletons
 from ...core.utils import Reporter, find_root, next_power_of_2, prev_power_of_2
 
 from ..ops_prefs import get_mod_dirs
+
+class ConMeta:
+    FILE_DESC = "ObjectTemplate (.con)"
 
 class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
 
@@ -34,7 +37,7 @@ class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
         items=get_skeletons
     ) # type: ignore
 
-class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase):
+class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
     bl_idname = "bf2.con_import"
     bl_description = 'Battlefield 2 ObjectTemplate'
     bl_label = "Import ObjectTemplate"
@@ -177,38 +180,12 @@ class IMPORT_OT_bf2_object_skeleton_remove(bpy.types.Operator):
 SAMPLES_MAX_SIZE = 4096
 SAMPLES_MIN_SIZE = 8
 
-class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase):
+class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase, ConMeta):
     bl_idname = "bf2.con_export"
     bl_label = "Export ObjectTemplate"
     filename_ext = ".con"
     filter_glob: StringProperty(default="*.con", options={'HIDDEN'}) # type: ignore
     FILE_DESC = "ObjectTemplate (.con)"
-
-    def get_uv_layers(self, context):
-        items = []
-        root = find_root(context.view_layer.objects.active)
-        object_uv_layers = collect_uv_layers(root)
-        default = None
-
-        geom_type, _ = parse_geom_type(root)
-        if geom_type == 'StaticMesh':
-            default = 1 # Detail normal
-        elif geom_type == 'BundledMesh' or geom_type == 'SkinnedMesh':
-            default = 0 # Color/Normal
-
-        # XXX: it is not possible to define a default for dynamic enums
-        # the only way is to reorder items in such a way that the default one
-        # is the first one in the list, not ideal but works
-        start = 0
-        if default in object_uv_layers:
-            uv_layer = object_uv_layers.pop(default)
-            items.append((uv_layer, uv_layer, "", 0))
-            start = 1
-
-        for i, uv_layer in enumerate(object_uv_layers.values(), start=start):
-            items.append((uv_layer, uv_layer, "", i))
-
-        return items
 
     def set_sample_size(self, value):
         prev_val = tuple(self.samples_size)
@@ -401,27 +378,12 @@ class IMPORT_EXPORT_FH_con(bpy.types.FileHandler):
     def poll_drop(cls, context):
         return poll_file_object_drop(context)
 
+def init(rc : RegisterFactory):
+    rc.reg_class(SkeletonsToLinkCollection)
+    rc.reg_class(EXPORT_OT_bf2_object)
+    rc.reg_class(IMPORT_OT_bf2_object)
+    rc.reg_class(IMPORT_OT_bf2_object_skeleton_add)
+    rc.reg_class(IMPORT_OT_bf2_object_skeleton_remove)
+    rc.reg_class(IMPORT_EXPORT_FH_con)
 
-FILE_DESC = "ObjectTemplate (.con)"
-
-def draw_import(layout):
-    layout.operator(IMPORT_OT_bf2_object.bl_idname, text=FILE_DESC)
-
-def draw_export(layout):
-    layout.operator(EXPORT_OT_bf2_object.bl_idname, text=FILE_DESC)
-
-def register():
-    bpy.utils.register_class(SkeletonsToLinkCollection)
-    bpy.utils.register_class(IMPORT_EXPORT_FH_con)
-    bpy.utils.register_class(EXPORT_OT_bf2_object)
-    bpy.utils.register_class(IMPORT_OT_bf2_object)
-    bpy.utils.register_class(IMPORT_OT_bf2_object_skeleton_add)
-    bpy.utils.register_class(IMPORT_OT_bf2_object_skeleton_remove)
-
-def unregister():
-    bpy.utils.unregister_class(IMPORT_OT_bf2_object_skeleton_remove)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_object_skeleton_add)
-    bpy.utils.unregister_class(IMPORT_EXPORT_FH_con)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_object)
-    bpy.utils.unregister_class(EXPORT_OT_bf2_object)
-    bpy.utils.unregister_class(SkeletonsToLinkCollection)
+register, unregister = RegisterFactory.create(init)

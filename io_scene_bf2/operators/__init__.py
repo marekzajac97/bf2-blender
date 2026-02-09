@@ -4,16 +4,13 @@ from . import ops_material_props
 from . import ops_object_props
 from . import ops_prefs
 
-def register():
-    ops_object_props.register()
-    ops_material_props.register()
-    ops_import_export.register()
-    ops_view_3d.register()
-    ops_prefs.register()
+from .utils import RegisterFactory
 
-def unregister():
-    ops_prefs.unregister()
-    ops_view_3d.unregister()
-    ops_import_export.unregister()
-    ops_material_props.unregister()
-    ops_object_props.unregister()
+def init(rc : RegisterFactory):
+    rc.reg_module(ops_object_props)
+    rc.reg_module(ops_material_props)
+    rc.reg_module(ops_import_export)
+    rc.reg_module(ops_view_3d)
+    rc.reg_module(ops_prefs)
+
+register, unregister = RegisterFactory.create(init)

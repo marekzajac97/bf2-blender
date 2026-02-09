@@ -3,6 +3,8 @@ import bmesh # type: ignore
 
 from bpy.props import IntProperty # type: ignore
 
+from ..utils import RegisterFactory
+
 from ...core.utils import flip_uv
 from ...core.mesh import AnimUv
 
@@ -120,22 +122,14 @@ class EDIT_MESH_MT_bf2_submenu(bpy.types.Menu):
 def menu_func_edit_mesh(self, context):
     self.layout.menu(EDIT_MESH_MT_bf2_submenu.bl_idname, text="BF2")
 
-def register():
-    bpy.utils.register_class(EDIT_MESH_OT_bf2_set_anim_uv_rotation_center)
-    bpy.utils.register_class(EDIT_MESH_OT_bf2_set_anim_uv_matrix)
-    bpy.utils.register_class(EDIT_MESH_MT_bf2_submenu)
-    bpy.types.VIEW3D_MT_edit_mesh.append(menu_func_edit_mesh)
+def init(rc : RegisterFactory):
+    rc.reg_class(EDIT_MESH_OT_bf2_set_anim_uv_rotation_center)
+    rc.reg_class(EDIT_MESH_OT_bf2_set_anim_uv_matrix)
+    rc.reg_class(EDIT_MESH_MT_bf2_submenu)
+    rc.add_menu(bpy.types.VIEW3D_MT_edit_mesh, menu_func_edit_mesh)
 
-    bpy.utils.register_class(EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix)
-    bpy.utils.register_class(EDIT_MESH_SELECT_MT_bf2_submenu)
-    bpy.types.VIEW3D_MT_select_edit_mesh.append(menu_func_edit_mesh_select)
+    rc.reg_class(EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix)
+    rc.reg_class(EDIT_MESH_SELECT_MT_bf2_submenu)
+    rc.add_menu(bpy.types.VIEW3D_MT_select_edit_mesh, menu_func_edit_mesh_select)
 
-def unregister():
-    bpy.types.VIEW3D_MT_select_edit_mesh.remove(menu_func_edit_mesh_select)
-    bpy.utils.unregister_class(EDIT_MESH_SELECT_MT_bf2_submenu)
-    bpy.utils.unregister_class(EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix)
-
-    bpy.types.VIEW3D_MT_edit_mesh.remove(menu_func_edit_mesh)
-    bpy.utils.unregister_class(EDIT_MESH_MT_bf2_submenu)
-    bpy.utils.unregister_class(EDIT_MESH_OT_bf2_set_anim_uv_matrix)
-    bpy.utils.unregister_class(EDIT_MESH_OT_bf2_set_anim_uv_rotation_center)
+register, unregister = RegisterFactory.create(init)

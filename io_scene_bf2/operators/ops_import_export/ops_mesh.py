@@ -2,22 +2,36 @@ import bpy # type: ignore
 from bpy.props import StringProperty, IntProperty, BoolProperty, EnumProperty # type: ignore
 from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
+from ..utils import RegisterFactory
 from .ops_common import ImporterBase, ExporterBase
-from ...core.mesh import (import_mesh,
-                          import_bundledmesh,
-                          import_skinnedmesh,
-                          import_staticmesh,
-                          export_staticmesh,
-                          export_bundledmesh,
-                          export_skinnedmesh,
-                          collect_uv_layers)
+from ...core.mesh import import_mesh, export_mesh
 from ...core.skeleton import find_active_skeleton
 from ...core.utils import find_root, Reporter
 
 from ..ops_prefs import get_mod_dirs
 
-class MeshImportBase(ImporterBase):
+class BundledMeshMeta:
+    FILE_DESC = "BundledMesh (.bundledmesh)"
 
+    @classmethod
+    def mesh_type(cls):
+        return "BundledMesh"
+
+class StaticMeshMeta:
+    FILE_DESC = "StaticMesh (.staticmesh)"
+
+    @classmethod
+    def mesh_type(cls):
+        return "StaticMesh"
+
+class SkinnedMeshMeta:
+    FILE_DESC = "SkinnedMesh (.skinnedmesh)"
+
+    @classmethod
+    def mesh_type(cls):
+        return "SkinnedMesh"
+
+class MeshImportBase(ImporterBase):
     geom: IntProperty(
         name="Geom",
         description="Geometry to load",
@@ -79,6 +93,10 @@ class MeshImportBase(ImporterBase):
                 self.lod = self.geom = 0
         return super().invoke(context, _event)
 
+    @classmethod
+    def mesh_type(cls):
+        return None # will pick based on file ext
+
     def _execute(self, context):
         mod_paths = get_mod_dirs(context)
         kwargs = {}
@@ -91,54 +109,52 @@ class MeshImportBase(ImporterBase):
             kwargs['geom_to_ske'] = {-1: rig}
 
         context.view_layer.objects.active = \
-            self.__class__.IMPORT_FUNC(context, self.filepath,
-                                       texture_paths=mod_paths,
-                                       merge_materials=self.merge_materials,
-                                       load_backfaces=self.load_backfaces,
-                                       reporter=Reporter(self.report),
-                                       **kwargs)
+            import_mesh(context, self.filepath,
+                        mesh_type=self.mesh_type(),
+                        texture_paths=mod_paths,
+                        merge_materials=self.merge_materials,
+                        load_backfaces=self.load_backfaces,
+                        reporter=Reporter(self.report),
+                        **kwargs)
 
 class IMPORT_OT_bf2_mesh(bpy.types.Operator, MeshImportBase):
     bl_idname= "bf2.mesh_import"
     bl_description = 'Import Battlefield 2 Mesh file'
     bl_label = "Import mesh"
     filter_glob: StringProperty(default="*.bundledmesh;*.skinnedmesh;*.staticmesh", options={'HIDDEN'}) # type: ignore
-    IMPORT_FUNC = import_mesh
-    FILE_DESC = "Mesh (.bundledmesh, .skinnedmesh, .staticmesh)"
 
+    @classmethod
+    def register(cls): # override so it doesn't get added to the menu
+        ...
 
-class IMPORT_OT_bf2_staticmesh(bpy.types.Operator, MeshImportBase):
+    @classmethod
+    def unregister(cls):
+        ...
+
+class IMPORT_OT_bf2_staticmesh(bpy.types.Operator, StaticMeshMeta, MeshImportBase):
     bl_idname= "bf2.staticmesh_import"
     bl_description = 'Import Battlefield 2 static mesh file'
     bl_label = "Import StaticMesh"
     filter_glob: StringProperty(default="*.staticmesh", options={'HIDDEN'}) # type: ignore
-    IMPORT_FUNC = import_staticmesh
-    FILE_DESC = "StaticMesh (.staticmesh)"
 
 
-class IMPORT_OT_bf2_skinnedmesh(bpy.types.Operator, MeshImportBase):
+class IMPORT_OT_bf2_skinnedmesh(bpy.types.Operator, SkinnedMeshMeta, MeshImportBase):
     bl_idname= "bf2.skinnedmesh_import"
     bl_description = 'Import Battlefield 2 skinned mesh file'
     bl_label = "Import SkinnedMesh"
     filter_glob: StringProperty(default="*.skinnedmesh", options={'HIDDEN'}) # type: ignore
-    IMPORT_FUNC = import_skinnedmesh
-    FILE_DESC = "SkinnedMesh (.skinnedmesh)"
 
 
-class IMPORT_OT_bf2_bundledmesh(bpy.types.Operator, MeshImportBase):
+class IMPORT_OT_bf2_bundledmesh(bpy.types.Operator, BundledMeshMeta, MeshImportBase):
     bl_idname= "bf2.bundledmesh_import"
     bl_description = 'Import Battlefield 2 bundled mesh file'
     bl_label = "Import BundledMesh"
     filter_glob: StringProperty(default="*.bundledmesh", options={'HIDDEN'}) # type: ignore
-    IMPORT_FUNC = import_bundledmesh
-    FILE_DESC = "BundledMesh (.bundledmesh)"
 
 
 class MeshExportBase(ExporterBase):
     bl_idname = "bf2.mesh_export"
     bl_label = "Export Mesh"
-    EXPORT_FUNC = None
-    FILE_DESC = None
 
     save_backfaces: BoolProperty(
         name="Backfaces",
@@ -157,15 +173,20 @@ class MeshExportBase(ExporterBase):
         cls.poll_message_set("No object active")
         return context.view_layer.objects.active is not None
 
+    @classmethod
+    def mesh_type(cls):
+        raise NotImplementedError()
+
     def _execute(self, context):
         mod_paths = get_mod_dirs(context)
         root = find_root(context.view_layer.objects.active)
-        self.__class__.EXPORT_FUNC(root, self.filepath,
-                                   texture_paths=mod_paths,
-                                   save_backfaces=self.save_backfaces,
-                                   apply_modifiers=self.apply_modifiers,
-                                   triangulate=True,
-                                   reporter=Reporter(self.report))
+        export_mesh(root, self.filepath,
+                    mesh_type=self.mesh_type(),
+                    texture_paths=mod_paths,
+                    save_backfaces=self.save_backfaces,
+                    apply_modifiers=self.apply_modifiers,
+                    triangulate=True,
+                    reporter=Reporter(self.report))
 
     def invoke(self, context, _event):
         root = find_root(context.view_layer.objects.active)
@@ -173,14 +194,11 @@ class MeshExportBase(ExporterBase):
         return super().invoke(context, _event)
 
 
-class EXPORT_OT_bf2_staticmesh(bpy.types.Operator, MeshExportBase):
+class EXPORT_OT_bf2_staticmesh(bpy.types.Operator, StaticMeshMeta, MeshExportBase):
     bl_idname = "bf2.staticmesh_export"
     bl_label = "Export Static Mesh"
     filename_ext = ".staticmesh"
     filter_glob: StringProperty(default="*.staticmesh", options={'HIDDEN'}) # type: ignore
-    EXPORT_FUNC = export_staticmesh
-    FILE_DESC = "StaticMesh (.staticmesh)"
-
 
 class IMPORT_EXPORT_FH_staticmesh(bpy.types.FileHandler):
     bl_idname = "IMPORT_EXPORT_FH_staticmesh"
@@ -193,15 +211,11 @@ class IMPORT_EXPORT_FH_staticmesh(bpy.types.FileHandler):
     def poll_drop(cls, context):
         return poll_file_object_drop(context)
 
-
-class EXPORT_OT_bf2_bundledmesh(bpy.types.Operator, MeshExportBase):
+class EXPORT_OT_bf2_bundledmesh(bpy.types.Operator, BundledMeshMeta, MeshExportBase):
     bl_idname= "bf2.bundledmesh_export"
     bl_label = "Export BundledMesh"
     filename_ext = ".bundledmesh"
     filter_glob: StringProperty(default="*.bundledmesh", options={'HIDDEN'}) # type: ignore
-    EXPORT_FUNC = export_bundledmesh
-    FILE_DESC = "BundledMesh (.bundledmesh)"
-
 
 class IMPORT_EXPORT_FH_bundledmesh(bpy.types.FileHandler):
     bl_idname = "IMPORT_EXPORT_FH_bundledmesh"
@@ -214,15 +228,11 @@ class IMPORT_EXPORT_FH_bundledmesh(bpy.types.FileHandler):
     def poll_drop(cls, context):
         return poll_file_object_drop(context)
 
-
-class EXPORT_OT_bf2_skinnedmesh(bpy.types.Operator, MeshExportBase):
+class EXPORT_OT_bf2_skinnedmesh(bpy.types.Operator, SkinnedMeshMeta, MeshExportBase):
     bl_idname= "bf2.skinnedmesh_export"
     bl_label = "Export SkinnedMesh"
     filename_ext = ".skinnedmesh"
     filter_glob: StringProperty(default="*.skinnedmesh", options={'HIDDEN'}) # type: ignore
-    EXPORT_FUNC = export_skinnedmesh
-    FILE_DESC = "SkinnedMesh (.skinnedmesh)"
-
 
 class IMPORT_EXPORT_FH_skinnedmesh(bpy.types.FileHandler):
     bl_idname = "IMPORT_EXPORT_FH_skinnedmesh"
@@ -235,41 +245,19 @@ class IMPORT_EXPORT_FH_skinnedmesh(bpy.types.FileHandler):
     def poll_drop(cls, context):
         return poll_file_object_drop(context)
 
+def init(rc : RegisterFactory):
+    rc.reg_class(IMPORT_OT_bf2_mesh)
 
-def draw_import(layout):
-    layout.operator(IMPORT_OT_bf2_staticmesh.bl_idname, text=IMPORT_OT_bf2_staticmesh.FILE_DESC)
-    layout.operator(IMPORT_OT_bf2_skinnedmesh.bl_idname, text=IMPORT_OT_bf2_skinnedmesh.FILE_DESC)
-    layout.operator(IMPORT_OT_bf2_bundledmesh.bl_idname, text=IMPORT_OT_bf2_bundledmesh.FILE_DESC)
+    rc.reg_class(IMPORT_OT_bf2_staticmesh)
+    rc.reg_class(IMPORT_OT_bf2_skinnedmesh)
+    rc.reg_class(IMPORT_OT_bf2_bundledmesh)
 
-def draw_export(layout):
-    layout.operator(EXPORT_OT_bf2_staticmesh.bl_idname, text=EXPORT_OT_bf2_staticmesh.FILE_DESC)
-    layout.operator(EXPORT_OT_bf2_bundledmesh.bl_idname, text=EXPORT_OT_bf2_bundledmesh.FILE_DESC)
-    layout.operator(EXPORT_OT_bf2_skinnedmesh.bl_idname, text=EXPORT_OT_bf2_skinnedmesh.FILE_DESC)
+    rc.reg_class(EXPORT_OT_bf2_staticmesh)
+    rc.reg_class(EXPORT_OT_bf2_bundledmesh)
+    rc.reg_class(EXPORT_OT_bf2_skinnedmesh)
 
-def register():
-    bpy.utils.register_class(IMPORT_OT_bf2_mesh)
-    bpy.utils.register_class(IMPORT_OT_bf2_staticmesh)
-    bpy.utils.register_class(IMPORT_OT_bf2_skinnedmesh)
-    bpy.utils.register_class(IMPORT_OT_bf2_bundledmesh)
+    rc.reg_class(IMPORT_EXPORT_FH_staticmesh)
+    rc.reg_class(IMPORT_EXPORT_FH_bundledmesh)
+    rc.reg_class(IMPORT_EXPORT_FH_skinnedmesh)
 
-    bpy.utils.register_class(EXPORT_OT_bf2_staticmesh)
-    bpy.utils.register_class(EXPORT_OT_bf2_bundledmesh)
-    bpy.utils.register_class(EXPORT_OT_bf2_skinnedmesh)
-
-    bpy.utils.register_class(IMPORT_EXPORT_FH_staticmesh)
-    bpy.utils.register_class(IMPORT_EXPORT_FH_bundledmesh)
-    bpy.utils.register_class(IMPORT_EXPORT_FH_skinnedmesh)
-
-def unregister():
-    bpy.utils.unregister_class(IMPORT_EXPORT_FH_skinnedmesh)
-    bpy.utils.unregister_class(IMPORT_EXPORT_FH_bundledmesh)
-    bpy.utils.unregister_class(IMPORT_EXPORT_FH_staticmesh)
-
-    bpy.utils.unregister_class(EXPORT_OT_bf2_skinnedmesh)
-    bpy.utils.unregister_class(EXPORT_OT_bf2_bundledmesh)
-    bpy.utils.unregister_class(EXPORT_OT_bf2_staticmesh)
-    
-    bpy.utils.unregister_class(IMPORT_OT_bf2_bundledmesh)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_skinnedmesh)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_staticmesh)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_mesh)
+register, unregister = RegisterFactory.create(init)

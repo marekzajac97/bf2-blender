@@ -2,11 +2,16 @@ import bpy # type: ignore
 from bpy.props import StringProperty, BoolProperty # type: ignore
 from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
+from ..utils import RegisterFactory
 from .ops_common import ImporterBase, ExporterBase
+
 from ...core.collision_mesh import import_collisionmesh, export_collisionmesh
 from ...core.utils import find_root, Reporter
 
-class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImporterBase):
+class CollisionMeshMeta:
+    FILE_DESC = "CollisionMesh (.collisionmesh)"
+
+class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImporterBase, CollisionMeshMeta):
     bl_idname= "bf2.collisionmesh_import"
     bl_description = 'Battlefield 2 collision mesh file'
     bl_label = "Import Collision Mesh"
@@ -26,7 +31,7 @@ class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImporterBase):
                 reporter=Reporter(self.report))
 
 
-class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExporterBase):
+class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExporterBase, CollisionMeshMeta):
     bl_idname = "bf2.collisionmesh_export"
     bl_description = 'Battlefield 2 collision mesh file'
     bl_label = "Export Collision Mesh"
@@ -64,7 +69,6 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExporterBase):
         self.filepath = root.name + self.filename_ext
         return super().invoke(context, _event)
 
-
 class IMPORT_EXPORT_FH_collisionmesh(bpy.types.FileHandler):
     bl_idname = "IMPORT_EXPORT_FH_collisionmesh"
     bl_label = "BF2 CollisionMesh"
@@ -76,21 +80,9 @@ class IMPORT_EXPORT_FH_collisionmesh(bpy.types.FileHandler):
     def poll_drop(cls, context):
         return poll_file_object_drop(context)
 
+def init(rc : RegisterFactory):
+    rc.reg_class(IMPORT_OT_bf2_collisionmesh)
+    rc.reg_class(EXPORT_OT_bf2_collisionmesh)
+    rc.reg_class(IMPORT_EXPORT_FH_collisionmesh)
 
-FILE_DESC = "CollisionMesh (.collisionmesh)"
-
-def draw_import(layout):
-    layout.operator(IMPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
-
-def draw_export(layout):
-    layout.operator(EXPORT_OT_bf2_collisionmesh.bl_idname, text=FILE_DESC)
-
-def register():
-    bpy.utils.register_class(IMPORT_OT_bf2_collisionmesh)
-    bpy.utils.register_class(EXPORT_OT_bf2_collisionmesh)
-    bpy.utils.register_class(IMPORT_EXPORT_FH_collisionmesh)
-
-def unregister():
-    bpy.utils.unregister_class(IMPORT_EXPORT_FH_collisionmesh)
-    bpy.utils.unregister_class(EXPORT_OT_bf2_collisionmesh)
-    bpy.utils.unregister_class(IMPORT_OT_bf2_collisionmesh)
+register, unregister = RegisterFactory.create(init)

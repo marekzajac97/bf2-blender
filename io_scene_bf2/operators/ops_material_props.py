@@ -6,6 +6,7 @@ from pathlib import Path
 from bpy.types import Mesh, Material # type: ignore
 from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
 from .ops_prefs import get_mod_dirs
+from .utils import RegisterFactory
 
 from ..core.utils import Reporter, show_error, file_name
 from ..core.material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps
@@ -21,11 +22,11 @@ class SkipMaterialUpdateCallback():
         self.material = material
 
     def __enter__(self):
-        self.is_bf2_material = False
+        self.material.is_bf2_material = False
         return self
 
     def __exit__(self, exception_type, exception_value, exception_traceback):
-        self.is_bf2_material = True
+        self.material.is_bf2_material = True
 
 class MESH_OT_bf2_apply_material(bpy.types.Operator):
     bl_idname = "bf2.material_apply"
@@ -272,42 +273,39 @@ def _create_technique_prop(name, description=''):
         options=set()
     )
 
-def _create_texture_slot(index):
-    return StringProperty(
-        name=f"Texture{index} Path",
-        description=f"Filepath used for texture slot {index}",
-        maxlen=1024,
-        subtype='FILE_PATH',
-        update=lambda self, context: on_texture_map_update(self, context, index)
+def init(rc : RegisterFactory):
+    rc.reg_prop(Material, 'is_bf2_material',
+        BoolProperty(
+            name="Is BF2 Material",
+            description="Enable this to mark the material for export as BF2 material",
+            default=False,
+            options=set()
+        )
     )
 
-def register():
-    Material.is_bf2_material = BoolProperty(
-        name="Is BF2 Material",
-        description="Enable this to mark the material for export as BF2 material",
-        default=False,
-        options=set()
+    rc.reg_prop(Material, 'is_bf2_vegitation',
+        BoolProperty(
+            name="Is Vegitation",
+            description="Whether to use special vegitation leaf/trunk shaders. (it does not affect export)",
+            default=False,
+            update=on_is_vegitation_update,
+            options=set()
+        )
     )
 
-    Material.is_bf2_vegitation = BoolProperty(
-        name="Is Vegitation",
-        description="Whether to use special vegitation leaf/trunk shaders. (it does not affect export)",
-        default=False,
-        update=on_is_vegitation_update,
-        options=set()
-    )
-
-    Material.bf2_alpha_mode = EnumProperty(
-        name="Alpha Mode",
-        description="Sets what BF2 transparency render states to use",
-        default=0,
-        items=[
-            to_blender_enum(AlphaMode.NONE, 'None'),
-            to_blender_enum(AlphaMode.ALPHA_BLEND, 'Alpha Blend'),
-            to_blender_enum(AlphaMode.ALPHA_TEST, 'Alpha Test')
-        ],
-        update=on_alpha_mode_update,
-        options=set()
+    rc.reg_prop(Material, 'bf2_alpha_mode',
+        EnumProperty(
+            name="Alpha Mode",
+            description="Sets what BF2 transparency render states to use",
+            default=0,
+            items=[
+                to_blender_enum(AlphaMode.NONE, 'None'),
+                to_blender_enum(AlphaMode.ALPHA_BLEND, 'Alpha Blend'),
+                to_blender_enum(AlphaMode.ALPHA_TEST, 'Alpha Test')
+            ],
+            update=on_alpha_mode_update,
+            options=set()
+        )
     )
 
     def set_alpha_mode_restricted(self, int_val):
@@ -316,103 +314,113 @@ def register():
     def get_alpha_mode_restricted(self):
         return AlphaMode[self.bf2_alpha_mode].value
 
-    Material.bf2_alpha_mode_restricted = EnumProperty(
-        name="Alpha Mode",
-        description="Sets what BF2 transparency render states to use",
-        items=[
-            to_blender_enum(AlphaMode.NONE, 'None'),
-            to_blender_enum(AlphaMode.ALPHA_TEST, 'Alpha Test')
-        ],
-        get=get_alpha_mode_restricted,
-        set=set_alpha_mode_restricted,
-        options=set()
-    ) # type: ignore
+    rc.reg_prop(Material, 'bf2_alpha_mode_restricted',
+        EnumProperty(
+            name="Alpha Mode",
+            description="Sets what BF2 transparency render states to use",
+            items=[
+                to_blender_enum(AlphaMode.NONE, 'None'),
+                to_blender_enum(AlphaMode.ALPHA_TEST, 'Alpha Test')
+            ],
+            get=get_alpha_mode_restricted,
+            set=set_alpha_mode_restricted,
+            options=set()
+        ) # type: ignore
+    )
 
-    Material.bf2_technique = StringProperty(
+    rc.reg_prop(Material, 'bf2_technique',
+        StringProperty(
             name="Technique",
             description="BF2 Shader Technique to export",
             default=''
+        )
     )
 
-    Material.bf2_technique_typein_mode = BoolProperty(
-        name="Manual Type-in",
-        description="Specify the technique manually",
-        default=False,
-        options=set()
+    rc.reg_prop(Material, 'bf2_technique_typein_mode',
+        BoolProperty(
+            name="Manual Type-in",
+            description="Specify the technique manually",
+            default=False,
+            options=set()
+        )
     )
 
-    Material.bf2_shader = EnumProperty(
-        name="Shader",
-        description="BF2 Shader to export",
-        default=0,
-        items=[
-            ('STATICMESH', 'StaticMesh', "", 0),
-            ('BUNDLEDMESH', 'BundledMesh', "", 1),
-            ('SKINNEDMESH', 'SkinnedMesh', "", 2)
-        ],
-        update=on_shader_update,
-        options=set()
+    rc.reg_prop(Material, 'bf2_shader',
+        EnumProperty(
+            name="Shader",
+            description="BF2 Shader to export",
+            default=0,
+            items=[
+                ('STATICMESH', 'StaticMesh', "", 0),
+                ('BUNDLEDMESH', 'BundledMesh', "", 1),
+                ('SKINNEDMESH', 'SkinnedMesh', "", 2)
+            ],
+            update=on_shader_update,
+            options=set()
+        )
     )
 
-    Material.texture_slot_0 = _create_texture_slot(0)
-    Material.texture_slot_1 = _create_texture_slot(1)
-    Material.texture_slot_2 = _create_texture_slot(2)
-    Material.texture_slot_3 = _create_texture_slot(3)
-    Material.texture_slot_4 = _create_texture_slot(4)
-    Material.texture_slot_5 = _create_texture_slot(5)
+    for index in range(6):
+        rc.reg_prop(Material, f'texture_slot_{index}',
+            StringProperty(
+                name=f"Texture{index} Path",
+                description=f"Filepath used for texture slot {index}",
+                maxlen=1024,
+                subtype='FILE_PATH',
+                update=lambda self, context: on_texture_map_update(self, context, index)
+            )                
+        )
 
-    Material.bf2_use_colormapgloss = _create_technique_prop(
-        name='ColormapGloss',
-        description="If enabled, The alpha channel of the `Color` map will be used as the gloss map instead of the opacity map. "
-                    "If disabled, the gloss map is taken from the `Normal` map's alpha channel if provided."
-    )
-    Material.bf2_use_alpha_test = _create_technique_prop(
-        name='Alpha_Test',
-        description="By itself, enabling it will have no effect. When combined with `ColormapGloss` it makes parts of the surface where the `Color` map is black (RGB == 0,0,0) fully transparent."
-    )
-    Material.bf2_use_envmap = _create_technique_prop(
-        name='EnvMap',
-        description="Enables environment map based reflections (scaled using gloss map)"
-    )
-    Material.bf2_use_animateduv = _create_technique_prop( # TODO: add alt 'animated'
-        name='AnimatedUV',
-        description="Enables transformation of texture coordinates"
-    )
-    Material.bf2_use_cockpit = _create_technique_prop(
-        name='Cockpit',
-        description="Enables static lighting"
-    )
-    Material.bf2_use_nohemilight = _create_technique_prop(
-        name='NoHemiLight',
-        description="Disables hemimap"
-    )
-    Material.bf2_use_tangent = _create_technique_prop(
-        name='tangent'
+    rc.reg_prop(Material, 'bf2_use_colormapgloss',
+        _create_technique_prop(
+            name='ColormapGloss',
+            description="If enabled, The alpha channel of the `Color` map will be used as the gloss map instead of the opacity map. "
+                        "If disabled, the gloss map is taken from the `Normal` map's alpha channel if provided."
+        )
     )
 
-    bpy.utils.register_class(MESH_OT_bf2_apply_material)
-    bpy.utils.register_class(MESH_PT_bf2_materials)
+    rc.reg_prop(Material, 'bf2_use_alpha_test',
+        _create_technique_prop(
+            name='Alpha_Test',
+            description="By itself, enabling it will have no effect. When combined with `ColormapGloss` it makes parts of the surface where the `Color` map is black (RGB == 0,0,0) fully transparent."
+        )
+    )
 
-def unregister():
-    bpy.utils.unregister_class(MESH_PT_bf2_materials)
-    bpy.utils.unregister_class(MESH_OT_bf2_apply_material)
-    del Material.bf2_use_tangent
-    del Material.bf2_use_nohemilight
-    del Material.bf2_use_cockpit
-    del Material.bf2_use_animateduv
-    del Material.bf2_use_envmap
-    del Material.bf2_use_alpha_test
-    del Material.bf2_use_colormapgloss
-    del Material.texture_slot_5
-    del Material.texture_slot_4
-    del Material.texture_slot_3
-    del Material.texture_slot_2
-    del Material.texture_slot_1
-    del Material.texture_slot_0
-    del Material.bf2_shader
-    del Material.bf2_technique_typein_mode
-    del Material.bf2_technique
-    del Material.bf2_alpha_mode
-    del Material.bf2_alpha_mode_restricted
-    del Material.is_bf2_vegitation
-    del Material.is_bf2_material
+    rc.reg_prop(Material, 'bf2_use_envmap',
+        _create_technique_prop(
+            name='EnvMap',
+            description="Enables environment map based reflections (scaled using gloss map)"
+        )
+    )
+
+    rc.reg_prop(Material, 'bf2_use_animateduv',
+        _create_technique_prop( # TODO: add alt 'animated'
+            name='AnimatedUV',
+            description="Enables transformation of texture coordinates"
+        )
+    )
+
+    rc.reg_prop(Material, 'bf2_use_cockpit',
+        _create_technique_prop(
+            name='Cockpit',
+            description="Enables static lighting"
+        )
+    )
+
+    rc.reg_prop(Material, 'bf2_use_nohemilight',
+        _create_technique_prop(
+            name='NoHemiLight',
+            description="Disables hemimap"
+        )
+    )
+
+    rc.reg_prop(Material, 'bf2_use_tangent',
+        _create_technique_prop(
+            name='tangent'
+        )
+    )
+
+    rc.reg_class(MESH_OT_bf2_apply_material)
+    rc.reg_class(MESH_PT_bf2_materials)
+
+register, unregister = RegisterFactory.create(init)

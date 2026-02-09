@@ -11,11 +11,8 @@ from .core.tools.lightmaping import load_level, ObjectBaker, TerrainBaker, PostP
 
 from . import operators
 
-def register():
-    operators.register()
-
-def unregister():
-    operators.unregister()
+register = operators.register
+unregister = operators.unregister
 
 if __name__ == "__main__":
     register()

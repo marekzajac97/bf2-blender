@@ -63,21 +63,6 @@ _MESH_TYPES = {
 # if you are a BF2142 modder you could increase this to 50 :)
 MAX_GEOM_LIMIT = MAX_BONE_LIMIT = 26
 
-def collect_uv_layers(mesh_obj, geom=0, lod=0):
-    uv_layers = dict()
-    if mesh_obj is None:
-        return uv_layers
-
-    for geom_obj in mesh_obj.children:
-        if geom_obj.name.startswith(f'G{geom}'):
-            for lod_obj in geom_obj.children:
-                if lod_obj.name.startswith(f'G{geom}L{lod}'):
-                    if lod_obj.data:
-                        for uv_chan in range(5):
-                            if f'UV{uv_chan}' in lod_obj.data.uv_layers:
-                                uv_layers[uv_chan] = f'UV{uv_chan}'
-    return uv_layers
-
 def import_mesh(context, mesh_file, **kwargs):
     return _import_mesh(context, mesh_file, **kwargs)
 
@@ -94,6 +79,9 @@ def _import_mesh(context, mesh_file, mesh_type='',
                  name='', geom=None, lod=None, **kwargs):
     importer = MeshImporter(context, mesh_file, mesh_type=mesh_type, **kwargs)
     return importer.import_mesh(name=name, geom=geom, lod=lod)
+
+def export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
+    return _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs)
 
 def export_bundledmesh(mesh_obj, mesh_file, **kwargs):
     return _export_mesh(mesh_obj, mesh_file, mesh_type='BundledMesh', **kwargs)

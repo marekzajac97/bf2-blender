@@ -16,10 +16,10 @@ class PropertyRegister(Registrator):
         self.prop = prop
 
     def on_register(self):
-        setattr(self._type, self.attr, self.prop)
+        setattr(self.type, self.attr, self.prop)
 
     def on_unregister(self):
-        delattr(self._type, self.attr)
+        delattr(self.type, self.attr)
 
 class ClassRegister(Registrator):
 
@@ -55,7 +55,13 @@ class ModuleRegister(Registrator):
     def on_unregister(self):
         getattr(self.module, 'unregister')()
 
-class RegisterChain():
+class RegisterFactory():
+
+    @classmethod
+    def create(cls, init_func):
+        rc = cls()
+        init_func(rc)
+        return rc.apply()
 
     def __init__(self):
         self.registrators = list()
