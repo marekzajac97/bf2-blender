@@ -6,7 +6,7 @@ from pathlib import Path
 from bpy.props import BoolProperty, EnumProperty, StringProperty, IntProperty, FloatProperty, PointerProperty # type: ignore
 from bpy_extras.io_utils import ImportHelper # type: ignore
 
-from ... import get_mod_dirs
+from ..ops_prefs import get_mod_dirs
 from ...core.tools.anim_utils import (
     toggle_mesh_mask_mesh_for_active_bone,
     setup_controllers,

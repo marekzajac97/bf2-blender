@@ -593,7 +593,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         # envmap reflections
         if has_envmap:
             glossy_BSDF = node_tree.nodes.new('ShaderNodeBsdfGlossy')
-            glossy_BSDF.inputs['Roughness'].default_value = 0.15
+            glossy_BSDF.inputs['Roughness'].default_value = 0.05
             mix_envmap = node_tree.nodes.new('ShaderNodeMixShader')
 
             # scale envmap with gloss

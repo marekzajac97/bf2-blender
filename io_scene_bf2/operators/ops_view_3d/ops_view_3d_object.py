@@ -6,7 +6,7 @@ from pathlib import Path
 
 from bpy.props import BoolProperty, StringProperty, EnumProperty, IntVectorProperty # type: ignore
 
-from ... import get_mod_dirs
+from ..ops_prefs import get_mod_dirs
 from ...core.utils import Reporter
 from ...core.utils import (find_root, save_img_as_dds,
                            next_power_of_2, prev_power_of_2,

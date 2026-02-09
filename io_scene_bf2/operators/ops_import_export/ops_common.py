@@ -1,5 +1,3 @@
-import bpy # type: ignore
-import os
 import traceback
 from bpy_extras.io_utils import ImportHelper, ExportHelper # type: ignore
 

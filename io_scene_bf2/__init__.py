@@ -9,16 +9,13 @@ from .core.occluders import import_occluders, export_occluders
 from .core.tools.anim_utils import reparent_bones, setup_controllers as setup_anim_controllers
 from .core.tools.lightmaping import load_level, ObjectBaker, TerrainBaker, PostProcessor
 
-def get_mod_dirs(context):
-    return [prop.mod_directory for prop in context.preferences.addons[__package__].preferences.mod_directories if prop.mod_directory]
-
-from .operators import ops_main
+from . import operators
 
 def register():
-    ops_main.register()
+    operators.register()
 
 def unregister():
-    ops_main.unregister()
+    operators.unregister()
 
 if __name__ == "__main__":
     register()

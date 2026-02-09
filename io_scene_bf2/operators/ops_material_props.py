@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from bpy.types import Mesh, Material # type: ignore
 from bpy.props import EnumProperty, StringProperty, BoolProperty # type: ignore
-from .. import get_mod_dirs
+from .ops_prefs import get_mod_dirs
 
 from ..core.utils import Reporter, show_error, file_name
 from ..core.material import is_staticmesh_map_allowed, setup_material, get_staticmesh_technique_from_maps

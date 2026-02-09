@@ -10,7 +10,7 @@ from ...core.mesh import collect_uv_layers
 from ...core.skeleton import find_all_skeletons
 from ...core.utils import Reporter, find_root, next_power_of_2, prev_power_of_2
 
-from ... import get_mod_dirs
+from ..ops_prefs import get_mod_dirs
 
 class SkeletonsToLinkCollection(bpy.types.PropertyGroup):
 

@@ -14,7 +14,7 @@ from ...core.mesh import (import_mesh,
 from ...core.skeleton import find_active_skeleton
 from ...core.utils import find_root, Reporter
 
-from ... import get_mod_dirs
+from ..ops_prefs import get_mod_dirs
 
 class MeshImportBase(ImporterBase):
 
