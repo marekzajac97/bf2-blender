@@ -68,7 +68,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
 
     weld_verts: BoolProperty(
         name="Weld Vertices",
-        description="Welds vertices based on their proximity. Export process splits some of the vertices as their per-face attribute values (normals, tangents, UVs etc) differ",
+        description="Welds vertices based on their proximity. This helps to recover the mesh to the original state from before export, when vertices get split if their per-face attributes (normals, UVs etc) differ",
         default=False
     ) # type: ignore
 
@@ -76,6 +76,13 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
         name="Backfaces",
         description="Adds 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
         default=True
+    ) # type: ignore
+
+    use_free_normals: BoolProperty(
+        name="Use Free Normals",
+        description="Import normals as direction vectors in object space, significantly improving viewport performance. "
+                    "The downside is that they are static and don't get updated by modifiers, also will break when merging vertices by distance.",
+        default=False
     ) # type: ignore
 
     skeletons_to_link : CollectionProperty(type=SkeletonsToLinkCollection) # type: ignore
@@ -107,9 +114,13 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
 
         col = layout.column()
         col.prop(self, "weld_verts")
+        col.active = not self.use_free_normals
 
         col = layout.column()
         col.prop(self, "load_backfaces")
+
+        col = layout.column()
+        col.prop(self, "use_free_normals")
 
     def _execute(self, context):
         mod_paths = get_mod_dirs(context)
@@ -129,6 +140,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
                 merge_materials=self.merge_materials,
                 weld_verts=self.weld_verts,
                 load_backfaces=self.load_backfaces,
+                free_normals=self.use_free_normals,
                 reporter=Reporter(self.report))
 
     def invoke(self, context, _event):
@@ -138,6 +150,11 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
 class IMPORT_OT_bf2_object_skeleton_add(bpy.types.Operator):
     bl_idname = "bf2.con_skeleton_add"
     bl_label = "Add armature mapping"
+
+    @classmethod
+    def poll(cls, context):
+        cls.poll_message_set("There are no skeletons imported")
+        return find_all_skeletons()
 
     def execute(self, context):
         last_item = None
@@ -163,6 +180,11 @@ class IMPORT_OT_bf2_object_skeleton_add(bpy.types.Operator):
 class IMPORT_OT_bf2_object_skeleton_remove(bpy.types.Operator):
     bl_idname = "bf2.con_skeleton_remove"
     bl_label = "Remove armature mapping"
+
+    @classmethod
+    def poll(cls, context):
+        cls.poll_message_set("There are no skeletons imported")
+        return find_all_skeletons()
 
     def execute(self, context):
         last_item_idx = len(list(self.skeletons_to_link)) - 1

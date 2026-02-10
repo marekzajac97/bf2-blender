@@ -1277,7 +1277,8 @@ def load_level(context, level_dir, use_cache=True,
             if not load_unpacked:
                 raise NotImplementedError() # TODO: texture load from FileManager
 
-            importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh, texture_paths=texture_paths, reporter=reporter, silent=True)
+            importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh,
+                                    texture_paths=texture_paths, reporter=reporter, free_normals=True, silent=True)
             try:
                 mesh_obj = importer.import_mesh()
             except ImportException as e:

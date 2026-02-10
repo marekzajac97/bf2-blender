@@ -429,7 +429,7 @@ def _weld_verts(obj):
     bpy.ops.object.mode_set(mode='EDIT')
     bpy.ops.mesh.select_mode(type='VERT')
     bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.remove_doubles(threshold=0.0001)
+    bpy.ops.mesh.remove_doubles(threshold=0.0001, use_sharp_edge_from_normals=True)
     bpy.ops.object.mode_set(mode='OBJECT')
 
 def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):

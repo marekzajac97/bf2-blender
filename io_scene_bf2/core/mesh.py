@@ -98,7 +98,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
-                 texture_paths=[], geom_to_ske=None, merge_materials=True,
+                 texture_paths=[], geom_to_ske=None, merge_materials=True, free_normals=False,
                  load_backfaces=True, loader=None, silent=False, reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
@@ -117,6 +117,7 @@ class MeshImporter:
         self.reporter = reporter
         self.mesh_materials = []
         self.merge_materials = merge_materials
+        self.free_normals = free_normals
         self.load_backfaces = load_backfaces
         self.silent = silent
 
@@ -271,7 +272,7 @@ class MeshImporter:
 
                 if isinstance(bf2_mat, MaterialWithTransparency): # BundledMesh, StaticMesh
                     material.bf2_alpha_mode = bf2_mat.alpha_mode.name
-                elif 'alpha_test' in material.bf2_technique.lower(): # SkinnedMesh
+                elif material.bf2_use_alpha_test: # SkinnedMesh
                     material.bf2_alpha_mode = 'ALPHA_TEST'
                 else:
                     material.bf2_alpha_mode = 'NONE'
@@ -340,18 +341,15 @@ class MeshImporter:
 
         # apply normals
         if has_normals:
-            if isinstance(bf2_mesh, BF2SkinnedMesh):
-                # Note to self: by default 'sharp_face' is true so smooth shading (interpolated normals) is disabled
-                # but if mesh uses custom normals the normals get interpolated anyways...
-                # either way smooth shading MUST be enabled before calculating custom split normals
-                # otherwise on defomration normals will be broken af
-                mesh.attributes['sharp_face'].data.foreach_set('value', [False] * len(mesh.polygons))
-                mesh.normals_split_custom_set_from_vertices(vertex_normals)
-            else:
-                # use per vertex normals in object space for non-deformable objects, docs says they are faster...
+            # IMPORTANT: enable smooth shading, it MUST be enabled before calculating custom split normals
+            # otherwise on defomration normals will be broken af
+            mesh.attributes['sharp_face'].data.foreach_set('value', [False] * len(mesh.polygons))
+            if self.free_normals:
                 # https://docs.blender.org/manual/en/dev/modeling/meshes/structure.html#free-normals
                 custom_normal = mesh.attributes.new('custom_normal', 'FLOAT_VECTOR', 'POINT')
                 custom_normal.data.foreach_set('vector', [n for vn in vertex_normals for n in vn])
+            else:
+                mesh.normals_split_custom_set_from_vertices(vertex_normals)
 
         # apply Animated UVs data
         if has_anim_uv:
@@ -859,7 +857,7 @@ class MeshExporter:
             # alpha mode
             if isinstance(bf2_mat, MaterialWithTransparency):
                 bf2_mat.alpha_mode = MaterialWithTransparency.AlphaMode[blend_material.bf2_alpha_mode]
-            
+
             # fx shader
             SHADER_MAPPING = {
                 'STATICMESH' : 'StaticMesh.fx',

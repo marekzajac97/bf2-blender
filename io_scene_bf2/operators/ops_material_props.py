@@ -100,12 +100,10 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
                 col.enabled = not material.bf2_technique_typein_mode
                 row = col.row(align=True)
                 row.prop(material, "bf2_use_colormapgloss", toggle=True)
-                subrow = row.row(align=True)
-                subrow.prop(material, "bf2_use_alpha_test", toggle=True)
-                subrow.active = material.bf2_use_colormapgloss
-                row.prop(material, "bf2_use_envmap", toggle=True)
                 row = col.row(align=True)
+                row.prop(material, "bf2_use_envmap", toggle=True)
                 row.prop(material, "bf2_use_animateduv", toggle=True)
+                row = col.row(align=True)
                 row.prop(material, "bf2_use_cockpit", toggle=True)
                 row.prop(material, "bf2_use_nohemilight", toggle=True)
 
@@ -161,23 +159,24 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
             col = layout.column()
             col.operator(MESH_OT_bf2_apply_material.bl_idname, text="Apply Material")
 
-def _update_techinique_default_value(material):
+def _update_techinique(material):
     if not material.is_bf2_material:
         return
 
     if material.bf2_shader == 'STATICMESH':
         material.bf2_technique = get_staticmesh_technique_from_maps(material)
-    elif material.bf2_shader == 'BUNDLEDMESH':
-        if material.bf2_alpha_mode != 'ALPHA_TEST':
-            material.bf2_use_alpha_test = False
-    elif material.bf2_shader == 'SKINNEDMESH':
+        return
+
+    if material.bf2_shader == 'SKINNEDMESH':
         if material.texture_slot_1:
             if file_name(material.texture_slot_1).endswith('_b'):
                 material.bf2_use_tangent = True
             else:
                 material.bf2_use_tangent = False
+
+    if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         if material.bf2_alpha_mode == 'ALPHA_TEST':
-            material.bf2_use_alpha_test = True
+            material.bf2_use_alpha_test = True # only needed for colormapgloss but won't hurt if not present
         else:
             material.bf2_use_alpha_test = False
 
@@ -193,10 +192,10 @@ def on_shader_update(self, context):
         if self.bf2_shader != 'BUNDLEDMESH' and self.bf2_alpha_mode == 'ALPHA_BLEND':
             self.bf2_alpha_mode = 'NONE'
 
-    _update_techinique_default_value(self)
+    _update_techinique(self)
 
 def on_alpha_mode_update(self, context):
-    _update_techinique_default_value(self)
+    _update_techinique(self)
 
 def on_texture_map_update(self, context, index):
     if not self.is_bf2_material:
@@ -235,7 +234,7 @@ def on_texture_map_update(self, context, index):
         setattr(self, prop_name, prop_val)
 
     if self.bf2_shader in ('STATICMESH', 'SKINNEDMESH'):
-        _update_techinique_default_value(self)
+        _update_techinique(self)
 
 def on_is_vegitation_update(self, context):
     if not self.is_bf2_material:
@@ -251,7 +250,7 @@ def on_is_vegitation_update(self, context):
         self.texture_slot_2 = ''
         self.texture_slot_3 = ''
         self.texture_slot_5 = ''
-    _update_techinique_default_value(self)
+    _update_techinique(self)
 
 def _create_technique_prop(name, description=''):
     pattern = re.compile(re.escape(name), re.IGNORECASE)

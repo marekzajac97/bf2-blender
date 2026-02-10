@@ -64,6 +64,13 @@ class MeshImportBase(ImporterBase):
         default=True
     ) # type: ignore
 
+    use_free_normals: BoolProperty(
+        name="Use Free Normals",
+        description="Import normals as direction vectors in object space, significantly improving viewport performance. "
+                    "The downside is that they are static and don't get updated by modifiers, also will break when merging vertices by distance.",
+        default=False
+    ) # type: ignore
+
     def draw(self, context):
         layout = self.layout
 
@@ -80,6 +87,9 @@ class MeshImportBase(ImporterBase):
 
         col = layout.column()
         col.prop(self, "load_backfaces")
+
+        col = layout.column()
+        col.prop(self, "use_free_normals")
 
     def invoke(self, context, _event):
         # suggest to load only single LOD when a skeleton got imported previoulsy
@@ -114,6 +124,7 @@ class MeshImportBase(ImporterBase):
                         texture_paths=mod_paths,
                         merge_materials=self.merge_materials,
                         load_backfaces=self.load_backfaces,
+                        free_normals=self.use_free_normals,
                         reporter=Reporter(self.report),
                         **kwargs)
 

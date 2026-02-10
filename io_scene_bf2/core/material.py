@@ -388,23 +388,13 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         backface_cull_alpha = None
 
     # alpha mode
-    has_alphatest = has_alphablend = False
-    if is_trunk:
-        material.blend_method = 'OPAQUE'
-    elif is_leaf:
-        has_alphatest = True
-        material.blend_method = 'CLIP'
+    has_alphatest = is_leaf or material.bf2_alpha_mode == 'ALPHA_TEST'
+    has_alphablend = material.bf2_alpha_mode == 'ALPHA_BLEND'
+
+    if has_alphablend:
+        material.surface_render_method = 'BLENDED'
     else:
-        if material.bf2_alpha_mode == 'NONE':
-            material.blend_method = 'OPAQUE'
-        elif material.bf2_alpha_mode == 'ALPHA_TEST':
-            has_alphatest = True
-            material.blend_method = 'CLIP'
-        elif material.bf2_alpha_mode == 'ALPHA_BLEND':
-            has_alphablend = True
-            material.blend_method = 'BLEND'
-        else:
-            raise RuntimeError(f"Unknown alpha mode '{material.bf2_alpha_mode}'")
+        material.surface_render_method = 'DITHERED'
 
     # create UV map nodes
     uv_map_nodes = dict()
@@ -446,16 +436,15 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
     # these settings seem the most BF2-like
     shader_roughness.default_value = 0.4 # how sharp the reflection is, 0 == perfect mirror
-    shader_ior_level.default_value = 0.3 # this just scales the IOR, value above 0.5 increases it while below 0.5 decreases it
+    shader_ior_level.default_value = 0.1 # this just scales the IOR, value above 0.5 increases it while below 0.5 decreases it
     shader_ior.default_value = 1.0 # this is lowest possible value
 
     if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
         UV_CHANNEL = 0
 
-        technique = material.bf2_technique.lower()
-        has_envmap = 'envmap' in technique and material.bf2_shader == 'BUNDLEDMESH'
-        has_colormapgloss = 'colormapgloss' in technique and material.bf2_shader == 'BUNDLEDMESH'
-        has_dot3alpha_test = has_alphatest and has_colormapgloss
+        has_envmap = material.bf2_use_envmap and material.bf2_shader == 'BUNDLEDMESH'
+        has_colormapgloss = material.bf2_use_colormapgloss and material.bf2_shader == 'BUNDLEDMESH'
+        has_dot3alpha_test = material.bf2_use_alpha_test and has_colormapgloss
 
         diffuse = texture_nodes['Color']
         normal = texture_nodes.get('Normal')
@@ -489,7 +478,6 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
         # specular/roughness
 
-        specular_txt = None
         if has_colormapgloss:
             specular_txt = diffuse
         else:
