@@ -296,9 +296,13 @@ def _sockets(sockets, name):
             s_list.append(s)
     return s_list
 
-def _set_alpha_straigt(texture_node): # need this to render properly with Cycles
+def _set_alpha_straight(texture_node,): # need this to render properly with Cycles
     if texture_node.image:
         texture_node.image.alpha_mode = 'STRAIGHT'
+
+def _set_alpha_channel_packed(texture_node): # need this to render properly with Cycles
+    if texture_node.image:
+        texture_node.image.alpha_mode = 'CHANNEL_PACKED'
 
 def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, reporter=DEFAULT_REPORTER):
     material.use_nodes = True
@@ -435,8 +439,8 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
     shader_ior = principled_BSDF.inputs['IOR']
 
     # these settings seem the most BF2-like
-    shader_roughness.default_value = 0.4 # how sharp the reflection is, 0 == perfect mirror
-    shader_ior_level.default_value = 0.1 # this just scales the IOR, value above 0.5 increases it while below 0.5 decreases it
+    shader_roughness.default_value = 0.35 # how sharp the reflection is, 0 == perfect mirror
+    shader_ior_level.default_value = 0.3 # this just scales the IOR, value above 0.5 increases it while below 0.5 decreases it
     shader_ior.default_value = 1.0 # this is lowest possible value
 
     if material.bf2_shader in ('SKINNEDMESH', 'BUNDLEDMESH'):
@@ -485,6 +489,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
         spec_out = None
         if specular_txt:
+            _set_alpha_channel_packed(specular_txt)
             if shadow:
                 # multiply diffuse and shadow
                 multiply_diffuse = node_tree.nodes.new('ShaderNodeMixRGB')
@@ -547,7 +552,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         # transparency
         alpha_out = None
         if has_alphablend or has_alphatest:
-            _set_alpha_straigt(diffuse)
+            _set_alpha_straight(diffuse)
             alpha_out = diffuse.outputs['Alpha']
 
             if has_dot3alpha_test:
@@ -673,7 +678,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
             detail_out = base.outputs[0]
 
         if crack:
-            _set_alpha_straigt(crack)
+            _set_alpha_straight(crack)
             # mix detail & crack color based on crack alpha
             mix_crack = node_tree.nodes.new('ShaderNodeMixRGB')
             mix_crack.location = (1 * NODE_WIDTH, 0 * NODE_HEIGHT)
@@ -705,44 +710,32 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
         # ---- specular ----
         if not is_vegitation:
-            if dirt and detail:
-                # dirt.r * dirt.g * dirt.b
-                dirt_rgb_mult = node_tree.nodes.new('ShaderNodeGroup')
-                dirt_rgb_mult.node_tree = _create_multiply_rgb_shader_node()
-                dirt_rgb_mult.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
-                dirt_rgb_mult.hide = True
+            if detail and not has_alphatest:
+                _set_alpha_channel_packed(detail)
+                if dirt:
+                    # dirt.r * dirt.g * dirt.b
+                    # XXX: this is FH2 specific, should keep this?
+                    dirt_rgb_mult = node_tree.nodes.new('ShaderNodeGroup')
+                    dirt_rgb_mult.node_tree = _create_multiply_rgb_shader_node()
+                    dirt_rgb_mult.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                    dirt_rgb_mult.hide = True
 
-                node_tree.links.new(dirt.outputs['Color'], dirt_rgb_mult.inputs['color'])
+                    node_tree.links.new(dirt.outputs['Color'], dirt_rgb_mult.inputs['color'])
 
-                # multiply that with detailmap alpha
-                mult_detaila = node_tree.nodes.new('ShaderNodeMath')
-                mult_detaila.operation = 'MULTIPLY'
-                mult_detaila.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
-                mult_detaila.hide = True
+                    # multiply that with detailmap alpha
+                    mult_detaila = node_tree.nodes.new('ShaderNodeMath')
+                    mult_detaila.operation = 'MULTIPLY'
+                    mult_detaila.location = (0 * NODE_WIDTH, -1 * NODE_HEIGHT)
+                    mult_detaila.hide = True
 
-                mult_detaila_values = _sockets(mult_detaila.inputs, 'Value')
-                node_tree.links.new(dirt_rgb_mult.outputs['value'], mult_detaila_values[1])
-                node_tree.links.new(detail.outputs['Alpha'], mult_detaila_values[0])
-                dirt_spec_out = mult_detaila.outputs['Value']
-            elif detail:
-                dirt_spec_out = detail.outputs['Alpha']
+                    mult_detaila_values = _sockets(mult_detaila.inputs, 'Value')
+                    node_tree.links.new(dirt_rgb_mult.outputs['value'], mult_detaila_values[1])
+                    node_tree.links.new(detail.outputs['Alpha'], mult_detaila_values[0])
+                    spec_out = mult_detaila.outputs['Value']
+                else:
+                    spec_out = detail.outputs['Alpha']
             else:
-                dirt_spec_out = None
-
-            if has_alphatest and ndetail:
-                # mult with detaimap normal alpha
-                mult_ndetaila = node_tree.nodes.new('ShaderNodeMath')
-                mult_ndetaila.operation = 'MULTIPLY'
-                mult_ndetaila.location = (1 * NODE_WIDTH, -1 * NODE_HEIGHT)
-                mult_ndetaila.hide = True
-
-                mult_ndetaila_values = _sockets(mult_ndetaila.inputs, 'Value')
-                node_tree.links.new(dirt_spec_out, mult_ndetaila_values[1])
-                node_tree.links.new(ndetail.outputs['Alpha'], mult_ndetaila_values[0])
-                spec_out = mult_ndetaila.outputs['Value']
-            elif detail:
-                spec_out = dirt_spec_out
-            else:
+                # spec is NOT taken from NDetial with alpha test (this is wrong in bfmeshview)
                 spec_out = None
 
             if spec_out:
@@ -793,10 +786,10 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         alpha_out = None
         if has_alphatest:
             if detail:
-                _set_alpha_straigt(detail)
+                _set_alpha_straight(detail)
                 alpha_out = detail.outputs['Alpha']
             else:
-                _set_alpha_straigt(base)
+                _set_alpha_straight(base)
                 alpha_out = base.outputs['Alpha']
 
             if backface_cull:
