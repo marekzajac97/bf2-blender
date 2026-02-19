@@ -39,7 +39,7 @@ NOTE: Only some combinations of the above texture layers are valid.
 
 The `Base`, `Detail` and `Dirt` layers are multiplied with each other, whereas the `Crack` layer is overlayed on top; all of them combined produce the final diffuse color. Similarly, The `NDetail` and `NCrack` normal maps are mixed together based on the `Crack` layer's alpha channel.
 
-StaticMesh only supports `Alpha Testing` render state for transparency. If `Alpha Testing` is used, the opacity map is sored in the `Detail` map's alpha channel and the gloss map is then stored in the `NDetail` map's alpha channel. If `Alpha Testing` is not used, the gloss map is stored int the `Detail` map's alpha channel.
+StaticMesh only supports `Alpha Testing` render state for transparency with opacity map stored either in `Base` or `Detail` map's alpha channel. If `Alpha Testing` is not used, the `Detail` map's alpha channel is used for gloss map. As far as I'm aware, it's not possible to use gloss map with `Alpha Testing` enabled.
 
 ### BundledMesh
 BundledMesh materials may use up to three texture maps: `Color`, `Normal` and `Wreck`. The `Wreck` map (if present) gets multiplied with the `Color` and it's mostly used in Geom2 materials on vehicles. BundledMesh supports both `Alpha Testing` and `Alpha Blending` render states for transparency. The opacity map is always stored in the alpha channel of the `Color`, the location of the gloss map however varies based on the technique used.

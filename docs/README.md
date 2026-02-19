@@ -44,11 +44,10 @@ Tips:
 
 ## Rig Setup
 The skeleton will be imported as Blender's Armature object and before you start animating you might need to create a rig for it. You can do that either:
-#### Manually
-The armature can be freely extended by appending more bones to it which can act as helpers (constraint targets), but imported bones **MUST NOT** be modified! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. To alter their relations you can set up constraints (such as [Child Of](https://docs.blender.org/manual/en/latest/animation/constraints/relationship/child_of.html) and/or [Copy Transforms](https://docs.blender.org/manual/en/latest/animation/constraints/transform/copy_transforms.html) to other helper bones) on them instead.
-#### Automatically
-- Using external add-ons such as [Rigify](https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html)
-- Using this add-on's built-in option found under `Pose -> BF2 -> Setup Controllers`. This option can also be used after animations have been imported for easier editing of existing animations. By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing animation data. NOTE: importing animations **AFTER** `Setup Controllers` has been run is not supported and will not work!
+- **Manually** - The armature can be freely extended by appending more bones to it which can act as helpers (constraint targets), but imported bones **MUST NOT** be modified! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. To alter their relations you can set up constraints (such as [Child Of](https://docs.blender.org/manual/en/latest/animation/constraints/relationship/child_of.html) and/or [Copy Transforms](https://docs.blender.org/manual/en/latest/animation/constraints/transform/copy_transforms.html) to other helper bones) on them instead.
+- **Automatically**:
+  - Using external add-ons such as [Rigify](https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html)
+  - Using this add-on's built-in option found under `Pose -> BF2 -> Setup Controllers`. This option can also be used after animations have been imported for easier editing of existing animations. By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing animation data. NOTE: importing animations **AFTER** `Setup Controllers` has been run is not supported and will not work!
 
 ## Animation Export
 Export settings allow you to choose:
@@ -88,8 +87,8 @@ This section lists all the requirements needed for the finished model to become 
 - Each child of the root object must be an empty object corresponding to Geom (prefixed with `G<index>__`). Statics may also contain an empty child object which defines its anchor point (prefixed with `ANCHOR__`).
 - Each child of the Geom object must be an object corresponding to Lod (prefixed with `G<index>L<index>__`) containing mesh data. There must be at least one Lod.
 - Lods should have their [origin set at center of the geometry](https://docs.blender.org/manual/en/latest/scene_layout/object/origin.html#set-origin). This optimizes bounding spheres and avoids frustum culling related bugs (objects disappearing at certain viewing angles).
-- For BundledMeshes, each Lod may contain multiple child objects that will be exported as separate geometry parts bound to child ObjectTemplates. Each Lod must contain the same hierarchy of objects (their names and transformations must match between Lods). Geometry parts cannot be empty Blender objects, each one must contain mesh data to export properly! However, the mesh data itself may have no geometry (verts & faces deleted), which is useful for exporting things as invisible but separate logical gameplay objects.
-- Each object in the hierarchy should have its corresponding BF2 ObjectTemplate type set. You will find this property in the `Object Properties` tab, it defaults to `SimpleObject`. It can be left empty when an object is intended to be exported as a separate geometry part but at the same time doesn't represent any ObjectTemplate (mostly applies to exporting animatable weapon parts such mags, bolts etc).
+- For BundledMeshes, each Lod may contain multiple child objects representing its child ObjectTemplates. Each Lod must contain the same hierarchy of those (their names and transformations must match between Lods). If the child object is an empty object, it will export with no geometry part index assigned, use it for exporting invisible logical gameplay elements such as the `Engine`.
+- Each object in the hierarchy should have its an ObjectTemplate type set. You will find this property in the `Object Properties` tab, `Battlefield 2` panel (it defaults to `SimpleObject`). This property can be left empty when an object is intended to be exported as a separate geometry part but at the same time doesn't represent any ObjectTemplate (this mostly applies to exporting animatable weapon parts such as mags, bolt handles etc).
 
 #### Some examples of object hierarchies
 
@@ -210,19 +209,20 @@ SkinnedMesh_soldier
 `[m]` tag indicates that the object contains mesh data.
 
 ## Materials and UVs
-- Each material assigned to any visible mesh must be set up for export. To set up BF2 material go to `Material Properties`, you should see the `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate settings: `Alpha Mode`, `Shader` and `Technique` (BundledMesh/SkinnedMesh only) as well as desired texture maps to load.
+- Each material assigned to any visible mesh must be prepared for export. To set up BF2 material go to `Material Properties`, you should see the `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate `Shader`, `Technique`, `Alpha Mode` as well as desired texture maps to load.
     - For StaticMesh: There will be 6 texture slots for Base, Detail, Dirt, Crack, Detail Normal, and Crack Normal. Only Base texture is mandatory, if others are not meant to be used, leave them empty.
     - For BundledMesh: There should be 3 texture slots for Color, Normal, and Wreck. Only Color texture is mandatory, if others are not meant to be used, leave them empty.
     - For SkinnedMesh: There should be 2 texture slots for Color and Normal. Only the Color texture is mandatory, if Normal is not meant to be used, leave it empty.
-- Clicking on `Apply Material` changes some material settings, loads textures and builds a tree of Shader Nodes that try to mimic BF2 rendering. It's optional and does not affect export.
+- Clicking on `Apply Material` changes some material settings, loads textures and generates shader node set-up that tries to imitate BF2 shaders. It's optional and does not affect export.
 - Each LOD's mesh must have a minimum of 1 and a maximum of 5 UV layers assigned and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
     - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, which can also be auto-generated when toggled in the export options.
     - For BundledMesh and SkinnedMesh there's only UV0 for all texture maps.
-- Be aware that when making StaticMeshes, tangent space is generated using UV1 (Detail Normal). This means that if you also use Crack Normal maps you can't rotate or mirror the UVs (relativly to Detail Normal) otherwise the lighting calculations will be incorrect.
+- Be aware that when making StaticMeshes, tangent space is generated using UV1 (Detail Normal). This means that if Crack Normal map is also used, its UVs can't be rotated or mirrord (relative to Detail Normal UVs) otherwise the lighting calculations will be incorrect.
 
 ## Collision meshes
 - Each object may contain collision mesh data. To add it, you must create an empty child object prefixed with `NONVIS__`. This new object should have a maximum of 4 child objects (suffixed with `_COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added under the object's Lod0 hierarchies.
 - Each COL can have an arbitrary number of materials assigned, no special material settings are required, object's material index-to-name mapping will be saved inside the `.con` file.
+
 ### Known Issues
 - CollisionMesh exports to a slightly older file format version (9) than 3ds Max exporter (10). Latest file version contains some extra face adjacency info for drawing debug meshes which is disabled by default in-game anyway.
 
@@ -252,7 +252,7 @@ The first (optional) step is to prepare a configuration file. This defines how t
 - **StaticObjects_SkipLightmaps**: contains all the objects that aren't StaticMeshes or have `GeometryTemplate.dontGenerateLightmaps 1`
 - **Lights**: contains all the point lights as well as the *Sun*
 - **Heightmaps**: contains just the primary heightmap. The heightmap will have a modifier applied which flattens all the vertices below the water level so that terrain shadows are casted on the water surface.
-## Before you hit 'Bake'...
+## Before you hit *Bake*...
 - Check the [Info Logs](https://docs.blender.org/manual/en/latest/editors/info_editor.html) for errors and warnings from the loading process, and try to fix them. If some meshes fail to import they won't receive any lightmaps nor cast any shadows!
 - Make sure that you have configured [GPU Rendering](https://docs.blender.org/manual/en/latest/render/cycles/gpu_rendering.html). By default Blender uses CPU rendering which is a lot slower.
 - If necessary, tweak configured lightmap sizes (especially if they were auto assigned). You can use `Select -> BF2 -> By Lightmap Size` or check the size in *Object Properties* for each LOD. LODs can be skipped during lightmapping if their lightmap size is set to zero.

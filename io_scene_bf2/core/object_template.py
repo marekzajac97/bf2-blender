@@ -1,3 +1,4 @@
+from typing import Dict
 import bpy # type: ignore
 import os
 import math
@@ -33,16 +34,6 @@ ANCHOR_PREFIX = 'ANCHOR__'
 ########## IMPORT ##############
 ################################
 
-class GeomPartInfo:
-    def __init__(self, part_id, obj) -> None:
-        self.part_id = part_id
-        self.name = strip_prefix(obj.name)
-        self.bf2_object_type = obj.bf2_object_type
-        self.location = obj.location.copy()
-        self.rotation_quaternion = obj.rotation_quaternion.copy()
-        self.matrix_local = obj.matrix_local.copy()
-        self.children = []
-
 def import_object_template(context, con_filepath, import_collmesh=True,
                            import_rig_mode='AUTO', geom_to_ske_name=None, reload=False,
                            weld_verts=False, load_backfaces=True, reporter=DEFAULT_REPORTER, **kwargs):
@@ -68,7 +59,7 @@ def import_object_template(context, con_filepath, import_collmesh=True,
     if not root_template.geom:
         ImportException(f"The imported object '{root_template.name}' has no geometry set")
 
-    _sanitize_template(root_template, reporter)
+    _check_template(root_template, reporter)
 
     geometry_template_name = root_template.geom.lower()
     if geometry_template_name not in geom_template_manager.templates:
@@ -176,18 +167,34 @@ def _fix_unassigned_parts(geom_obj, lod_obj):
 
 def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_parts, geom, lod):
     prfx = MeshImporter.build_mesh_prefix(geom, lod)
-    add_col = coll_parts and lod == 0 # Add colistion only for LOD 0
-
     skinned_objects = dict()
 
     def _fix_geom_parts(obj_template, geom_parent=None, position=(0, 0, 0), rotation=(0, 0, 0)):
-        geom_part_id = obj_template.geom_part
-        vertex_group_name = f'mesh{geom_part_id + 1}'
+        if obj_template is root_template:
+            vertex_group_name = 'mesh1' # BF2 always do this for root
+        elif obj_template.geom_part > 0:
+            vertex_group_name = f'mesh{obj_template.geom_part + 1}'
+        else:
+            vertex_group_name = None
+
         part_name = f'{prfx}{obj_template.name}'
         part_position = Vector(swap_zy(position))
         part_rotation = yaw_pitch_roll_to_matrix(rotation).to_euler('XYZ')
 
-        if vertex_group_name in geom_parts:
+        if vertex_group_name is None:
+            # object template not assigned to any geomety part, use empty
+            geometry_part_obj = bpy.data.objects.new(part_name, None)
+            geometry_part_obj.empty_display_type = 'PLAIN_AXES'
+            geometry_part_obj.empty_display_size = 0.1
+            geometry_part_obj.hide_render = True
+            context.scene.collection.objects.link(geometry_part_obj)
+        elif vertex_group_name not in geom_parts:
+            # object template does not have any mesh data for this lod
+            # other lods or this part's children might still do
+            dummy_mesh = bpy.data.meshes.new(part_name)
+            geometry_part_obj = bpy.data.objects.new(part_name, dummy_mesh)
+            context.scene.collection.objects.link(geometry_part_obj)
+        else:
             geometry_part_obj = geom_parts[vertex_group_name]
 
             if vertex_group_name in geometry_part_obj.vertex_groups.keys():
@@ -216,9 +223,7 @@ def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_par
 
                     # it might happen that direct parent (geom_parent) does not have mesh with this vertex group
                     # in this case we need to apply transforms of all parents to be relative to geometry_part_obj
-                    parents_to_root = list()
-                    _get_parent_list(geom_parent, geometry_part_obj, parents_to_root)
-                    for parent in parents_to_root:
+                    for parent in _get_parent_list(geom_parent, stop_at=geometry_part_obj):
                         # for whatever reason using parent.matrix_local does not work correctly sometimes
                         parent_transform = parent.rotation_euler.copy().to_matrix()
                         parent_transform.resize_4x4()
@@ -240,12 +245,6 @@ def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_par
                 # normal case, all vertices for all faces have the same part id
                 geometry_part_obj.name = part_name
                 geometry_part_obj.data.name = part_name
-        else:
-            # might happen that some lod does not have geometry for some parts
-            # but this part's children do, so we gotta create a dummy parent for them
-            dummy_mesh = bpy.data.meshes.new(part_name)
-            geometry_part_obj = bpy.data.objects.new(part_name, dummy_mesh)
-            context.scene.collection.objects.link(geometry_part_obj)
 
         geometry_part_obj.rotation_euler = part_rotation
         geometry_part_obj.location = part_position
@@ -257,9 +256,14 @@ def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_par
         except TypeError:
             geometry_part_obj.bf2_object_type_manual_mode = True
 
-        if obj_template.has_collision_physics and add_col:
+        if (obj_template.has_collision_physics and coll_parts and lod == 0 and # Add colistion only for LOD 0
+            (obj_template is root_template or obj_template.col_part > 0)): # children must have col part >0
+
             col_part_id = obj_template.col_part
             col_dummy = bpy.data.objects.new(f'{NONVIS_PRFX}{prfx}{obj_template.name}', None)
+            col_dummy.empty_display_type = 'PLAIN_AXES'
+            col_dummy.empty_display_size = 0.1
+            col_dummy.hide_render = True
             context.scene.collection.objects.link(col_dummy)
             col_dummy.parent = geometry_part_obj
             for col_id, col_mesh in coll_parts[col_part_id][geom].items():
@@ -306,7 +310,9 @@ def _has_obj_in_hierarchy_up(obj, search_obj):
         return obj
     return _has_obj_in_hierarchy_up(obj.parent, search_obj)
 
-def _get_parent_list(obj, stop_at, parent_list):
+def _get_parent_list(obj, stop_at, parent_list=None):
+    if parent_list is None:
+        parent_list = list()
     if obj is None:
         return parent_list
     if obj.name == stop_at.name:
@@ -476,33 +482,39 @@ def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_
             raise ImportException(f'Unhandled import_rig_mode {import_rig_mode}')
         return geom_to_ske
 
-def _sanitize_template(root_obj_template, reporter):
-    templates_to_delete = list()
-    part_id_to_obj_template = dict()
+def _check_template(root_obj_template : ObjectTemplate, reporter):
+    geom_parts = dict()
 
     def _check_geom_part_unique(obj_template):
-        if obj_template.geom_part in part_id_to_obj_template:
-            reporter.warning(f"Ignoring '{obj_template.name}' as it has the same geometryPart index as '{part_id_to_obj_template[obj_template.geom_part].name}'")
-            templates_to_delete.append(obj_template)
+        if obj_template is not root_obj_template:
+            if obj_template.geom_part <= 0:
+                return
+            if obj_template.col_part <= 0:
+                return
+        if obj_template.geom_part in geom_parts:
+            raise ImportException(f"'{obj_template.name}' has the same geometryPart index as '{geom_parts[obj_template.geom_part].name}'")
         else:
-            part_id_to_obj_template[obj_template.geom_part] = obj_template
+            geom_parts[obj_template.geom_part] = obj_template
         for child in obj_template.children:
             _check_geom_part_unique(child.template)
 
     _check_geom_part_unique(root_obj_template)
-    for obj_template in templates_to_delete:
-        parent = obj_template.parent
-        if not parent:
-            continue
-        for child in parent.children:
-            if child.template == obj_template:
-                parent.children.remove(child)
-                break
 
 
 ################################
 ########## EXPORT ##############
 ################################
+
+class GeomPartInfo:
+    def __init__(self, part_id, is_root, obj) -> None:
+        self.part_id = part_id
+        self.is_root = is_root
+        self.name = strip_prefix(obj.name)
+        self.bf2_object_type = obj.bf2_object_type
+        self.location = obj.location.copy()
+        self.rotation_quaternion = obj.rotation_quaternion.copy()
+        self.matrix_local = obj.matrix_local.copy()
+        self.children = []
 
 TMP_PREFIX = 'TMP__' # prefix for temporary object copy
 
@@ -536,7 +548,7 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     obj_to_geom_part = _find_geom_parts(mesh_geoms)
 
     for obj_name, geom_part in obj_to_geom_part.items():
-        if geom_part.part_id == 0:
+        if geom_part.is_root:
             root_geom_part = geom_part
             break
 
@@ -546,7 +558,7 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
 
     collmesh_parts, obj_to_col_part_id = _find_collmeshes(mesh_geoms)
 
-    root_obj_template = _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id)
+    root_obj_template = _create_object_template(root_geom_part, obj_to_col_part_id)
     if root_obj_template is None:
         raise ExportException(f"root object '{root_geom_part.name}' is missing ObjectTemplate type, check object properties!")
     root_obj_template.save_in_separate_file = True
@@ -673,19 +685,30 @@ def _find_geom_parts(mesh_geoms):
             _collect_geometry_parts(lod_obj, obj_to_part)
     return obj_to_part
 
-def _collect_geometry_parts(obj, obj_to_part):
+def _get_next_part_id(obj_to_part):
+    return len(list(filter(lambda x: x.part_id != -1, obj_to_part.values()))) + 1
+
+def _collect_geometry_parts(obj, obj_to_part, is_root=True):
     object_name = strip_prefix(obj.name)
     geom_part = obj_to_part.get(object_name)
     if geom_part is None:
-        part_id = len(obj_to_part)
-        geom_part = GeomPartInfo(part_id, obj)
-        obj_to_part[object_name] = geom_part        
+        if is_root or obj.data is None:
+            part_id = -1 # assign -1 only if is root or has no mesh (in all geoms)
+        else:
+            part_id = _get_next_part_id(obj_to_part)
+        geom_part = GeomPartInfo(part_id, is_root, obj)
+        obj_to_part[object_name] = geom_part
+    elif geom_part.part_id == -1 and not is_root and obj.data:
+        # update, mesh only present in some geoms
+        geom_part.part_id = _get_next_part_id(obj_to_part)
 
-    for _, child_obj in sorted([(strip_prefix(child.name), child) for child in obj.children]):
-        if not _is_colmesh_dummy(child_obj):
-            child_geom_part = _collect_geometry_parts(child_obj, obj_to_part)
-            if child_geom_part not in geom_part.children:
-                geom_part.children.append(child_geom_part)
+    for child_obj in sorted(obj.children, key=lambda child: strip_prefix(child.name).lower()):
+        if _is_colmesh_dummy(child_obj):
+            continue
+        child_geom_part = _collect_geometry_parts(child_obj, obj_to_part, is_root=False)
+        if child_geom_part not in geom_part.children:
+            geom_part.children.append(child_geom_part)
+
     return geom_part
 
 def _find_collmeshes(mesh_geoms):
@@ -751,8 +774,8 @@ def _verify_lods_consistency(root_geom_part, lod_obj):
     if not compare_val(lod_obj.scale, (1, 1, 1)):
         raise ExportException(f"'{lod_obj.name}' has non uniform scale: {lod_obj.scale}")
 
-    if lod_obj.data is None:
-        raise ExportException(f"'{lod_obj.name}' has no mesh data! If you don't want it to contain any, simply make it a mesh object and delete all vertices")
+    if lod_obj.data and not isinstance(lod_obj.data, bpy.types.Mesh) :
+        raise ExportException(f"'{lod_obj.name}' does not contain mesh data!")
 
     def _inconsistency(item, val, exp_val):
         raise ExportException(f"{lod_obj.name}: Inconsistent {item} for different Geoms/LODs, got '{val}' but other Geom/LOD has '{exp_val}'")
@@ -780,12 +803,14 @@ def _verify_lods_consistency(root_geom_part, lod_obj):
         geom_part_child = root_geom_children[child_name]
         _verify_lods_consistency(geom_part_child, child_obj)
 
-def _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id, is_vehicle=None) -> ObjectTemplate:
-    if root_geom_part.bf2_object_type == '': # special case, geom part which has no object template (see GenericFirearm)
+def _create_object_template(geom_part : GeomPartInfo, obj_to_col_part_id, is_vehicle=None) -> ObjectTemplate:
+    if geom_part.bf2_object_type == '': # special case, geom part which has no object template (see GenericFirearm)
         return None
 
-    obj_name = root_geom_part.name
-    obj_template = ObjectTemplate(root_geom_part.bf2_object_type, obj_name)
+    obj_name = geom_part.name
+    obj_template = ObjectTemplate(geom_part.bf2_object_type, obj_name)
+
+    obj_template.geom_part = geom_part.part_id
 
     if is_vehicle is None: # root object
         # TODO: no idea how to properly detect whether the exported object
@@ -799,13 +824,10 @@ def _create_object_template(root_geom_part, obj_to_geom_part, obj_to_col_part_id
         obj_template.has_collision_physics = True
         obj_template.col_part = obj_to_col_part_id[obj_name]
 
-    if obj_name in obj_to_geom_part:
-        obj_template.geom_part = obj_to_geom_part[obj_name].part_id
-
-    for _, child_obj in sorted([(child.name, child) for child in root_geom_part.children]):
+    for child_obj in sorted(geom_part.children, key=lambda child: child.name.lower()):
         if _is_colmesh_dummy(child_obj): # skip collmeshes
             continue
-        child_template = _create_object_template(child_obj, obj_to_geom_part, obj_to_col_part_id, is_vehicle)
+        child_template = _create_object_template(child_obj, obj_to_col_part_id, is_vehicle)
         if child_template is None:
             continue
         child_object = ObjectTemplate.ChildObject(child_template.name)
@@ -831,85 +853,107 @@ def _find_child(obj, child_name):
     return None
 
 def _create_mesh_vertex_group(obj, obj_to_vertex_group):
-    org_obj_name = _strip_tmp_prefix(obj.name)
-    obj_name = strip_prefix(org_obj_name)
-    group_name = obj_to_vertex_group[obj_name]
-
     # reset object location
     obj.location = (0, 0, 0)
     obj.rotation_euler = (0, 0, 0)
 
-    child_groups = set()
-    for group in obj.vertex_groups:
-        if group_name == group.name:
-            raise ExportException(f"{org_obj_name}: '{group_name}' vertex group should not exist")
-        # check if vertex group links to a child object
-        child_obj = _find_child(obj, group.name)
-        if not child_obj:
-            raise ExportException(f"{org_obj_name}: has got a vertex group called '{group.name}', but such child object does not exist")
+    if obj.data is not None:
+        org_obj_name = _strip_tmp_prefix(obj.name)
+        obj_name = strip_prefix(org_obj_name)
+        group_name = obj_to_vertex_group[obj_name]
 
-        parents_to_root = list()
-        _get_parent_list(child_obj, obj, parents_to_root)
+        child_groups = set()
+        for group in obj.vertex_groups:
+            if group_name == group.name:
+                raise ExportException(f"{org_obj_name}: '{group_name}' vertex group should not exist")
+            # check if vertex group links to a child object
+            child_obj = _find_child(obj, group.name)
+            if not child_obj:
+                raise ExportException(f"{org_obj_name}: has got a vertex group called '{group.name}', but such child object does not exist")
 
-        transform = Matrix.Identity(4)
-        for parent in parents_to_root:
-            parent_transform = Euler(parent.rotation_euler, parent.rotation_mode).to_matrix()
-            parent_transform.resize_4x4()
-            parent_transform.translation = parent.location
-            transform @= parent_transform
-        transform.invert()
+            parents_to_root = list()
+            _get_parent_list(child_obj, obj, parents_to_root)
 
-        _transform_verts(obj, group.name, transform)
+            transform = Matrix.Identity(4)
+            for parent in parents_to_root:
+                parent_transform = Euler(parent.rotation_euler, parent.rotation_mode).to_matrix()
+                parent_transform.resize_4x4()
+                parent_transform.translation = parent.location
+                transform @= parent_transform
+            transform.invert()
 
-        child_groups.add(group.index)
-        child_name = strip_prefix(group.name)
-        child_group_name = obj_to_vertex_group[child_name]
-        # rename this group to child group
-        # after joining objects both groups will be merged into one
-        # this is exactly what we want
-        group.name = child_group_name
+            _transform_verts(obj, group.name, transform)
 
-    # add main group
-    obj.vertex_groups.new(name=group_name)
-    for vertex in obj.data.vertices:
-        if len(vertex.groups) > 1:
-            raise ExportException(f"{org_obj_name} has vertex assigned to multiple vertex groups"
-                                    f", this is not allowed! found groups: {vertex.groups.keys()}")
-        if len(vertex.groups) and vertex.groups[0].group in child_groups:
-            continue # this vert will  be "transfered" to child geom part
-        obj.vertex_groups[group_name].add([vertex.index], 1.0, "REPLACE")
+            child_groups.add(group.index)
+            child_name = strip_prefix(group.name)
+            child_group_name = obj_to_vertex_group[child_name]
+            # rename this group to child group
+            # after joining objects both groups will be merged into one
+            # this is exactly what we want
+            group.name = child_group_name
+
+        # add main group
+        obj.vertex_groups.new(name=group_name)
+        for vertex in obj.data.vertices:
+            if len(vertex.groups) > 1:
+                raise ExportException(f"{org_obj_name} has vertex assigned to multiple vertex groups"
+                                        f", this is not allowed! found groups: {vertex.groups.keys()}")
+            if len(vertex.groups) and vertex.groups[0].group in child_groups:
+                continue # this vert will  be "transfered" to child geom part
+            obj.vertex_groups[group_name].add([vertex.index], 1.0, "REPLACE")
 
     for child_obj in obj.children:
         if not _is_colmesh_dummy(child_obj):
             _create_mesh_vertex_group(child_obj, obj_to_vertex_group)
 
-def _map_objects_to_vertex_groups(obj, obj_to_geom_part, obj_to_vertex_group):
+def _map_meshes_to_vertex_groups(obj, obj_to_geom_part, obj_to_vertex_group=None):
+    if obj_to_vertex_group is None:
+        obj_to_vertex_group = dict()
+        is_root = True
+    else:
+        is_root = False
+
     org_obj_name = _strip_tmp_prefix(obj.name)
     obj_name = strip_prefix(org_obj_name)
     part_id = obj_to_geom_part[obj_name].part_id
-    group_name = f'mesh{part_id + 1}'
+    if is_root:
+        group_name = f'mesh1'
+        if not obj.data:
+            raise ExportException(f"{obj_name}: root of the LOD hierarchy must contain mesh data")
+    elif part_id == -1:
+        assert obj.data is None # non-geometry object, will be deleted
+        group_name = None
+    else:
+        group_name = f'mesh{part_id + 1}'
+
     obj_to_vertex_group[obj_name] = group_name
 
     for child_obj in obj.children:
         if not _is_colmesh_dummy(child_obj):
-            _map_objects_to_vertex_groups(child_obj, obj_to_geom_part, obj_to_vertex_group)
+            _map_meshes_to_vertex_groups(child_obj, obj_to_geom_part, obj_to_vertex_group)
+    
+    return obj_to_vertex_group
 
-def _select_all_geometry_parts(obj):
-    obj.select_set(True)
+def _select_geometry_parts(obj):
     for child_obj in obj.children:
-        if not _is_colmesh_dummy(child_obj):
-            _select_all_geometry_parts(child_obj)
+        if _is_colmesh_dummy(child_obj):
+            continue
+        _select_geometry_parts(child_obj)
+
+    if obj.data is None or not obj.data.vertices:
+        delete_object(obj, recursive=False)
+    else:
+        obj.select_set(True)
 
 def _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part):
     # first, assign one vertex group for each mesh which corresponds to geom part id
-    obj_to_vertex_group = dict()
-    _map_objects_to_vertex_groups(lod_obj, obj_to_geom_part, obj_to_vertex_group)
+    obj_to_vertex_group = _map_meshes_to_vertex_groups(lod_obj, obj_to_geom_part)
     _create_mesh_vertex_group(lod_obj, obj_to_vertex_group)
 
     # select all geom parts with meshes
     bpy.context.view_layer.objects.active = lod_obj
     bpy.ops.object.select_all(action='DESELECT')
-    _select_all_geometry_parts(lod_obj)
+    _select_geometry_parts(lod_obj)
     bpy.ops.object.join()
 
 def _join_lods(mesh_geoms, obj_to_geom_part):

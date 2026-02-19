@@ -231,11 +231,15 @@ def project_to_plane(obj, plane_name, texture_size):
             camera_obj.rotation_euler[axis] = math.radians(rot)
 
         # ambient light
-        scene.world.use_nodes = False
-        scene.world.color = (1, 1, 1)
+        scene.world.use_nodes = True
+        scene.world.node_tree.nodes["Background"].inputs['Color'].default_value = (1, 1, 1, 1)
 
         # render settings
-        scene.render.engine = 'BLENDER_EEVEE_NEXT'
+        try:
+            scene.render.engine = 'BLENDER_EEVEE_NEXT'
+        except:
+            scene.render.engine = 'BLENDER_EEVEE' # Blender 5.0
+
         scene.render.resolution_x = texture_width
         scene.render.resolution_y = texture_height
         scene.render.image_settings.file_format = "PNG"

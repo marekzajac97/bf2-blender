@@ -452,7 +452,7 @@ class ObjectTemplate(Template):
         self.children = []
         self.collmesh = None
         self.geom = None
-        self.geom_part = 0
+        self.geom_part = -1
         self.col_part = 0
         self.has_collision_physics = False
         self.col_material_map = dict()
@@ -505,7 +505,7 @@ class ObjectTemplate(Template):
             f.write(f'ObjectTemplate.hasMobilePhysics {int(self.has_mobile_physics)}\n')
         if self.geom:
             f.write(f'ObjectTemplate.geometry {self.geom.name}\n')
-        if self.geom_part:
+        if self.geom_part != -1:
             f.write(f'ObjectTemplate.geometryPart {self.geom_part}\n')
 
         for child in self.children:
