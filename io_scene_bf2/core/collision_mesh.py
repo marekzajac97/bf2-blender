@@ -128,8 +128,14 @@ class CollMeshImporter:
             delete_material_if_exists(mat_name)
             material = bpy.data.materials.new(mat_name)     
             material.use_nodes = True
-            principled_BSDF = material.node_tree.nodes.get('Principled BSDF')
-            principled_BSDF.inputs[0].default_value = tuple(next(cycol))
+            node_tree = material.node_tree
+            node_tree.nodes.clear()
+            material_output = node_tree.nodes.new('ShaderNodeOutputMaterial')
+            material_output.name = material_output.label = 'Material Output'
+            diffuse_BSDF = node_tree.nodes.new('ShaderNodeBsdfDiffuse')
+            diffuse_BSDF.name = diffuse_BSDF.label = 'Diffuse BSDF'            
+            diffuse_BSDF.inputs['Color'].default_value = tuple(next(cycol))
+            node_tree.links.new(diffuse_BSDF.outputs['BSDF'], material_output.inputs['Surface'])
             materials[i] = material
 
         return materials

@@ -23,7 +23,7 @@ class BF2CollMeshException(Exception):
 
 class Face:
     def __init__(self, verts, material):
-        self.verts : Tuple[int] = verts
+        self.verts : Tuple[int, int, int] = verts
         self.material : int = material
 
     @classmethod
@@ -245,7 +245,7 @@ class Col:
         self.max = Vec3()
 
         self.bsp : Optional[BSP] = None
-        self.debug_mesh : Optional[List[int]] = None
+        self.face_adj : Optional[List[int]] = None
 
     @classmethod
     def load(cls, f : FileUtils, version):
@@ -266,13 +266,14 @@ class Col:
         if bsp_present:
             obj.bsp = BSP.load(f, obj.faces)
 
-        # array of face indexes, can be -1 if unset, loaded only for ver >= 10, what exactly is this I don't know
-        # used for buildDebugMeshes, we could probably skip this and export as ver 9 and BF2 will generate it
+        # only used in game for drawing visual representation of colmeshes for debugging
+        # may be skipped by saving as version == 9
         if version[0] == 0 and version[1] >= 10:
-            obj.debug_mesh = [f.read_dword(signed=True) for _ in range(f.read_dword())]
+            obj.face_adj = [f.read_dword(signed=True) for _ in range(f.read_dword())]
+
         return obj
 
-    def save(self, f : FileUtils, update_bounds=True, update_bsp=True):
+    def save(self, f : FileUtils, update_bounds=True, update_bsp=True, update_face_adj=True):
         f.write_dword(self.col_type)
 
         self.faces.sort(key=lambda x: x.material)
@@ -306,6 +307,32 @@ class Col:
             f.write_byte(0x31)
             self.bsp.save(f, self.faces)
 
+        if update_face_adj or not self.face_adj:
+            edge_to_face_idx : Dict[Tuple[int, int], List[Face]] = dict()
+
+            def _edges(face):
+                for (v1, v2) in ((0, 1), (1, 2), (0, 2)):
+                    v1 = face.verts[v1]
+                    v2 = face.verts[v2]
+                    yield (v1, v2) if v1 < v2 else (v2, v1)
+
+            for idx, face in enumerate(self.faces):
+                for edge in _edges(face):
+                    edge_to_face_idx.setdefault(edge, list()).append(idx)
+
+            self.face_adj = list()
+            for idx, face in enumerate(self.faces):
+                for edge in _edges(face):
+                    neigh_faces = edge_to_face_idx[edge]
+                    if len(neigh_faces) == 1:
+                        neigh_face = -1
+                    else:
+                        neigh_face = neigh_faces[1] if neigh_faces[0] == idx else neigh_faces[0]
+                    self.face_adj.append(neigh_face)
+
+            f.write_dword(len(self.face_adj))
+            for face_idx in self.face_adj:
+                f.write_dword(face_idx, signed=True)
 
 class Geom:
     def __init__(self):
@@ -371,7 +398,7 @@ class BF2CollMesh:
         with open(export_path, "wb") as file:
             f = FileUtils(file)
             f.write_dword(0)
-            f.write_dword(9)
+            f.write_dword(10)
             f.write_dword(len(self.geom_parts))
             for geom_part in self.geom_parts:
                 geom_part.save(f, **kwargs)
