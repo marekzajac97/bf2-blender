@@ -11,11 +11,21 @@ from ..directx.texconv import Texconv
 from ..directx.dxgi_format import DXGI_FORMAT
 
 class Reporter:
-    def __init__(self, report_func) -> None:
+    def __init__(self, report_func, report_once=True) -> None:
+        if report_once:
+            self.history = set()
+        else:
+            self.history = None
         self.report_func = report_func
 
     def _report(self, level, msg):
-        print(f"{level}: {msg}")
+        fmt_msg = f"{level}: {msg}"
+        if self.history is not None:
+            if fmt_msg in self.history:
+                return
+            self.history.add(fmt_msg)
+
+        print(fmt_msg)
         if self.report_func:
             self.report_func({level}, msg)
 
