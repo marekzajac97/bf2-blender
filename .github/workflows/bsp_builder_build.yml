@@ -34,10 +34,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.13'
           # This ensures the architecture matches the runner
           architecture: ${{ matrix.name == 'Windows-ARM64' && 'arm64' || 'x64' }}
 

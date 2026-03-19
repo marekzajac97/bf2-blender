@@ -40,7 +40,7 @@ from .material import (setup_material,
 
 _DEBUG = False
 
-SPECULAR_LUT = 'Common\Textures\SpecularLUT_pow36.dds'
+SPECULAR_LUT = 'Common\\Textures\\SpecularLUT_pow36.dds'
 
 class AnimUv(enum.IntEnum):
     NONE = 0

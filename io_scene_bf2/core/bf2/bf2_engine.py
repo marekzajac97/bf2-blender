@@ -1,4 +1,5 @@
 import enum
+import inspect
 import types
 import os, glob, string
 import os.path as path
@@ -110,7 +111,7 @@ class MainConsole():
             else:
                 raise e
 
-        filepath = filepath.replace('\\', '/').lstrip('/')
+        filepath = filepath.replace('\\', '/').rstrip('/')
         self._stack.append(self.StackFrame(filepath))
 
         for i, arg in enumerate(args, start=1):
@@ -158,10 +159,14 @@ class MainConsole():
         self._process_directive(op, args[1:])
     
     def _execute_object_method(self, command, args):
-        obj_name = command.split('.')[0].lower()
-        method_name = '.'.join(command.split('.')[1:]).lower()
+        obj_name = command.split('.')[0]
+        method_name = '.'.join(command.split('.')[1:])
 
-        obj_class_or_instance = self._registered_console_objects.get(obj_name)
+        obj_class_or_instance = self._registered_console_objects.get(obj_name.lower())
+
+        if not obj_class_or_instance:
+            self.report('Unknown object')
+            return
 
         obj_method = None
         try:
@@ -172,13 +177,17 @@ class MainConsole():
             pass
 
         if not obj_method:
-            # self.report('Unknown object or method')
+            self.report('Unknown method')
             return
 
         try:
-            obj_method(*args)
-        except TypeError:
-            self.report('invalid argument arity')
+            sig = inspect.signature(obj_method)
+            sig.bind(*args)
+        except TypeError as e:
+            self.report('Invalid argument arity')
+            return
+
+        obj_method(*args)
 
     def _get_args(self, line):
         if '"' not in line:
@@ -285,7 +294,11 @@ class InstanceMethod(object):
         self.func = func
 
     def __get__(self, obj, objtype=None):
-        active = BF2Engine().get_manager(objtype or type(obj)).active_obj
+        t = objtype or type(obj)
+        man = BF2Engine().get_manager(t)
+        if not man:
+            raise RuntimeError(f"Manager for {t} not found")
+        active = man.active_obj
         if active:
             return types.MethodType(self.func, active)
 
@@ -299,9 +312,6 @@ def instancemethod(func):
 class Manager:
     def __init__(self):
         self.active_obj = None
-
-    def get_nested_manager(self, _type):
-        return None
 
 class Template:
     MANAGED_TYPE = None
@@ -736,11 +746,7 @@ class HeightmapClusterManager(Manager):
 
     def __init__(self):
         self.reset()
-
-    def get_nested_manager(self, _type):
-        if _type == HeightmapCluster.MANAGED_TYPE:
-            return self.active_obj
-
+    
     def reset(self):
         self.clusters = list()
         self.active_obj = None
@@ -913,7 +919,7 @@ class FileManager:
             self._current_dir_archive = None
             self._current_dir_path = None
 
-        filepath = filepath.replace('\\', '/').lstrip('/')
+        filepath = filepath.replace('\\', '/').rstrip('/')
 
         # check if it's relative path first
         if self._current_dir:
@@ -1028,12 +1034,22 @@ class FileManager:
 class BF2Engine():
     _instance = None
 
+    def _get_manager(self, manager, _type):
+        if not isinstance(manager, Manager):
+            return None
+        if _type == manager.MANAGED_TYPE:
+            return manager
+        # manager could be nested
+        nested_manager = manager.active_obj
+        if not nested_manager:
+            return None
+        if found := self._get_manager(nested_manager, _type):
+            return found
+
     def get_manager(self, _type) -> Manager:
-        for manager in self.singletons:
-            if _type == manager.MANAGED_TYPE:
-                return manager
-            elif nm := manager.get_nested_manager(_type):
-                return nm
+        for manager in self.glob_managers:
+            if found := self._get_manager(manager, _type):
+                return found
 
     def __new__(cls, *args, **kwargs):
         if not isinstance(cls._instance, cls):
@@ -1042,12 +1058,12 @@ class BF2Engine():
         return cls._instance
 
     def init(self):
-        self.singletons = list()
-        self.singletons.append(ObjectTemplateManager())
-        self.singletons.append(GeometryTemplateManager())
-        self.singletons.append(CollisionManager())
-        self.singletons.append(ObjectManager())
-        self.singletons.append(HeightmapClusterManager())
+        self.glob_managers = list()
+        self.glob_managers.append(ObjectTemplateManager())
+        self.glob_managers.append(GeometryTemplateManager())
+        self.glob_managers.append(CollisionManager())
+        self.glob_managers.append(ObjectManager())
+        self.glob_managers.append(HeightmapClusterManager())
         self.file_manager : FileManager = FileManager()
         self.light_manager : LightManager = LightManager()
 

@@ -18,14 +18,20 @@ As well as many other utilities for:
 - BundledMesh skinning
 
 ## Compatibility
-- minimum required: Blender 4.2
-- maximum supported: Blender 5.0 (later versions may still work but as of writing this, they have not been tested)
+
+For best experiance always use the recommended Blender version with the latest add-on version. Newer versions of Blender that are not listed below might still work but have not been tested.
+
+| Blender Version    |                                                            Add-on Version |
+| ------------------ | ------------------------------------------------------------------------- |
+| 5.1 (recommended)  | [latest](https://github.com/marekzajac97/bf2-blender/releases/latest)     |
+| 4.2 - 5.0          | [0.11.7](https://github.com/marekzajac97/bf2-blender/releases/tag/0.11.7) |
+| 4.0 - 4.1          | [0.7.7](https://github.com/marekzajac97/bf2-blender/releases/tag/0.7.7)   |
 
 ## Installation
 Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) compatible with your system and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
 
 ## Usage
-- Head over to the [Documentation](docs/README.md) for details on how to use this add-on
+Head over to the [Documentation](docs/README.md) for details on how to use this add-on
 
 ## License
 This repository includes the source code  of the following third-party projects:
