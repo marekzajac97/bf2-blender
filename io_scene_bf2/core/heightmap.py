@@ -21,12 +21,14 @@ def make_water_plane(context, heightmap_size, water_level, name='WaterPlane'):
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
 
-    water_uv_layer = mesh.uv_layers.new(name='UVMap')
+    loop_uvs = list()
     for loop in mesh.loops:
         vertex = mesh.vertices[loop.vertex_index]
-        x_normalized = (vertex.co[0] + off) / heightmap_size
-        y_normalized = (vertex.co[1] + off) / heightmap_size
-        water_uv_layer.data[loop.index].uv = (x_normalized, y_normalized)
+        loop_uvs.append((vertex.co[0] + off) / heightmap_size)
+        loop_uvs.append((vertex.co[1] + off) / heightmap_size)
+
+    water_uv_layer = mesh.uv_layers.new(name='UVMap')
+    water_uv_layer.data.foreach_set('uv', loop_uvs)
 
     obj = bpy.data.objects.new(name, mesh)
     obj.location.z = water_level
@@ -75,13 +77,14 @@ def import_heightmap_from(context, data, name, bit_res=16, scale=(1, 1, 1)):
     mesh = bpy.data.meshes.new(name)
     bm.to_mesh(mesh)
 
-    terrain_uv_layer = mesh.uv_layers.new(name='UVMap')
-
+    loop_uvs = list()
     for loop in mesh.loops:
         vertex = mesh.vertices[loop.vertex_index]
-        x_normalized = (vertex.co[0] + offset_x) / scale[0] / (world_dim - 1)
-        y_normalized = (vertex.co[1] + offset_y) / scale[1] / (world_dim - 1)
-        terrain_uv_layer.data[loop.index].uv = (x_normalized, y_normalized)
+        loop_uvs.append((vertex.co[0] + offset_x) / scale[0] / (world_dim - 1))
+        loop_uvs.append((vertex.co[1] + offset_y) / scale[1] / (world_dim - 1))
+
+    terrain_uv_layer = mesh.uv_layers.new(name='UVMap')
+    terrain_uv_layer.data.foreach_set('uv', loop_uvs)
 
     obj = bpy.data.objects.new(name, mesh)
     context.scene.collection.objects.link(obj)

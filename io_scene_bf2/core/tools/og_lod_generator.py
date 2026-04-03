@@ -153,9 +153,15 @@ def project_to_plane(obj, plane_name, texture_size):
         if u_bound.distance > v_bound.distance:
             ortho_scale = plane_width = u_bound.distance
             plane_height = plane_width * (1/aspect_ratio)
+            s = max(v_bound.distance / plane_height, 1.0)
         else:
             ortho_scale = plane_height = v_bound.distance
             plane_width = plane_height * aspect_ratio
+            s = max(u_bound.distance / plane_width, 1.0)
+
+        ortho_scale *= s
+        plane_width *= s
+        plane_height *= s
 
         # Make plane
         bm = bmesh.new()
@@ -189,16 +195,18 @@ def project_to_plane(obj, plane_name, texture_size):
         mesh = bpy.data.meshes.new(plane_name)
         bm.to_mesh(mesh)
 
-        uv_layer = mesh.uv_layers.new(name='UVMap')
+        loop_uvs = list()
         for loop in mesh.loops:
             vertex = mesh.vertices[loop.vertex_index]
             u = vertex.co[plane_axes_idx[0]] / plane_width + 0.5
             v = vertex.co[plane_axes_idx[1]] / plane_height + 0.5
             if flip_uv:
-                uv = (1 - u, v)
+                loop_uvs.extend((1 - u, v))
             else:
-                uv = (u, v)
-            uv_layer.data[loop.index].uv = uv
+                loop_uvs.extend((u, v))
+
+        uv_layer = mesh.uv_layers.new(name='UVMap')
+        uv_layer.data.foreach_set('uv', loop_uvs)
 
         plane_obj = bpy.data.objects.new(plane_name, mesh)
         scene.collection.objects.link(plane_obj)

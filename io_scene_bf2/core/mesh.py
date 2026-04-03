@@ -199,7 +199,7 @@ class MeshImporter:
 
                 # UVs
                 uv_matrix_idx = vert.blendindices[3]
-                for uv_chan, vertex_uv in uvs.items():
+                for uv_chan, vertex_uvs in uvs.items():
                     uv = getattr(vert, f'texcoord{uv_chan}')
                     if has_anim_uv and uv_matrix_idx in ANIM_UV_ROTATION_MATRICES:
                         if uv_ratio is None:
@@ -215,7 +215,7 @@ class MeshImporter:
                         uv = (uv[0] + vert_animuv_center[0] * uv_ratio[0],
                             uv[1] + vert_animuv_center[1] * uv_ratio[1])
                     uv = flip_uv(uv)
-                    vertex_uv.append(uv)
+                    vertex_uvs.append(uv)
 
                 # Animated UVs data
                 if has_anim_uv:
@@ -360,10 +360,14 @@ class MeshImporter:
             animuv_rot_center.data.foreach_set('vector', list(chain(*vertex_animuv_rot_center)))
 
         # apply UVs
-        for uv_chan, vertex_uv in uvs.items():
-            uvlayer = mesh.uv_layers.new(name=f'UV{uv_chan}')
+        for uv_chan, vertex_uvs in uvs.items():
+            loop_uvs = list()
             for l in mesh.loops:
-                uvlayer.data[l.index].uv = vertex_uv[l.vertex_index]
+                uv = vertex_uvs[l.vertex_index]
+                loop_uvs.extend(uv)
+
+            uvlayer = mesh.uv_layers.new(name=f'UV{uv_chan}')
+            uvlayer.data.foreach_set('uv', loop_uvs)
 
         mesh_obj = bpy.data.objects.new(name, mesh)
         self.context.scene.collection.objects.link(mesh_obj)
