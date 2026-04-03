@@ -289,8 +289,8 @@ FOURCC_TO_DXGI = {
 
 def save_img_as_dds(img, outfile, compression='DXT5'):
     with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_file = os.path.join(tmp_dir, file_name(outfile) + '.png')
-        img.file_format = 'PNG'
+        tmp_file = os.path.join(tmp_dir, file_name(outfile) + '.tga')
+        img.file_format = 'TARGA'
         img.filepath_raw = tmp_file
         img.alpha_mode = 'STRAIGHT'
         img.save(filepath=tmp_file)
