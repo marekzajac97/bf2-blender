@@ -19,7 +19,7 @@ As well as many other utilities for:
 
 ## Compatibility
 
-IMPORTANT NOTICE: There is a bug introduced in 5.1 version of Blender causing the import & export to be extremally slow. [The fix](https://projects.blender.org/blender/blender/pulls/155867) should be comming in the next hotfix (5.1.1), but for now avoid using Blender 5.1.
+IMPORTANT NOTICE: There is a bug introduced in 5.1 version of Blender causing the import & export to be extremely slow. [The fix](https://projects.blender.org/blender/blender/pulls/155867) should be comming in the next hotfix (5.1.1), but for now avoid using Blender 5.1.
 
 For best experiance always use the recommended Blender version with the latest add-on version. Newer versions of Blender that are not listed below might still work but have not been tested.
 
