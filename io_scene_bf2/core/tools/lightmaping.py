@@ -84,6 +84,7 @@ def _setup_scene_for_baking(context):
     context.scene.render.engine = 'CYCLES'
     context.scene.cycles.device = 'GPU'
     context.scene.cycles.bake_type = 'DIFFUSE'
+    context.scene.render.image_settings.file_format = 'TARGA'
     context.scene.render.bake.use_pass_direct = True
     context.scene.render.bake.use_pass_indirect = True
     context.scene.render.bake.use_pass_color = False
@@ -220,6 +221,7 @@ class PostProcessor:
             self.add_ambient_light.nodes['SrcImage'].image = image
             context.scene.render.resolution_x = image.size[0]
             context.scene.render.resolution_y = image.size[1]
+            context.scene.render.image_settings.file_format = 'TARGA'
             bpy.ops.render.render()
 
             # save output
@@ -556,12 +558,6 @@ class TerrainBaker(BakerBase):
         super().__init__(output_dir, dds_fmt)
         self.reporter = reporter
         self.terrain = find_heightmap(context)
-        self.existing_patches = set()
-        if skip_existing:
-            existing = get_all_lightmap_files(output_dir)
-            self.existing_patches = [e for e in existing if re.match(r'tx\d{2}x\d{2}', e)]
-            # TODO: detect which terrain patches to skip entirely and do UV offset at one go based on skipped row/col
-
         if not self.terrain:
             raise RuntimeError(f'Heightmap object not found')
 
@@ -573,12 +569,26 @@ class TerrainBaker(BakerBase):
                 raise RuntimeError(f'Cannot determine default values for patch_count and patch_size')
             patch_count, patch_size = DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES[hm_size]
 
-        self.patch_count = patch_count
-        self.patch_size = patch_size
-
         self.grid_size = math.isqrt(patch_count)
         if self.grid_size * self.grid_size != patch_count:
             raise RuntimeError(f'patch_count must be a power of 4')
+
+        self.patches_to_bake = list()
+        if skip_existing:
+            existing = get_all_lightmap_files(output_dir)
+            existing_patches = {e for e in existing if re.match(r'tx\d{2}x\d{2}', e)}
+            for col in range(self.grid_size):
+                for row in range(self.grid_size):
+                    name = f'tx{col:02d}x{row:02d}'
+                    print(f"{name} exists, skipping")
+                    if name not in existing_patches:
+                        self.patches_to_bake.append((col, row))
+        else:
+            for col in range(self.grid_size):
+                for row in range(self.grid_size):
+                    self.patches_to_bake.append((col, row))
+        self.patch_index = 0
+        self.patch_size = patch_size
 
         mesh = self.terrain.data
         vert_count = math.isqrt(len(mesh.vertices))
@@ -618,18 +628,15 @@ class TerrainBaker(BakerBase):
             render_result = bpy.data.images['Render Result']
             bpy.data.images.remove(render_result)
 
-        self.col = 0
-        self.row = 0
-
     def type(self):
         return 'Terrain'
 
     def total_items(self):
-        return self.patch_count
+        return len(self.patches_to_bake)
 
     def completed_items(self):
-        return self.row + self.grid_size * self.col
-    
+        return self.patch_index
+
     def cleanup(self, context):
         mesh = self.terrain.data
         context.scene.compositing_node_group = None
@@ -639,6 +646,10 @@ class TerrainBaker(BakerBase):
     def bake_next(self, context):
         mesh = self.terrain.data
 
+        if self.patch_index >= len(self.patches_to_bake):
+            self.cleanup(context)
+            return False
+
         for obj in context.selected_objects:
             obj.select_set(False)
 
@@ -646,63 +657,60 @@ class TerrainBaker(BakerBase):
         self.terrain.select_set(True)
         self.terrain.hide_render = False
 
-        if self.row >= self.grid_size:
-            # next column
-            self.row = 0
-            self.col += 1
-            _offset_uvs(self.uv_layer, -1, -self.grid_size)
-
-        if self.col >= self.grid_size:
-            # cleanup & return
-            self.cleanup(context)
-            return False
-
-        name = f'tx{self.col:02d}x{self.row:02d}'
-        if name in self.existing_patches:
-            print(f"Skipped terrain patch {self.completed_items() + 1}/{self.patch_count}")
+        col, row = self.patches_to_bake[self.patch_index]
+        if self.patch_index == 0:
+            prev_col = 0
+            prev_row = 0
         else:
-            print(f"Baking terrain patch {self.completed_items() + 1}/{self.patch_count}")
+            prev_col, prev_row = self.patches_to_bake[self.patch_index-1]
 
-            light_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=self.patch_size, height=self.patch_size)
-            water_depth_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=self.patch_size, height=self.patch_size)
+        u_offset = col - prev_col
+        v_offset = row - prev_row
 
-            for water_pass in [False, True]:
-                if water_pass:
-                    self.flatten_water_mod.show_render = False
-                    mesh.materials[0] = self.water_depth_mat
-                    self.texture_node_water_depth.image = water_depth_map
-                else:
-                    self.flatten_water_mod.show_render = True
-                    mesh.materials[0] = self.default_terrain_mat
-                    self.texture_node_light.image = light_map
+        _offset_uvs(self.uv_layer, -u_offset, v_offset)
 
-                context.scene.render.bake.use_pass_direct = not water_pass
-                context.scene.render.bake.use_pass_indirect = not water_pass
-                context.scene.render.bake.use_pass_color = water_pass
-                bpy.ops.object.bake(type='DIFFUSE', uv_layer=self.uv_layer.name)
+        name = f'tx{col:02d}x{row:02d}'
 
-            # combine both passes in compositor
-            with PreserveColorSpaceSettings(context):
-                context.scene.view_settings.view_transform = 'Standard'
-                self.combine_channels.nodes['LightMap'].image = light_map
-                self.combine_channels.nodes['WaterDepthMap'].image = water_depth_map
-                context.scene.render.resolution_x = self.patch_size
-                context.scene.render.resolution_y = self.patch_size
-                bpy.ops.render.render()
+        print(f"Baking terrain patch {self.completed_items() + 1}/{self.total_items()}")
+        light_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=self.patch_size, height=self.patch_size)
+        water_depth_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=self.patch_size, height=self.patch_size)
 
-                # save output
-                render_result = bpy.data.images['Render Result']
-                self.save_bake(render_result, name)
+        for water_pass in [False, True]:
+            if water_pass:
+                self.flatten_water_mod.show_render = False
+                mesh.materials[0] = self.water_depth_mat
+                self.texture_node_water_depth.image = water_depth_map
+            else:
+                self.flatten_water_mod.show_render = True
+                mesh.materials[0] = self.default_terrain_mat
+                self.texture_node_light.image = light_map
 
-                # cleanup
-                self.combine_channels.nodes['LightMap'].image = None
-                self.combine_channels.nodes['WaterDepthMap'].image = None
-                bpy.data.images.remove(light_map)
-                bpy.data.images.remove(water_depth_map)
-                bpy.data.images.remove(render_result)
+            context.scene.render.bake.use_pass_direct = not water_pass
+            context.scene.render.bake.use_pass_indirect = not water_pass
+            context.scene.render.bake.use_pass_color = water_pass
+            bpy.ops.object.bake(type='DIFFUSE', uv_layer=self.uv_layer.name)
 
-        self.row += 1
-        _offset_uvs(self.uv_layer, 0, 1)
+        # combine both passes in compositor
+        with PreserveColorSpaceSettings(context):
+            context.scene.view_settings.view_transform = 'Standard'
+            self.combine_channels.nodes['LightMap'].image = light_map
+            self.combine_channels.nodes['WaterDepthMap'].image = water_depth_map
+            context.scene.render.resolution_x = self.patch_size
+            context.scene.render.resolution_y = self.patch_size
+            bpy.ops.render.render()
+
+            # save output
+            render_result = bpy.data.images['Render Result']
+            self.save_bake(render_result, name)
+
+            # cleanup
+            self.combine_channels.nodes['LightMap'].image = None
+            self.combine_channels.nodes['WaterDepthMap'].image = None
+            bpy.data.images.remove(light_map)
+            bpy.data.images.remove(water_depth_map)
+            bpy.data.images.remove(render_result)
+
+        self.patch_index += 1
         return True
 
 # -------------------
@@ -1177,7 +1185,7 @@ def _run_all_con_files(root_dir):
 def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
-               water_attenuation=0.1, texture_paths=[], max_lod_to_load=None,
+               water_attenuation=0.1, mod_dirs=[], max_lod_to_load=None,
                config=None, config_file='', reporter=DEFAULT_REPORTER):
 
     level_dir = level_dir.rstrip('/').rstrip('\\')
@@ -1206,10 +1214,12 @@ def load_level(context, level_dir, use_cache=True,
         file_manager.mountArchive(path.join(level_dir, 'client.zip'), level_dir)
         file_manager.mountArchive(path.join(level_dir, 'server.zip'), level_dir)
     else:
-        if not any([mod_dir.lower() == t.rstrip('/').rstrip('\\').lower() for t in texture_paths]):
-            texture_paths.append(mod_dir)
-        texture_paths.append(level_dir) # for objects inside levels dir
-        BF2Engine().file_manager.root_dirs = texture_paths
+        # add to to other mod dirs if needed
+        if not any([mod_dir.lower() == t.rstrip('/').rstrip('\\').lower() for t in mod_dirs]):
+            mod_dirs.append(mod_dir)
+
+        mod_dirs.append(level_dir) # for objects inside levels dir
+        BF2Engine().file_manager.root_dirs = mod_dirs
 
     # load statics & OG
     if load_static_objects or load_overgrowth:
@@ -1217,12 +1227,15 @@ def load_level(context, level_dir, use_cache=True,
         if not load_unpacked:
             try:
                 main_console.run_file(path.join(level_dir, 'serverarchives.con'))
-                mod_loader = ModLoader(mod_dir, use_cache)
+                mod_loader = ModLoader(mod_dir, use_cache) # load just the main mod (ignore mod_dirs)
                 mod_loader.reload_all()
             except FileManagerFileNotFound:
                 pass
         else:
-            _run_all_con_files(os.path.join(mod_dir, 'objects'))
+            # load each mod_dir configured
+            for md in mod_dirs:
+                print(f'Loading objects from "{md}"')
+                _run_all_con_files(os.path.join(md, 'objects'))
             _run_all_con_files(os.path.join(level_dir, 'objects'))
 
         if load_static_objects:
@@ -1278,7 +1291,7 @@ def load_level(context, level_dir, use_cache=True,
                 raise NotImplementedError() # TODO: texture load from FileManager
 
             importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh,
-                                    texture_paths=texture_paths, reporter=reporter, free_normals=True, silent=True)
+                                    texture_paths=mod_dirs, reporter=reporter, free_normals=True, silent=True)
             try:
                 mesh_obj = importer.import_mesh()
             except ImportException as e:
@@ -1333,7 +1346,7 @@ def load_level(context, level_dir, use_cache=True,
             # do material tweaks
             if 'StaticMesh' == geom_temp.geometry_type:
                 for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
-                    _do_material_tweaks(config, geom_temp.name, lod_obj.data, texture_paths, ray_vis_mask, reporter)
+                    _do_material_tweaks(config, geom_temp.name, lod_obj.data, mod_dirs, ray_vis_mask, reporter)
 
             # delete source objects, keep mesh instances
             delete_object(mesh_obj, remove_data=False)

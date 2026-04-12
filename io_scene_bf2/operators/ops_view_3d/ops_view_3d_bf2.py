@@ -337,7 +337,7 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
                        load_lights=self.load_lights,
                        water_attenuation=self.water_light_attenuation,
                        max_lod_to_load=self.max_lod_to_load,
-                       texture_paths=mod_dirs,
+                       mod_dirs=mod_dirs,
                        config=config,
                        reporter=Reporter(self.report))
 

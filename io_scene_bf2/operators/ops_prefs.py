@@ -81,7 +81,7 @@ def debug_set_mod_path():
     BF2_PATHS = [
                  r'D:\Battlefield 2\mods\fh2',
                  r'D:\Battlefield 2\mods\bf2',
-                 r'D:\Project Reality\mods\pr'
+                 # r'D:\Project Reality\mods\pr'
                 ]
     for path in BF2_PATHS:
         if not os.path.isdir(path):
