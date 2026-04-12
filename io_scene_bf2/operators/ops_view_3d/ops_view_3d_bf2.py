@@ -167,6 +167,7 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
         return False
 
     def update_progress(self, context, status='Post-processing'):
+        context.area.tag_redraw()
         if not self.processor:
             context.scene.bf2_lm_progress_msg = 'Finished'
             context.scene.bf2_lm_progress_value = 1
@@ -179,20 +180,29 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
             return
         context.scene.bf2_lm_progress_msg = f"{status}... {completed_items}/{total_items}"
         context.scene.bf2_lm_progress_value = completed_items / total_items
-        context.area.tag_redraw()
+
+    def cancel_timer(self, context):
+        context.window_manager.event_timer_remove(self.timer)
+
+    def setup_timer(self, context):
+        self.timer = context.window_manager.event_timer_add(0, window=context.window)
 
     def modal(self, context, event):
         if event.type=='ESC' and event.value=='PRESS':
             self.report({"WARNING"}, "Post-processing has been canceled!")
+            self.cancel_timer(context)
             return {'FINISHED'}
         elif event.type != 'TIMER':
             return {'PASS_THROUGH'}
+        
+        self.cancel_timer(context)
 
         if not self.processor.process_next(context):
             self.processor = None
         self.update_progress(context)
 
         if self.processor:
+            self.setup_timer(context)
             return {'RUNNING_MODAL'}
         else:
             context.window_manager.event_timer_remove(self.timer)
@@ -213,10 +223,9 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
                                        ambient_light_intensity=self.intensity,
                                        dds_fmt=self.dds_compression)
 
-        wm = context.window_manager
-        self.timer = wm.event_timer_add(0, window=context.window)
-        wm.modal_handler_add(self)
         self.update_progress(context)
+        self.setup_timer(context)
+        context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
 class VIEW3D_OT_bf2_new_lm_config(bpy.types.Operator):
@@ -464,6 +473,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
 
     def update_progress(self, context, status='Baking'):
         baker = self.active_baker()
+        context.area.tag_redraw()
         if not baker:
             context.scene.bf2_lm_progress_msg = 'Finished'
             context.scene.bf2_lm_progress_value = 1
@@ -476,7 +486,12 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             return
         context.scene.bf2_lm_progress_msg = f"{status} {baker.type()}... {completed_items}/{total_items}"
         context.scene.bf2_lm_progress_value = completed_items / total_items
-        context.area.tag_redraw()
+
+    def cancel_timer(self, context):
+        context.window_manager.event_timer_remove(self.timer)
+
+    def setup_timer(self, context):
+        self.timer = context.window_manager.event_timer_add(0, window=context.window)
 
     def modal(self, context, event):
         if event.type=='ESC' and event.value=='PRESS':
@@ -484,10 +499,14 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             if baker:
                 self.update_progress(context, status='Canceled')
                 baker.cleanup(context)
+
             self.report({"WARNING"}, "Baking has been canceled!")
+            self.cancel_timer(context)
             return {'FINISHED'}
         elif event.type != 'TIMER':
             return {'PASS_THROUGH'}
+
+        self.cancel_timer(context)
 
         baker = self.active_baker()
         if not baker.bake_next(context):
@@ -496,9 +515,9 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
 
         baker = self.active_baker()
         if baker:
+            self.setup_timer(context)
             return {'RUNNING_MODAL'}
         else:
-            context.window_manager.event_timer_remove(self.timer)
             self.report({"INFO"}, "Baking has finished!")
             return {'FINISHED'}
 
@@ -530,12 +549,13 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
                                  reporter=Reporter(self.report))
             self.bakers.append(baker)
 
-        # need this to generate dummy events for modal opeartor if user does nothing
-        wm = context.window_manager
-        self.timer = wm.event_timer_add(0.05, window=context.window)
-        wm.modal_handler_add(self)
+        if not self.bakers:
+            self.report({"INFO"}, f"Nothing to bake")
+            return {'CANCELLED'}
 
         self.update_progress(context)
+        self.setup_timer(context)
+        context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
 class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
@@ -572,7 +592,8 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             col.enabled = scene.bf2_lm_bake_terrain
             body.separator(factor=1.0, type='LINE')
             body.prop(scene, "bf2_lm_resume")
-            props = main.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
+            row = main.row()
+            props = row.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
             props.outdir = scene.bf2_lm_outdir
             props.dds_compression = scene.bf2_lm_dds_compression
             props.bake_objects = scene.bf2_lm_bake_objects
@@ -582,6 +603,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(View3DPanel_BF2, bpy.types.Panel):
             props.patch_size = scene.bf2_lm_patch_size
             props.normal_maps = scene.bf2_lm_normal_maps
             props.resume = scene.bf2_lm_resume
+            row.enabled = props.bake_objects or props.bake_terrain
 
             if VIEW3D_OT_bf2_bake.is_running(context):
                 row = layout.row()

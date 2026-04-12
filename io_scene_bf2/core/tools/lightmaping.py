@@ -657,6 +657,8 @@ class TerrainBaker(BakerBase):
         self.terrain.select_set(True)
         self.terrain.hide_render = False
 
+        print(f"Baking terrain patch {self.completed_items() + 1}/{self.total_items()}")
+
         col, row = self.patches_to_bake[self.patch_index]
         if self.patch_index == 0:
             prev_col = 0
@@ -667,11 +669,10 @@ class TerrainBaker(BakerBase):
         u_offset = col - prev_col
         v_offset = row - prev_row
 
-        _offset_uvs(self.uv_layer, -u_offset, v_offset)
-
         name = f'tx{col:02d}x{row:02d}'
 
-        print(f"Baking terrain patch {self.completed_items() + 1}/{self.total_items()}")
+        _offset_uvs(self.uv_layer, -u_offset, v_offset)
+
         light_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=self.patch_size, height=self.patch_size)
         water_depth_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=self.patch_size, height=self.patch_size)
 
@@ -837,6 +838,7 @@ class ObjectBaker(BakerBase):
                 if obj.parent is None and obj.data is None:
                     self.objects.append(obj)
 
+        self.objects.sort(key=lambda o: o.name)
         self.total_count = len(self.objects)
         _setup_scene_for_baking(context)
 
