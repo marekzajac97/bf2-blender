@@ -239,10 +239,12 @@ class PostProcessor:
         while self.process_next(context):
             pass
 
-def get_all_lightmap_files(dir):
+def get_all_lightmap_files(dir, pattern):
     files = set()
     for file in os.listdir(dir):
         if not file.endswith(".dds"):
+            continue
+        if not re.match(pattern, file):
             continue
         files.add(file[:-4])
     return files
@@ -331,15 +333,16 @@ class PreserveColorSpaceSettings():
 # baking terrain
 # -------------------
 
-def _make_flatten_at_watter_level(water_level):
+def _make_flatten_at_water_level():
     if 'FlattenAtWaterLevel' in bpy.data.node_groups:
         node_group = bpy.data.node_groups['FlattenAtWaterLevel']
         bpy.data.node_groups.remove(node_group)
 
     node_tree = bpy.data.node_groups.new(type='GeometryNodeTree', name="FlattenAtWaterLevel")
 
-    in_sock = node_tree.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
-    out_sock = node_tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    node_tree.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+    node_tree.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+    node_tree.interface.new_socket(name="Water Level", in_out='INPUT', socket_type='NodeSocketFloat')
 
     group_input = node_tree.nodes.new("NodeGroupInput")
     group_output = node_tree.nodes.new("NodeGroupOutput")
@@ -348,13 +351,14 @@ def _make_flatten_at_watter_level(water_level):
     get_position = node_tree.nodes.new("GeometryNodeInputPosition")
 
     clamp = node_tree.nodes.new("ShaderNodeClamp")
-    clamp.inputs['Min'].default_value = water_level
+    clamp.inputs['Min'].default_value = 0.0
     clamp.inputs['Max'].default_value = 10000.0
 
     set_position = node_tree.nodes.new("GeometryNodeSetPosition")
     combine_xyz = node_tree.nodes.new("ShaderNodeCombineXYZ")
     separate_xyz = node_tree.nodes.new("ShaderNodeSeparateXYZ")
 
+    node_tree.links.new(group_input.outputs['Water Level'], clamp.inputs['Min'])
     node_tree.links.new(group_input.outputs['Geometry'], set_position.inputs['Geometry'])
     node_tree.links.new(set_position.outputs['Geometry'], group_output.inputs['Geometry'])
     node_tree.links.new(get_position.outputs['Position'], separate_xyz.inputs['Vector'])
@@ -575,8 +579,7 @@ class TerrainBaker(BakerBase):
 
         self.patches_to_bake = list()
         if skip_existing:
-            existing = get_all_lightmap_files(output_dir)
-            existing_patches = {e for e in existing if re.match(r'tx\d{2}x\d{2}', e)}
+            existing_patches = get_all_lightmap_files(output_dir, r'tx\d{2}x\d{2}')
             for col in range(self.grid_size):
                 for row in range(self.grid_size):
                     name = f'tx{col:02d}x{row:02d}'
@@ -589,6 +592,7 @@ class TerrainBaker(BakerBase):
                     self.patches_to_bake.append((col, row))
         self.patch_index = 0
         self.patch_size = patch_size
+        self.patch_count = patch_count
 
         mesh = self.terrain.data
         vert_count = math.isqrt(len(mesh.vertices))
@@ -628,14 +632,17 @@ class TerrainBaker(BakerBase):
             render_result = bpy.data.images['Render Result']
             bpy.data.images.remove(render_result)
 
+    def _skipped_patches(self):
+        return self.patch_count - len(self.patches_to_bake)
+
     def type(self):
         return 'Terrain'
 
     def total_items(self):
-        return len(self.patches_to_bake)
+        return self.patch_count
 
     def completed_items(self):
-        return self.patch_index
+        return self.patch_index  + self._skipped_patches()
 
     def cleanup(self, context):
         mesh = self.terrain.data
@@ -825,8 +832,7 @@ class ObjectBaker(BakerBase):
 
         self.existing_lods = set()
         if skip_existing:
-            self.existing_lods = get_all_lightmap_files(output_dir)
-            # TODO: filter terrain
+            self.existing_lods = get_all_lightmap_files(output_dir, r'.*=\d{2}=-?\d+=-?\d+=-?\d+')
 
         if only_selected:
             for obj in context.selected_objects:
@@ -1021,7 +1027,9 @@ def _load_heightmap(context, level_dir, water_attenuation):
     material.use_fake_user = True # will be used later
 
     modifier = terrain.modifiers.new(type='NODES', name="FlattenAtWaterLevel")
-    modifier.node_group = _make_flatten_at_watter_level(hm_cluster.water_level)
+    modifier.node_group = _make_flatten_at_water_level()
+    input_id = modifier.node_group.interface.items_tree["Water Level"].identifier
+    modifier[input_id] = hm_cluster.water_level
 
 def _match_config_pattern(value, config, prop, get_pattern=None):
     for prop_val in getattr(config, prop, []):
