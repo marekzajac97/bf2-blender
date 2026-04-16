@@ -62,23 +62,16 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImporterBase, BafMeta):
 
     def _execute(self, context):
         rig = find_active_skeleton(context)
-        if rig.animation_data is None:
-            rig.animation_data_create()
-
         dirpath = os.path.dirname(self.filepath)
         frame = self.insert_at_frame
         for file in self._get_files():
-            filepath = os.path.join(dirpath, file)
-            if self.to_new_action:
-                action = bpy.data.actions.new(os.path.splitext(file)[0])
-                rig.animation_data.action = action
-                import_animation(context, rig, filepath, insert_at_frame=self.insert_at_frame)
-                action.use_fake_user = True # prevent Actions from getting deleted
-                action.use_frame_range = True
-            else:
-                import_animation(context, rig, filepath, insert_at_frame=frame)
+            import_animation(context, rig, os.path.join(dirpath, file),
+                             insert_at_frame=frame,
+                             to_new_action=self.to_new_action)
+            # if multiple files are selected to import into a single action append them one by one
+            if not self.to_new_action:
                 frame += context.scene.frame_end - frame + 1
-                # TODO: add a marker
+                # TODO: add a markers
         if not self.to_new_action:
             context.scene.frame_start = self.insert_at_frame
         if self.setup_ctrls:

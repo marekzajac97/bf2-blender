@@ -1,7 +1,5 @@
 import bpy # type: ignore
 
-from .ops_view_3d_bf2_animation import VIEW3D_OT_bf2_anim_ctrl_setup_begin
-
 from ...core.utils import Reporter
 from ...core.tools.anim_utils import reparent_bones
 from ..utils import RegisterFactory
@@ -53,7 +51,6 @@ class POSE_MT_bf2_submenu(bpy.types.Menu):
     def draw(self, context):
         self.layout.operator(POSE_OT_bf2_change_parent.bl_idname)
         self.layout.operator(POSE_OT_bf2_clear_parent.bl_idname)
-        self.layout.operator(VIEW3D_OT_bf2_anim_ctrl_setup_begin.bl_idname)
 
 def menu_func_pose(self, context):
     self.layout.menu(POSE_MT_bf2_submenu.bl_idname, text="BF2")

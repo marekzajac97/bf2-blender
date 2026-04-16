@@ -55,6 +55,21 @@ class ModuleRegister(Registrator):
     def on_unregister(self):
         getattr(self.module, 'unregister')()
 
+
+class FuncCallRegister(Registrator):
+    def __init__(self, reg_func, unreg_func):
+        self.reg_func = reg_func
+        self.unreg_func = unreg_func
+
+    def on_register(self):
+        if self.reg_func:
+            self.reg_func()
+
+    def on_unregister(self):
+        if self.unreg_func:
+            self.unreg_func()
+
+
 class RegisterFactory():
 
     @classmethod
@@ -77,6 +92,9 @@ class RegisterFactory():
 
     def reg_module(self, module):
         self.registrators.append(ModuleRegister(module))
+
+    def reg_fun(self, on_register=None, on_unregister=None):
+        self.registrators.append(FuncCallRegister(on_register, on_unregister))
 
     def apply(self):
         def register():

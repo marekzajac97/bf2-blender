@@ -1,8 +1,9 @@
 import bpy # type: ignore
+import os
 
 from mathutils import Matrix # type: ignore
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame, BF2AnimationException
-from .utils import to_matrix, conv_bf2_to_blender, conv_blender_to_bf2
+from .utils import to_matrix, conv_bf2_to_blender, conv_blender_to_bf2, file_name
 from .skeleton import (ske_get_bone_rot,
                        find_animated_weapon_object, ske_weapon_part_ids)
 from .exceptions import ImportException, ExportException
@@ -93,13 +94,26 @@ def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, 
         raise ExportException(str(e)) from e
 
 
-def import_animation(context, rig, baf_file, insert_at_frame=0):
+def import_animation(context, rig, baf_file, insert_at_frame=0, to_new_action=False):
     scene = context.scene
     try:
         baf = BF2Animation(baf_file)
     except BF2AnimationException as e:
-        raise ImportException(str(e)) from e   
+        raise ImportException(str(e)) from e
 
+    if rig.animation_data is None:
+        rig.animation_data_create()
+
+    action = None
+    if to_new_action:
+        action = bpy.data.actions.new(file_name(baf_file))
+        rig.animation_data.action = action
+        action.use_fake_user = True # prevent Actions from getting deleted
+        action.use_frame_range = True
+    elif rig.animation_data.action:
+        action = rig.animation_data.action
+    else:
+        action = bpy.data.actions.new(rig.name + 'Action')
     armature = rig.data
     context.view_layer.objects.active = rig
 
@@ -108,6 +122,9 @@ def import_animation(context, rig, baf_file, insert_at_frame=0):
 
     scene.frame_start = insert_at_frame
     scene.frame_end = insert_at_frame + baf.frame_num - 1
+    action.frame_start = scene.frame_start
+    action.frame_end = scene.frame_end
+
     scene.render.fps = 24 # BF2 hardcoded default
 
     ske_bones = rig['bf2_bones']
@@ -147,3 +164,5 @@ def import_animation(context, rig, baf_file, insert_at_frame=0):
             pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=insert_at_frame + frame_idx)
 
     bpy.ops.object.mode_set(mode='OBJECT')
+
+    return rig.animation_data.action
