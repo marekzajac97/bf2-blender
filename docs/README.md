@@ -4,6 +4,7 @@
 - [Initial Add-on setup](#initial-add-on-setup)
 - [Animating](#animating)
   * [Animation Import](#animation-import)
+  * [Working with 3P Animations](#working-with-3p-animations)
   * [Rig setup](#rig-setup)
   * [Animation Export](#animation-export)
   * [Recommended Extensions](#recommended-extensions)
@@ -24,48 +25,60 @@
 If you are completely unfamiliar with BF2 modding, consider reading [BF2 glossary](BF2.md) first, where you'll find explanations of BF2 specific terms and systems used throughout this documentation.
 
 # Initial Add-on setup
-After installation, set up your `BF2 mod directory` (`Edit -> Preferences -> Add-ons -> Battlefield 2 -> Preferences`) (optional but needed to load textures). Then you can use the `File -> Import/Export -> BF2` submenu or drag-and-drop any supported BF2 file into the viewport.
+Before using the add-on you must do two things:
+- Configure path to your BF2 mod (`Edit -> Preferences -> Add-ons -> Battlefield 2 -> Preferences`). You may define multiple paths e.g. if your mod uses dependencies from the baseline game (`mods/bf2`)
+- Extract every `.zip` file from your mod directory into their respective folders (e.g. `objects_server.zip` and `objects_client.zip` must both be extracted to `objects` directory)
+- (Linux only) To avoid issues on case insensitive filesystem rename all your files to lower case (`find MOD_DIR -depth -exec rename 's/(.*)\/([^\/]*)/$1\/\L$2/' {} \;`)
+
+After that you may use `File -> Import/Export -> BF2` submenu or drag-and-drop any supported BF2 file into the viewport.
 
 # Animating
-The add-on ships with extensive toolset for creating BF2 animations including batch import/export, automated rig setup and more. This section contains all the info you need to get started.
+The add-on ships with extensive toolset for creating BF2 animations including batch import/export, automated scene setup & rigging and more. This section contains all the info you need to get started.
 
 ## Animation Import
-To import an animation you will generally need these four things imported into your scene in this exact order!
- 1. The skeleton (`.ske`)
- 2. The soldier mesh (and optionally a kit mesh) (`.skinnedMesh`)
- 3. The weapon mesh (`.bundledMesh`)
- 4. The animation (`.baf`)
+To import an animation you will generally need these things imported into your scene in this EXACT order!
+ - The skeleton (`.ske`)
+ - The soldier mesh (`.skinnedMesh`)
+ - [3P] The kit mesh (optional) (`.skinnedMesh`)
+ - The weapon mesh (`.bundledMesh`)
+ - The weapon animation (`.baf`)
+ - [3P] The soldier animation (`.baf`)
 
-When importing soldier or weapon meshes, select only Geom0/Lod0 (First Person Animating) or Geom1/Lod0 (Third Person Animating) in the import settings. **IMPORTANT**: DO NOT use `Import -> BF2 -> ObjecTemplate (.con)` for that purpose!
+You may import them one-by-one manually just remember to load only Geom0/Lod0 (1st Person Animating) or Geom1/Lod0 (3rd Person Animating) when importing meshes (**IMPORTANT**: DO NOT use `Import -> BF2 -> ObjectTemplate (.con)`).
 
-Tips:
+Importing all these things in order manually gets annoying quick so you may instead prefer to use the animation import wizard - you just need to specify the animation file (or directory) to load and it takes care of finding proper skeleton and meshes to load! You can find it in the [Sidebar](https://docs.blender.org/manual/en/latest/interface/window_system/regions.html#sidebar) (`BF2` tab).
+
+Other tips:
 - Imported animations are baked so you might need to delete redundant keyframes if you want to edit them, use [Decimate](https://docs.blender.org/manual/en/latest/editors/graph_editor/fcurves/editing.html#decimate) for that.
 - If the animation preview looks noisy in the viewport disable [Temporal Reprojection](https://docs.blender.org/manual/en/latest/render/eevee/render_settings/sampling.html#viewport) (it's trash)
+
+## Working with 3P Animations
+For third person the animations are split into two parts (soldier and weapon). The weapon part is (as you've probably guessed) weapon specific while the soldier part is common for all weapons. The engine combines them on runtime. You can simulate this in Blender using two different approaches:
+- Import animations into a single action - import the weapon animation first followed by the soldier animation (you must uncheck `To New Action` when importing).
+- Combine animations with an [NLA Stack](https://docs.blender.org/manual/en/latest/editors/nla/introduction.html) - Import both weapon and soldier animations into separate actions, then for the weapon action specify the `Soldier action` property found in the [Action Properties](https://docs.blender.org/manual/en/latest/animation/actions.html#action-properties). This will take care of creating an NLA stack that combines both actions and updating it each time you switch between actions! NOTE: Using this method you won't be able edit the animation unless you toggle `Tweak Action` below!
 
 ## Rig Setup
 The skeleton will be imported as Blender's Armature object and before you start animating you might need to create a rig for it. You can do that either:
 - **Manually** - The armature can be freely extended by appending more bones to it which can act as helpers (constraint targets), but imported bones **MUST NOT** be modified! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. To alter their relations you can set up constraints (such as [Child Of](https://docs.blender.org/manual/en/latest/animation/constraints/relationship/child_of.html) and/or [Copy Transforms](https://docs.blender.org/manual/en/latest/animation/constraints/transform/copy_transforms.html) to other helper bones) on them instead.
 - **Automatically**:
   - Using external add-ons such as [Rigify](https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html)
-  - Using this add-on's built-in option found under `Pose -> BF2 -> Setup Controllers`. This option can also be used after animations have been imported for easier editing of existing animations. By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Pose -> BF2 -> Change Parent` to fix that without messing up the existing animation data. NOTE: importing animations **AFTER** `Setup Controllers` has been run is not supported and will not work!
+  - Using this add-on's built-in option found under `Sidebar -> BF2 -> Run Setup`. This option can also be used after animations have been imported for easier editing of existing animations. By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Sidebar -> BF2 -> Change Parent` to fix that without messing up the existing animation data. NOTE: importing animations **AFTER** `Setup Controllers` has been run is not supported and will not work!
 
 ## Animation Export
 Export settings allow you to choose:
 - whether to export in Armature space or World space
-- which [Actions](https://docs.blender.org/manual/en/latest/animation/actions.html) to export (each Action can be exported as a separate `.baf` file). NOTE: Blender 4.4 or above required
-- which bones to export (mostly matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected).
+- which [Actions](https://docs.blender.org/manual/en/latest/animation/actions.html) to export (each Action can be exported as a separate `.baf` file)
+- which bones to export (mostly matters for 3P animations, depending on whether you're making soldier or weapon animations, a different bone set needs to be selected)
 
 ## Recommended Extensions:
 Some very useful 3rd party add-ons for animating:
-  * [Action to Scene Range](https://extensions.blender.org/add-ons/action-to-scene-range/) automatically applies [Action frame range](https://docs.blender.org/manual/en/latest/animation/actions.html#action-properties) to Scene frame range (makes life easier when working with multiple animations)
+  * [Action to Scene Range](https://extensions.blender.org/add-ons/action-to-scene-range/) automatically applies [Action frame range](https://docs.blender.org/manual/en/latest/animation/actions.html#action-properties) to Scene frame range when switching actions (working with multiple animations)
   * [Unlooped](https://extensions.blender.org/add-ons/unlooped/) prevents Blender from looping scene playback (useful for e.g. checking how smooth your fade outs to base pose are)
-  * [Animation Auto Offset](https://extensions.blender.org/add-ons/anim-auto-offset/) works like auto-keying but transform changes affect the whole animation (3ds Max like behaviour)
-
-## Known issues
-- Many vBF2 skeleton exports have messy bone orientations. Skeleton importer corrects them for `1p_setup.ske` and `3p_setup.ske` but other skeletons' bones may appear pointing in random directions. It's just a visual inconvenience and doesn't affect skinning.
+  * [Animation Auto Offset](https://extensions.blender.org/add-ons/anim-auto-offset/) works like auto-keying but transform changes affect the whole animation (3ds Max like behavior)
+  * [FakeBones](https://extensions.blender.org/add-ons/fakebones/) can be used to clean up the visual mess after skeleton import since many vBF2 skeletons have bones pointing in random directions
 
 # ObjectTemplate vs Mesh import/export
-There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure lacking some data present in the `.con` file, that's why its usablility is limited. The second (and preferred) method is the `ObjecTemplate (.con)` option, which parses the ObjectTemplate definition allowing it to:
+There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure lacking some data present in the `.con` file, that's why its usability is limited. The second (and preferred) method is the `ObjectTemplate (.con)` option, which parses the ObjectTemplate definition allowing it to:
 - load visible mesh of the proper type
 - separate all geometry parts into Blender objects
 - transform (move & rotate) all geometry parts
@@ -75,7 +88,7 @@ There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` me
 When you want to re-export a mesh that has been imported and modified, a proper option from the `Export -> BF2` menu has to be chosen based on the option used to import the mesh, meaning that when you import `.staticMesh` also export it as `.staticMesh`, other combinations will not work! Bare in mind that the `ObjectTemplate (.con)` exporter not only saves the ObjectTemplate's definition to a `.con` file but also exports visible mesh and collision mesh into the `Meshes` sub-directory.
 
 ## Known issues
-- Some vBF2 meshes and meshes exported with Autodesk 3ds Max may contain backfaces (another face defined over the same set of vertices but opossing normal directions). Such faces are (rightfully) illegal in Blender but for compatibility reasons are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face is tagged using a custom **boolean [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) in Face domain** called *`backface`*. When exporting a mesh, each face having attribute *`backface`* set will be exported as double-sided. To see exactly which faces are treated as double-sided while in `Edit Mode` select *`backface`* from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html).
+- Some vBF2 meshes and meshes exported with Autodesk 3ds Max may contain backfaces (another face defined over the same set of vertices but opposing normal directions). Such faces are (rightfully) illegal in Blender but for compatibility reasons are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face is tagged using a custom **boolean [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) in Face domain** called *`backface`*. When exporting a mesh, each face having attribute *`backface`* set will be exported as double-sided. To see exactly which faces are treated as double-sided while in `Edit Mode` select *`backface`* from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html).
 - Blender does not allow to import custom vertex tangents, therefore when re-exporting meshes they always get re-calculated. This may increase the number of unique vertices being exported. Use `Weld vertices` option when importing to mitigate this issue. NOTE: Blender generates tangent space using Mikk TSpace algorithm, your normal map must be baked using the same method or it will cause shading bugs in game.
 
 # ObjectTemplate export guide
@@ -111,10 +124,10 @@ StaticMesh_house
 </details>
 
 <details>
-  <summary>BunldedMesh (a simple weapon)</summary>
+  <summary>BundledMesh (a simple weapon)</summary>
 
 ```
-BunldedMesh_gun
+BundledMesh_gun
 ├─G0__gun
 │ └─G0L0__gun [m]
 │   ├─G0L0__gun_1_mag [m]
@@ -136,7 +149,7 @@ NOTE: some parts like mag and bolt are missing in consecutive LODs and are merge
 </details>
 
 <details>
-  <summary>BunldedMesh (a simple vehicle)</summary>
+  <summary>BundledMesh (a simple vehicle)</summary>
 
 ```
 BundledMesh_car
@@ -217,7 +230,7 @@ SkinnedMesh_soldier
 - Each LOD's mesh must have a minimum of 1 and a maximum of 5 UV layers assigned and each UV layer must be called `UV<index>`, where each one corresponds to the following texture maps:
     - For StaticMesh UV0 = Base, UV1 = Detail, UV2 = Dirt, UV3 (or UV2 if Dirt layer is not present) = Crack and the last one (always UV4) is the Lightmap UV, which can also be auto-generated when toggled in the export options.
     - For BundledMesh and SkinnedMesh there's only UV0 for all texture maps.
-- Be aware that when making StaticMeshes, tangent space is generated using UV1 (Detail Normal). This means that if Crack Normal map is also used, its UVs can't be rotated or mirrord (relative to Detail Normal UVs) otherwise the lighting calculations will be incorrect.
+- Be aware that when making StaticMeshes, tangent space is generated using UV1 (Detail Normal). This means that if Crack Normal map is also used, its UVs can't be rotated or mirrored (relative to Detail Normal UVs) otherwise the lighting calculations will be incorrect.
 
 ## Collision meshes
 - Each object may contain collision mesh data. To add it, you must create an empty child object prefixed with `NONVIS__`. This new object should have a maximum of 4 child objects (suffixed with `_COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added under the object's Lod0 hierarchies.
@@ -239,13 +252,13 @@ In order to skin your model, you must import the BF2 skeleton into your scene. W
 Bare in mind that to export properly, each vertex must have at most two weights (be assigned to a maximum of two vertex groups), and all those weights have to be normalized (add-up to one). You can limit the number of vertex weights in `Weight Paint Mode` using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) option (make sure it is set to 2). You can normalize weights using [Weights -> Normalize All](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#normalize-all) option. Also, make sure that `Auto Normalize` is enabled in [Weight Paint Tools Settings](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/tool_settings/options.html) when skinning in `Weight Paint Mode`.
 
 ## Overgrowth LOD Generation
-The add-on also ships with the OG LOD generation tool which can create a low quality OG mesh variant from the base mesh. The tool can be found under `Object` -> `BF2` submenu and its usage is quite straightforward. NOTE: You need to have the base OG imported as `ObjectTempalte (.con)`, not as `StaticMesh (.staticmesh)` for it to work. 
+The add-on also ships with the OG LOD generation tool which can create a low quality OG mesh variant from the base mesh. The tool can be found under `Object` -> `BF2` submenu and its usage is quite straightforward. NOTE: You need to have the base OG imported as `ObjectTemplate (.con)`, not as `StaticMesh (.staticmesh)` for it to work. 
 
 # Lightmapping
-This is a short guide on how to bake lightmaps using Blender Cycles rendering engine. Given my lack of knowledge in this area the feature is still in experimental state and largely untested. You may require some manual tinkering to get decent results. The lightmapping tools are accessible from the [Sidebar](https://docs.blender.org/manual/en/latest/interface/window_system/regions.html#sidebar), BF2 section.
+This is a short guide on how to bake lightmaps using Blender Cycles rendering engine. Given my lack of knowledge in this area the feature is still in experimental state and largely untested. You may require some manual tinkering to get decent results. The lightmapping tools are accessible from the [Sidebar](https://docs.blender.org/manual/en/latest/interface/window_system/regions.html#sidebar) (`BF2` tab).
 ## Setting up the scene
 The first (optional) step is to prepare a configuration file. This defines how to load and post-process assets for lightmapping, but most importantly it contains the list of objects that should emit light. Click on the `+` icon to create a new config template and follow the descriptions of fields provided in comments, add what you need and remember to save it afterwards! When your config file is ready, make sure that your map files are unpacked and proceed with importing them using the `Load level` button, be patient as it may take a few minutes. If loading succeeds, you should see these four collections being created:
-- **StaticObjects**: contains all the objects that should to receive lightmaps
+- **StaticObjects**: contains all the objects that should receive lightmaps
 - **StaticObjects_SkipLightmaps**: contains all the objects that aren't StaticMeshes or have `GeometryTemplate.dontGenerateLightmaps 1`
 - **Lights**: contains all the point lights as well as the *Sun*
 - **Heightmaps**: contains just the primary heightmap. The heightmap will have a modifier applied which flattens all the vertices below the water level so that terrain shadows are casted on the water surface.
@@ -255,12 +268,12 @@ The first (optional) step is to prepare a configuration file. This defines how t
 - If necessary, tweak configured lightmap sizes (especially if they were auto assigned). You can use `Select -> BF2 -> By Lightmap Size` or check the size in *Object Properties* for each LOD. LODs can be skipped during lightmapping if their lightmap size is set to zero.
 - If necessary, adjust the intensity of the *Sun* light, its color should be green. Tweak the intensity of the sky light (in Blender called [World](https://docs.blender.org/manual/en/latest/render/lights/world.html) background) its color should be blue. Verify your point light placement and parameters (intensity, radius etc.), their color should be red (unless you need them to appear on the terrain).
 ## Baking
-I strongly suggest to make a test bake for a single object first by unchecking *Terrain* and choosing *Only Selected* for *Objects*. If the result ends up too noisy adjust Render settings like [Sampling](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html). From my experiance, to achieve decent quality lightmaps you'll need to set the *Max Samples* to at least 8192 and the *Noise Treshold* to 0.001 or less. For a top quality bumping those to 16384 and 0.0005 respectivly should be enough. It may also help to uncheck *Normal Maps*. This will generally produce smoother lightmaps as Blender won't be trying to bake all the little shadows from normal maps that end up looking like noise on a low resolution lightmap. When your test bake looks good, you may switch *Objects* mode to *All*, hit *Bake* and be patient, this process may take DAYS. You can cancel baking by pressing ESC and resume it later.
+I strongly suggest to make a test bake for a single object first by unchecking *Terrain* and choosing *Only Selected* for *Objects*. If the result ends up too noisy adjust Render settings like [Sampling](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html). From my experience, to achieve decent quality lightmaps you'll need to set the *Max Samples* to at least 8192 and the *Noise Threshold* to 0.001 or less. For a top quality bumping those to 16384 and 0.0005 respectively should be enough. It may also help to uncheck *Normal Maps*. This will generally produce smoother lightmaps as Blender won't be trying to bake all the little shadows from normal maps that end up looking like noise on a low resolution lightmap. When your test bake looks good, you may switch *Objects* mode to *All*, hit *Bake* and be patient, this process may take DAYS. You can cancel baking by pressing ESC and resume it later.
 ## Post-processing (Ambient lights)
-After your lightmaps are baked you will notice that some areas like interiors that don't receive much sunlight or skylight are way too dark, so you may want to add some ambient light to the lightmaps. The ambient light is basically a "flat" light uniformly affecting every surface. I couldn't find a good way to implement such lighting in Blender therefore it can only be added to lightmaps post bake. This has a disadvantage of not beeing able to see it in the render preview but the benefit of rather quickly changing the amount of ambient light later without re-baking.
+After your lightmaps are baked you will notice that some areas like interiors that don't receive much sunlight or skylight are way too dark, so you may want to add some ambient light to the lightmaps. The ambient light is basically a "flat" light uniformly affecting every surface. I couldn't find a good way to implement such lighting in Blender therefore it can only be added to lightmaps post bake. This has a disadvantage of not being able to see it in the render preview but the benefit of rather quickly changing the amount of ambient light later without re-baking.
 
 # Video Tutorials
-Some of the tutorials might be slightly outdated, always read the documenatation first!
+Some of the tutorials might be slightly outdated, always read the documentation first!
 - [Animation - rig setup, export, import and editing (by Ekiso)](https://youtu.be/xO1848HzetQ)
 - [StaticMesh - hierarchy, materials and export (by Ason)](https://www.youtube.com/watch?v=H97o0d3zkoY)
 - [BundledMesh - simple weapon export (by Krayt)](https://www.youtube.com/watch?v=crQRXm-4lxQ)
@@ -350,7 +363,7 @@ c.scene.cycles.samples = 8192
 c.scene.cycles.adaptive_threshold = 0.001
 
 # adjust light settings (if needed)
-# bpy.data.ligts['Sun'].energy = ...
+# bpy.data.lights['Sun'].energy = ...
 # bpy.data.worlds['SkyLight'].node_tree.nodes["Background"].inputs['Strength'].default_value = ...
 
 ObjectBaker(c, OUTPUT_DIR).bake_all(c)

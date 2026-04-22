@@ -27,7 +27,7 @@ class IMPORT_OT_bf2_animation(bpy.types.Operator, ImporterBase, BafMeta):
     to_new_action: BoolProperty(
         name="To new Action",
         description="Import each animation file into its own Action, otherwise import them into the currently active Action in a sequence",
-        default=False
+        default=True
     ) # type: ignore
 
     setup_ctrls: BoolProperty(

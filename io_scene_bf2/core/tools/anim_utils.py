@@ -218,11 +218,16 @@ def _apply_action(context, obj, action, slot):
     context.view_layer.update()
 
 def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
-    # rig.animation_data.action = bpy.data.actions['1p_m1garand_reload']
     for action, slot in _get_actions(rig):
         keyframes_to_delete = dict()
         with AnimationContext(context.scene):
             _apply_action(context, rig, action, slot)
+            update_nla_setup(context, action) # revert NLA setup just in case
+            if action.bf2_soldier_action:
+                # make the strip with the weapon editable,
+                # otherwise we won't be able to insert any keyframes
+                nla_tweak_enable(context, action, '3P_WEAPON')
+
             for (target, offset) in ctrl_bone_to_offset:
                 source_name = _is_ctrl_of(target.bone)
                 source = rig.pose.bones[source_name]
@@ -250,6 +255,9 @@ def _reapply_animation_to_ctrls(context, rig, mesh_bones, ctrl_bone_to_offset):
                                 to_delete = keyframes_to_delete.setdefault(source_name, [])
                                 to_delete.append({'data_path': data_path, 'index': data_index, 'frame': frame_idx})
 
+            if action.bf2_soldier_action:
+                nla_tweak_disable(context)
+ 
         context.view_layer.update()
         for source_name, to_delete in keyframes_to_delete.items():
             source = rig.pose.bones[source_name]
@@ -828,7 +836,7 @@ def reparent_bones(context, rig, target_bones, parent_bone, reporter=DEFAULT_REP
             parent_pose_bone = None
 
         if target_bone in rig['bf2_bones']:
-            reporter.warning("Chaning parent of the BF2 skeleton bone, this will mess up your export!")
+            reporter.warning("Changing parent of the BF2 skeleton bone, this will mess up your export!")
 
         _reparent_keyframes(context, target_pose_bone, parent_pose_bone)
 
@@ -840,3 +848,121 @@ def reparent_bones(context, rig, target_bones, parent_bone, reporter=DEFAULT_REP
             parent_edit_bone = None
         target_edit_bone.parent = parent_edit_bone
         bpy.ops.object.mode_set(mode='POSE') 
+
+
+class TempNlaArea():
+    def __init__(self, context):
+        self.context = context
+        self.screen = None
+
+    def __enter__(self):
+        context = self.context
+        assert context.window is not None
+        screen = context.window.screen
+        nla_editors = [area for area in screen.areas if area.type == 'NLA_EDITOR']
+
+        if nla_editors:
+            area = nla_editors[0] # NLA editor exists
+        else:
+            # create temp screen with NLA editor
+            assert bool(context.window.screen.areas)
+            bpy.ops.screen.new()
+            screen = context.window.workspace.screens[-1]
+            with context.temp_override(screen=screen):
+                context.window.screen.areas[0].ui_type = 'NLA_EDITOR'
+            area = screen.areas[0]
+            self.screen = screen
+
+        return {
+            # 'window': self.context.window,
+            'screen': screen,
+            'area'  : area,
+            'region': area.regions[0]
+        }
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        if not self.screen:
+            return
+        with self.context.temp_override(screen=self.screen, area=self.screen.areas[0]):
+            bpy.ops.screen.delete()
+
+def nla_tweak_disable(context):
+    with TempNlaArea(context) as override:
+        with context.temp_override(**override):
+            bpy.ops.nla.tweakmode_exit()
+
+def nla_tweak_enable(context, action, track_name):
+    update_nla_setup(context, action, activate_track=track_name) # make strip active first
+    with TempNlaArea(context) as override:
+        with context.temp_override(**override):
+            bpy.ops.nla.tweakmode_enter(use_upper_stack_evaluation=True)
+
+def update_nla_setup(context, action=None, activate_track=None) -> None:
+    obj = context.object
+    if not obj or not obj.animation_data:
+        return
+    action = action or obj.animation_data.action
+    if not action:
+        return
+
+    # cleanup
+    soldier_track = obj.animation_data.nla_tracks.get('3P_SOLDIER')
+    weapon_track = obj.animation_data.nla_tracks.get('3P_WEAPON')
+    if soldier_track:
+        obj.animation_data.nla_tracks.remove(soldier_track)
+    if weapon_track:
+        obj.animation_data.nla_tracks.remove(weapon_track)
+    obj.animation_data.action_influence = 1
+
+    soldier_action = action.bf2_soldier_action
+    if not soldier_action:
+        return
+
+    tracks = obj.animation_data.nla_tracks
+    if activate_track:
+        # there is literally no (working) api to set an active strip
+        # so I had to improvise using ops
+        # and ops also only work in nla editor...
+        with TempNlaArea(context) as override:
+            if activate_track == '3P_SOLDIER':
+                with context.temp_override(**override):
+                    obj.animation_data.action = action
+                    bpy.ops.nla.action_pushdown(track_index=1)
+                    obj.animation_data.action = soldier_action
+                    bpy.ops.nla.action_pushdown(track_index=1)
+                weapon_track = tracks[0]
+                soldier_track = tracks[1]
+
+                assert tracks.active.name == soldier_track.name
+            elif activate_track == '3P_WEAPON':
+                with context.temp_override(**override):
+                    obj.animation_data.action = soldier_action
+                    bpy.ops.nla.action_pushdown(track_index=1)
+                    obj.animation_data.action = action
+                    bpy.ops.nla.action_pushdown(track_index=1)
+                weapon_track = tracks[1]
+                soldier_track = tracks[0]
+                soldier_track.select = False
+                with context.temp_override(**override):
+                    bpy.ops.anim.channels_move(direction='DOWN')
+
+                assert tracks.active.name == weapon_track.name
+            else:
+                raise ValueError(f"bad arg {activate_track}")
+    else:
+        weapon_track = tracks.new()
+        soldier_track = tracks.new() # IMPORTANT: soldier must be on top
+        weapon_track.strips.new(action.name, int(action.frame_start), action)
+        soldier_track.strips.new(soldier_action.name, int(action.frame_start), soldier_action)
+
+    weapon_track.name = '3P_WEAPON'
+    soldier_track.name = '3P_SOLDIER'
+
+    obj.animation_data.action = action
+    obj.animation_data.action_influence = 0 # current action is always on the top of the stack but we want it to always be the soldier animation
+
+    action_len = action.frame_end - action.frame_start
+    soldier_len = soldier_action.frame_end - soldier_action.frame_start
+    if int(action_len) == 0 or int(soldier_len) == 0:
+        return
+    else:
+        soldier_track.strips[0].repeat = action_len / soldier_len

@@ -1,5 +1,4 @@
 import bpy # type: ignore
-import os
 
 from mathutils import Matrix # type: ignore
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame, BF2AnimationException
@@ -94,7 +93,7 @@ def export_animation(context, rig, baf_file, bones_to_export=None, fstart=None, 
         raise ExportException(str(e)) from e
 
 
-def import_animation(context, rig, baf_file, insert_at_frame=0, to_new_action=False):
+def import_animation(context, rig, baf_file, insert_at_frame=0, to_new_action=True):
     scene = context.scene
     try:
         baf = BF2Animation(baf_file)
@@ -104,26 +103,22 @@ def import_animation(context, rig, baf_file, insert_at_frame=0, to_new_action=Fa
     if rig.animation_data is None:
         rig.animation_data_create()
 
-    action = None
+    scene.frame_start = insert_at_frame
+    scene.frame_end = insert_at_frame + baf.frame_num - 1
+
     if to_new_action:
         action = bpy.data.actions.new(file_name(baf_file))
         rig.animation_data.action = action
         action.use_fake_user = True # prevent Actions from getting deleted
+        action.frame_start = scene.frame_start
+        action.frame_end = scene.frame_end
         action.use_frame_range = True
-    elif rig.animation_data.action:
-        action = rig.animation_data.action
-    else:
-        action = bpy.data.actions.new(rig.name + 'Action')
+
     armature = rig.data
     context.view_layer.objects.active = rig
 
     bpy.ops.object.mode_set(mode='POSE')
     armature.pose_position = "POSE"
-
-    scene.frame_start = insert_at_frame
-    scene.frame_end = insert_at_frame + baf.frame_num - 1
-    action.frame_start = scene.frame_start
-    action.frame_end = scene.frame_end
 
     scene.render.fps = 24 # BF2 hardcoded default
 

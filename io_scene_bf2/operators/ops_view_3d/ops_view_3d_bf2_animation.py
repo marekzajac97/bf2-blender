@@ -8,10 +8,12 @@ from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
 from ...core.tools.anim_utils import (
     toggle_mesh_mask_mesh_for_active_bone,
+    reparent_bones,
     setup_controllers,
     Mode,
     AnimationContext)
 from ...core.skeleton import is_bf2_skeleton
+from ...core.utils import Reporter
 
 def _bf2_setup_started(context, rig):
     context.scene['bf2_is_setup'] = rig.name
@@ -51,7 +53,7 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_begin(bpy.types.Operator):
 
         layout.label(text="Please move each 'meshX.CTRL' bone to the desired loaction,")
         layout.label(text="it will be used as pivot for the corresponding weapon part.")
-        layout.label(text="When You are done, click 'Finish setup' in the Sidebar, BF2 tab (toggled with `N`)")
+        layout.label(text="When You are done, click 'Apply' in the Sidebar, BF2 tab (toggled with `N`)")
         layout.label(text="")
         layout.label(text="You can toggle showing only a specific weapon part that corresponds")
         layout.label(text="to the active bone with 'Mask mesh for bone'.")
@@ -100,6 +102,7 @@ class VIEW3D_OT_bf2_anim_ctrl_setup_end(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
+        cls.poll_message_set("Controller setup is not active")
         return _bf2_is_setup(context)
 
 
@@ -202,7 +205,7 @@ def _set_default_soldier_mesh(self, context):
 class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
     bl_idname = "bf2.anim_wizard"
     bl_label = "Import wizard"
-    bl_description = "Import skeleton, soldier/weapon meshes and animations all in one go!"
+    bl_description = "Automated scene setup for animation editing - import skeleton, soldier/weapon meshes and animations all in one go!"
 
     def _on_weapon_anim_update(self, context):
         if self.single_animation:
@@ -309,11 +312,11 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
                     if not self.soldier_anim_dir or not os.path.isdir(self.soldier_anim_dir):
                         self.report({"WARNING"}, "Soldier animation directory (3P) not provided or does not exist")
             else:
-                self.soldier_anim_file = None
-                self.soldier_anim_dir = None
+                self.soldier_anim_file = ''
+                self.soldier_anim_dir = ''
 
             # ------------
-
+            weapon_to_soldier_binding = list()
             bpy.ops.bf2.ske_import(filepath=self.ske_file)
             bpy.ops.bf2.mesh_import(filepath=self.soldier_mesh_file, only_selected_lod=True, geom=1 if is_3p else 0, lod=0)
             bpy.ops.bf2.mesh_import(filepath=self.weapon_mesh_file, only_selected_lod=True, geom=1 if is_3p else 0, lod=0)
@@ -322,7 +325,8 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
                 weapon_action = bpy.context.object.animation_data.action
                 if self.soldier_anim_file:
                     bpy.ops.bf2.baf_import(filepath=self.soldier_anim_file, to_new_action=True)
-                    weapon_action.bf2_soldier_action = bpy.context.object.animation_data.action
+                    soldier_action = bpy.context.object.animation_data.action
+                    weapon_to_soldier_binding.append((weapon_action, soldier_action))
             else:
                 for f in os.listdir(self.weapon_anim_dir):
                     path = os.path.join(self.weapon_anim_dir, f)
@@ -332,10 +336,14 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
                     if self.soldier_anim_dir:
                         soldier_anim = _find_matching_soldier_animation(self.soldier_anim_dir, path)
                         if not soldier_anim:
-                            self.report({"WARNING"}, f"Coulnd't find a matching soldier animation for '{f}'. Try to importing and linking them manually")
+                            self.report({"WARNING"}, f"Couldn't find a matching soldier animation for '{f}'. Try importing and linking them manually")
                             continue
                         bpy.ops.bf2.baf_import(filepath=soldier_anim, to_new_action=True)
-                        weapon_action.bf2_soldier_action = bpy.context.object.animation_data.action
+                        soldier_action = bpy.context.object.animation_data.action
+                        weapon_to_soldier_binding.append((weapon_action, soldier_action))
+
+            for weapon_action, soldier_action in weapon_to_soldier_binding:
+                weapon_action.bf2_soldier_action = soldier_action
 
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
@@ -364,6 +372,51 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
         _set_default_soldier_mesh(self, context)
         return context.window_manager.invoke_props_dialog(self, width=600)
 
+    @classmethod
+    def poll(cls, context):
+        cls.poll_message_set("A mod directory must be defined for this feature")
+        return bool(get_mod_dirs(context))
+
+class VIEW3D_OT_bf2_anim_change_parent(bpy.types.Operator):
+    bl_idname = "bf2.anim_set_parent"
+    bl_label = "Set Parent"
+    bl_description = "Parents all selected bones to the active bone while also adjusting all position/rotation keyframes"
+
+    @classmethod
+    def poll(cls, context):
+        parent = context.active_pose_bone
+        if not parent or parent not in context.selected_pose_bones_from_active_object:
+            cls.poll_message_set("No active bone")
+            return False
+        selected = list(filter(lambda b: b.name != parent.name, context.selected_pose_bones_from_active_object))
+        if not selected:
+            cls.poll_message_set("No bones selected (need at least two, the active one will be the parent)")
+            return False
+        return True
+
+    def execute(self, context):
+        rig = context.view_layer.objects.active
+        parent_bone = context.active_pose_bone.name
+        bones = list(filter(lambda b: b != parent_bone, map(lambda b: b.name, context.selected_pose_bones_from_active_object)))
+        reparent_bones(context, rig, bones, parent_bone, reporter=Reporter(self.report))
+        return {'FINISHED'}
+
+class VIEW3D_OT_bf2_anim_clear_parent(bpy.types.Operator):
+    bl_idname = "bf2.anim_clear_parent"
+    bl_label = "Clear Parent"
+    bl_description = "Clears parent of all selected bones while also adjusting all position/rotation keyframes"
+
+    @classmethod
+    def poll(cls, context):
+        cls.poll_message_set("No bones selected")
+        return context.selected_pose_bones_from_active_object
+
+    def execute(self, context):
+        rig = context.view_layer.objects.active
+        bones = list(map(lambda b: b.name, context.selected_pose_bones_from_active_object))
+        reparent_bones(context, rig, bones, None, reporter=Reporter(self.report))
+        return {'FINISHED'}
+
 class VIEW3D_PT_bf2_animation_Panel(bpy.types.Panel):
     bl_category = "BF2"
     bl_space_type = 'VIEW_3D'
@@ -373,20 +426,29 @@ class VIEW3D_PT_bf2_animation_Panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
-
-        layout.operator(VIEW3D_OT_bf2_anim_ctrl_setup_begin.bl_idname, icon='ARMATURE_DATA')
-        if _bf2_is_setup(context):
-            layout.operator(VIEW3D_OT_bf2_anim_ctrl_setup_end.bl_idname, icon='CHECKMARK')
-            layout.operator(VIEW3D_OT_bf2_anim_ctrl_setup_mask.bl_idname, icon='BONE_DATA')
-
-        layout.operator(VIEW3D_OT_bf2_animation_wizard.bl_idname, icon='SHADERFX')
-
+        
+        layout.operator(VIEW3D_OT_bf2_animation_wizard.bl_idname, icon='SHADERFX', text='Run Import Wizard')
+        layout.separator(factor=1.0, type='SPACE')
+        box = layout.box()
+        box.label(text="Auto controller setup:")
+        row = box.row()
+        row.operator(VIEW3D_OT_bf2_anim_ctrl_setup_begin.bl_idname, icon='ARMATURE_DATA', text='Run Setup')
+        row.operator(VIEW3D_OT_bf2_anim_ctrl_setup_end.bl_idname, icon='CHECKMARK', text='Apply')
+        box.operator(VIEW3D_OT_bf2_anim_ctrl_setup_mask.bl_idname, icon='BONE_DATA')
+        layout.separator(factor=1.0, type='SPACE')
+        box = layout.box()
+        box.label(text="Bone relations:")
+        row = box.row()
+        row.operator(VIEW3D_OT_bf2_anim_change_parent.bl_idname, icon='CON_CHILDOF')
+        row.operator(VIEW3D_OT_bf2_anim_clear_parent.bl_idname, icon='MATPLANE')
 
 def init(rc : RegisterFactory):
     # animation
     rc.reg_class(VIEW3D_OT_bf2_anim_ctrl_setup_begin)
     rc.reg_class(VIEW3D_OT_bf2_anim_ctrl_setup_end)
     rc.reg_class(VIEW3D_OT_bf2_anim_ctrl_setup_mask)
+    rc.reg_class(VIEW3D_OT_bf2_anim_change_parent)
+    rc.reg_class(VIEW3D_OT_bf2_anim_clear_parent)
     rc.reg_class(VIEW3D_OT_bf2_animation_wizard)
     rc.reg_class(VIEW3D_PT_bf2_animation_Panel)
 

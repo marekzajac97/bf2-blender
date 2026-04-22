@@ -2,6 +2,45 @@ import bpy # type: ignore
 
 from bpy.props import PointerProperty # type: ignore
 from .utils import RegisterFactory
+from ..core.tools.anim_utils import update_nla_setup, nla_tweak_enable, nla_tweak_disable
+
+def _get_active_nla_track(context):
+    if not context.object:
+        return
+    anim_data = context.object.animation_data
+    if not anim_data:
+        return
+    return anim_data.nla_tracks.active
+
+class DOPESHEET_OT_bf2_weapon_anim_tweak_enable(bpy.types.Operator):
+    bl_idname = "bf2.weapon_anim_tweak_enable"
+    bl_label = "Tweak Action"
+    bl_description = "A shortcut for enabling tweaking mode in NLA editor.\n\nBecause of the NLA stack, the action can't be edited normally. Also you will not be able to change action whilst in editing mode"
+    TRACK_NAME = '3P_WEAPON'
+
+    def execute(self, context):
+        if self.is_active(context):
+            nla_tweak_disable(context)
+        else:
+            nla_tweak_enable(context, context.active_action, track_name=self.TRACK_NAME)
+        return {'FINISHED'}
+
+    @classmethod
+    def is_active(cls, context):
+        if not context.scene.is_nla_tweakmode:
+            return False
+        track = _get_active_nla_track(context)
+        if not track or cls.TRACK_NAME != track.name:
+            return False
+        return True
+
+    @classmethod
+    def poll(cls, context):
+        return (context.object and
+                context.active_action and
+                context.active_action.bf2_soldier_action and
+                context.object.animation_data and
+                cls.TRACK_NAME in context.object.animation_data.nla_tracks)
 
 class DOPESHEET_PT_bf2_action(bpy.types.Panel):
     bl_region_type = 'UI'
@@ -17,56 +56,24 @@ class DOPESHEET_PT_bf2_action(bpy.types.Panel):
         action = context.active_action
         self.layout.use_property_split = True
         self.layout.prop(action, "bf2_soldier_action")
+        self.layout.operator(DOPESHEET_OT_bf2_weapon_anim_tweak_enable.bl_idname,
+                             emboss=True, depress=DOPESHEET_OT_bf2_weapon_anim_tweak_enable.is_active(context))
 
-def _on_action_change() -> None:
-    obj = bpy.context.object
-    if not obj or not obj.animation_data:
+def _on_soldier_action_update(action, context):
+    if context.scene.is_nla_tweakmode:
         return
-    action = obj.animation_data.action
-    if not action:
+    update_nla_setup(context, action)
+
+def _on_action_change():
+    if bpy.context.scene.is_nla_tweakmode:
         return
-
-    # cleanup
-    soldier_track = obj.animation_data.nla_tracks.get('3P_SOLDIER')
-    weapon_track = obj.animation_data.nla_tracks.get('3P_WEAPON')
-    if soldier_track:
-        obj.animation_data.nla_tracks.remove(soldier_track)
-    if weapon_track:
-        obj.animation_data.nla_tracks.remove(weapon_track)
-    obj.animation_data.action_influence = 1
-
-    soldier_action = action.bf2_soldier_action
-    if not soldier_action:
-        return
-
-    obj.animation_data.action_influence = 0
-    weapon_track = obj.animation_data.nla_tracks.new()
-    soldier_track = obj.animation_data.nla_tracks.new() # IMPORTANT: soldier must be on top
-    weapon_track.name = '3P_WEAPON'
-    soldier_track.name = '3P_SOLDIER'
-    weapon_track.strips.new(action.name, int(action.frame_start), action)
-    strip = soldier_track.strips.new(soldier_action.name, int(action.frame_start), soldier_action)
-
-    action_len = action.frame_end - action.frame_start
-    soldier_len = soldier_action.frame_end - soldier_action.frame_start
-    if int(action_len) == 0 or int(soldier_len) == 0:
-        return
-    else:
-        strip.repeat = action_len / soldier_len
+    update_nla_setup(bpy.context)
 
 _msgbus_owner = object()
 
 def _register_message_bus() -> None:
     bpy.msgbus.subscribe_rna(
         key=(bpy.types.AnimData, "action"),
-        owner=_msgbus_owner,
-        args=(),
-        notify=_on_action_change,
-        options={"PERSISTENT"},
-    )
-
-    bpy.msgbus.subscribe_rna(
-        key=(bpy.types.Action, "bf2_soldier_action"),
         owner=_msgbus_owner,
         args=(),
         notify=_on_action_change,
@@ -85,7 +92,8 @@ def init(rc : RegisterFactory):
         PointerProperty(
             type=bpy.types.Action,
             name="Soldier action",
-            description="Soldier animation to apply as a secondary NLA layer when viewing/editing this action (3P only)"
+            description="Soldier animation to link with this animation (3P only)\n\nThis will set up a special NLA stack that combines both actions and also update it each time the action is changed",
+            update=_on_soldier_action_update
         ) # type: ignore
     )
 
@@ -96,5 +104,6 @@ def init(rc : RegisterFactory):
     )
 
     rc.add_menu(bpy.app.handlers.load_post, _on_blendfile_load_post)
+    rc.reg_class(DOPESHEET_OT_bf2_weapon_anim_tweak_enable)
 
 register, unregister = RegisterFactory.create(init)
