@@ -208,8 +208,6 @@ def on_texture_map_update(self, context, index):
     prop_name = f'texture_slot_{index}'
     prop_val = getattr(self, prop_name)
 
-    print('get:', prop_name, '=', prop_val)
-
     if prop_val.startswith('//'): # path relative to current blend file
         prop_val = bpy.path.abspath(prop_val)
 
@@ -235,7 +233,6 @@ def on_texture_map_update(self, context, index):
     else:
         pass # relative path probably typed manually, dunno what could check here  
 
-    print('set:', prop_name, '=', prop_val)
     with SkipMaterialUpdateCallback(self):
         setattr(self, prop_name, prop_val)
 
