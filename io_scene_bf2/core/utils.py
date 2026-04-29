@@ -365,3 +365,20 @@ def strip_geom_lod_prefix(s):
         if s[char_idx:].startswith('__'):
             return s[char_idx+2:]
     return s
+
+def remove_double_verts(obj, recursive=False):
+    if obj.data and isinstance(obj.data, Mesh):
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_mode(type='VERT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        # use_sharp_edge_from_normals=True is important as it "preserves" custom normals
+        bpy.ops.mesh.remove_doubles(threshold=0.0001, use_sharp_edge_from_normals=True)
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    if recursive:
+        for child in obj.children:
+            remove_double_verts(child, recursive=recursive)

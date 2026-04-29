@@ -19,6 +19,7 @@ from .utils import (delete_object, check_suffix,
                     check_prefix, swap_zy,
                     apply_modifiers as _apply_modifiers,
                     triangulate as _triangulate,
+                    remove_double_verts,
                     compare_val,
                     yaw_pitch_roll_to_matrix,
                     matrix_to_yaw_pitch_roll,
@@ -115,7 +116,7 @@ def import_object_template(context, con_filepath, import_collmesh=True,
             _delete_hierarchy_if_has_no_meshes(new_lod)
             _cleanup_unused_materials(new_lod)
             if weld_verts:
-                _weld_vers_recursive(new_lod)
+                remove_double_verts(new_lod, recursive=True)
 
     # create anchor
     if root_template.anchor_point:
@@ -419,24 +420,6 @@ def _object_hierarchy_has_any_meshes(obj, parent_bones):
     for child_obj in obj.children:
         return _object_hierarchy_has_any_meshes(child_obj, parent_bones)
     return False
-
-def _weld_vers_recursive(obj):
-    if obj.data and isinstance(obj.data, Mesh):
-        _weld_verts(obj)
-    else:
-        for child_obj in obj.children:
-            _weld_vers_recursive(child_obj)
-
-def _weld_verts(obj):
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.select_all(action='DESELECT')
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_mode(type='VERT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.mesh.remove_doubles(threshold=0.0001, use_sharp_edge_from_normals=True)
-    bpy.ops.object.mode_set(mode='OBJECT')
 
 def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):
     if import_rig_mode == 'OFF':

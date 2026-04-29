@@ -262,13 +262,21 @@ The first (optional) step is to prepare a configuration file. This defines how t
 - **StaticObjects_SkipLightmaps**: contains all the objects that aren't StaticMeshes or have `GeometryTemplate.dontGenerateLightmaps 1`
 - **Lights**: contains all the point lights as well as the *Sun*
 - **Heightmaps**: contains just the primary heightmap. The heightmap will have a modifier applied which flattens all the vertices below the water level so that terrain shadows are casted on the water surface.
-## Before you hit *Bake*...
-- Check the [Info Logs](https://docs.blender.org/manual/en/latest/editors/info_editor.html) for errors and warnings from the loading process, and try to fix them. If some meshes fail to import they won't receive any lightmaps nor cast any shadows!
-- Make sure that you have configured [GPU Rendering](https://docs.blender.org/manual/en/latest/render/cycles/gpu_rendering.html). By default Blender uses CPU rendering which is a lot slower.
-- If necessary, tweak configured lightmap sizes (especially if they were auto assigned). You can use `Select -> BF2 -> By Lightmap Size` or check the size in *Object Properties* for each LOD. LODs can be skipped during lightmapping if their lightmap size is set to zero.
-- If necessary, adjust the intensity of the *Sun* light, its color should be green. Tweak the intensity of the sky light (in Blender called [World](https://docs.blender.org/manual/en/latest/render/lights/world.html) background) its color should be blue. Verify your point light placement and parameters (intensity, radius etc.), their color should be red (unless you need them to appear on the terrain).
-## Baking
-I strongly suggest to make a test bake for a single object first by unchecking *Terrain* and choosing *Only Selected* for *Objects*. If the result ends up too noisy adjust Render settings like [Sampling](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html). From my experience, to achieve decent quality lightmaps you'll need to set the *Max Samples* to at least 8192 and the *Noise Threshold* to 0.001 or less. For a top quality bumping those to 16384 and 0.0005 respectively should be enough. It may also help to uncheck *Normal Maps*. This will generally produce smoother lightmaps as Blender won't be trying to bake all the little shadows from normal maps that end up looking like noise on a low resolution lightmap. When your test bake looks good, you may switch *Objects* mode to *All*, hit *Bake* and be patient, this process may take DAYS. You can cancel baking by pressing ESC and resume it later.
+
+Check the [Info Logs](https://docs.blender.org/manual/en/latest/editors/info_editor.html) for errors and warnings from the loading process, and try to fix them. If some meshes fail to import they won't receive any lightmaps nor cast any shadows!
+
+If you find it necessary:
+- tweak configured lightmap sizes (especially if they were auto assigned). You can use `Select -> BF2 -> By Lightmap Size` or check the size in *Object Properties* for each LOD. LODs can be skipped during lightmapping if their lightmap size is set to zero.
+- adjust the intensity of the *Sun* light, its color should be green. Tweak the intensity of the sky light (in Blender called [World](https://docs.blender.org/manual/en/latest/render/lights/world.html) background) its color should be blue. Verify your point light placement and parameters (intensity, radius etc.), their color should be red (unless you need them to appear on the terrain).
+
+## Tweaking render settings
+Default render settings are not that great for baking lightmaps and before you hit *Bake* you may have to make some changes:
+- Most importantly, make sure that you have configured [GPU Rendering](https://docs.blender.org/manual/en/latest/render/cycles/gpu_rendering.html). By default Blender uses CPU rendering which is a lot slower. Remember to also toggle *Use GPU* in *Denoiser* settings.
+- Adjust [Sampling](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html) settings: To achieve decent quality lightmaps you'll need to set the *Max Samples* to at least 8192 and the *Noise Threshold* to 0.001 or less.
+- When using many point lights disable the *Light Tree* found under [Lights](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html#lights) and use *Light Threshold* instead (from my experience this makes point lights bake a lot faster)
+
+To test your render settings you may bake only a single object first by unchecking *Bake Terrain* and choosing *Only Selected* for objects.
+
 ## Post-processing (Ambient lights)
 After your lightmaps are baked you will notice that some areas like interiors that don't receive much sunlight or skylight are way too dark, so you may want to add some ambient light to the lightmaps. The ambient light is basically a "flat" light uniformly affecting every surface. I couldn't find a good way to implement such lighting in Blender therefore it can only be added to lightmaps post bake. This has a disadvantage of not being able to see it in the render preview but the benefit of rather quickly changing the amount of ambient light later without re-baking.
 

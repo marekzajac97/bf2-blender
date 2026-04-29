@@ -25,6 +25,7 @@ from ..utils import (DEFAULT_REPORTER,
                     delete_object, find_root,
                     is_pow_two, obj_bounds,
                     yaw_pitch_roll_to_matrix,
+                    remove_double_verts,
                     strip_geom_lod_prefix as strip_prefix)
 from ..heightmap import import_heightmap_from
 from ..exceptions import ImportException
@@ -88,6 +89,16 @@ def _setup_scene_for_baking(context):
     context.scene.render.bake.use_pass_direct = True
     context.scene.render.bake.use_pass_indirect = True
     context.scene.render.bake.use_pass_color = False
+
+def check_gpu(context):
+    if not context.scene.cycles.denoising_use_gpu:
+        yield "'Use GPU' is disabled in 'Denoiser' settings"
+    if context.scene.cycles.device != 'GPU':
+        yield f"Device is configured to '{context.scene.cycles.device}' instead of the 'GPU' in render settings"
+    else:
+        cycles = context.preferences.addons.get('cycles')
+        if cycles and hasattr(cycles.preferences, 'compute_device_type') and cycles.preferences.compute_device_type == 'NONE':
+            yield f"Cycles compute device type is set to 'NONE' in system preferences"
 
 def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
     node_tree = material.node_tree
@@ -823,11 +834,12 @@ def _gen_lm_key(geom_template_name, position, lod):
 class ObjectBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE', lod_mask=None,
                  only_selected=False, normal_maps=False, skip_existing=False,
-                 reporter=DEFAULT_REPORTER):
+                 max_lod=99, reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
         self.lod_mask = lod_mask
         self.reporter = reporter
         self.normal_maps = normal_maps
+        self.max_lod = max_lod
         self.objects = list()
 
         self.existing_lods = set()
@@ -886,6 +898,9 @@ class ObjectBaker(BakerBase):
 
         geom = geoms[0] # TODO: Geom1 support
         for lod_idx in range(len(geom)-1, -1, -1): # enum lods in reversed order
+            if lod_idx > self.max_lod:
+                continue
+
             lod_obj = geom[lod_idx]
 
             if self.lod_mask is not None and lod_idx not in self.lod_mask:
@@ -913,20 +928,21 @@ class ObjectBaker(BakerBase):
             bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
 
             # add bake lightmap texture for each material
-            normal_socket = None
+            normal_sockets = list()
             for material in lod_obj.data.materials:
                 _setup_material_for_baking(material, bake_image)
                 if not self.normal_maps:
-                    normal_socket = _unplug_socket_from_bsdf(material, 'Normal')
+                    normal_sockets.append(_unplug_socket_from_bsdf(material, 'Normal'))
 
             self._select_lod_for_bake(geom, lod_idx)
             bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
             self.save_bake(bake_image)
             bpy.data.images.remove(bake_image)
 
-            if normal_socket:
-                for material in lod_obj.data.materials:
-                    _plug_socket_to_bsdf(material, 'Normal', normal_socket)
+            if normal_sockets:
+                for normal_socket, material in zip(normal_sockets, lod_obj.data.materials):
+                    if normal_socket:
+                        _plug_socket_to_bsdf(material, 'Normal', normal_socket)
         return True
 
 # -------------------
@@ -1149,7 +1165,7 @@ def _do_material_tweaks(config, geom_temp_name, mesh, texture_paths, ray_vis_mas
                 material.bf2_alpha_mode = 'ALPHA_TEST'
             material.is_bf2_material = True
 
-            reporter.info(f"Replaced texture '{path}' for '{mesh.name}' as requested")
+            # reporter.info(f"Replaced texture '{path}' for '{mesh.name}' as requested")
             modified = True
 
         if modified:
@@ -1164,7 +1180,7 @@ def _do_material_tweaks(config, geom_temp_name, mesh, texture_paths, ray_vis_mas
             node_tree.links.new(alpha_socket, ray_vis_mask_node.inputs['Alpha'])
             _plug_socket_to_bsdf(material, 'Alpha', ray_vis_mask_node.outputs['Alpha'])
             node_tree.links.new(tex_node.outputs['Alpha'], ray_vis_mask_node.inputs['Mask'])
-            reporter.info(f"Added ray mask '{path}' for '{mesh.name}' as requested")
+            # reporter.info(f"Added ray mask '{path}' for '{mesh.name}' as requested")
 
 def _get_lm_size_thresholds(config, reporter):
     lm_size_thresholds = list()

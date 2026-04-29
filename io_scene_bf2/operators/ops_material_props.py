@@ -162,9 +162,12 @@ class MESH_PT_bf2_materials(bpy.types.Panel):
 def _update_techinique(material):
     if not material.is_bf2_material:
         return
-
+    
     if material.bf2_shader == 'STATICMESH':
         material.bf2_technique = get_staticmesh_technique_from_maps(material)
+        return
+
+    if material.bf2_technique_typein_mode:
         return
 
     if material.bf2_shader == 'SKINNEDMESH':
@@ -205,6 +208,8 @@ def on_texture_map_update(self, context, index):
     prop_name = f'texture_slot_{index}'
     prop_val = getattr(self, prop_name)
 
+    print('get:', prop_name, '=', prop_val)
+
     if prop_val.startswith('//'): # path relative to current blend file
         prop_val = bpy.path.abspath(prop_val)
 
@@ -230,11 +235,17 @@ def on_texture_map_update(self, context, index):
     else:
         pass # relative path probably typed manually, dunno what could check here  
 
+    print('set:', prop_name, '=', prop_val)
     with SkipMaterialUpdateCallback(self):
         setattr(self, prop_name, prop_val)
 
     if self.bf2_shader in ('STATICMESH', 'SKINNEDMESH'):
         _update_techinique(self)
+
+def _bind_on_texture_map_update(index):
+    def fun(self, context):
+        on_texture_map_update(self, context, index)
+    return fun
 
 def on_is_vegitation_update(self, context):
     if not self.is_bf2_material:
@@ -285,7 +296,7 @@ def init(rc : RegisterFactory):
     rc.reg_prop(Material, 'is_bf2_vegitation',
         BoolProperty(
             name="Is Vegitation",
-            description="Whether to use special vegitation leaf/trunk shaders. (it does not affect export)",
+            description="Whether to use special leaf/trunk shaders, which BF2 engine applies for StaticMeshes in 'vegitation' folder",
             default=False,
             update=on_is_vegitation_update,
             options=set()
@@ -366,8 +377,8 @@ def init(rc : RegisterFactory):
                 description=f"Filepath used for texture slot {index}",
                 maxlen=1024,
                 subtype='FILE_PATH',
-                update=lambda self, context: on_texture_map_update(self, context, index)
-            )                
+                update=_bind_on_texture_map_update(index)
+            )
         )
 
     rc.reg_prop(Material, 'bf2_use_colormapgloss',
@@ -381,14 +392,14 @@ def init(rc : RegisterFactory):
     rc.reg_prop(Material, 'bf2_use_alpha_test',
         _create_technique_prop(
             name='Alpha_Test',
-            description="By itself, enabling it will have no effect. When combined with `ColormapGloss` it makes parts of the surface where the `Color` map is black (RGB == 0,0,0) fully transparent."
+            description="Makes parts of the surface where the `Color` map is black (RGB == 0,0,0) fully transparent. Only takes effect if `ColormapGloss` is also used, otherwise it does nothing."
         )
     )
 
     rc.reg_prop(Material, 'bf2_use_envmap',
         _create_technique_prop(
             name='EnvMap',
-            description="Enables environment map based reflections (scaled using gloss map)"
+            description="Enables environment map based reflections (with intensity scaled by the gloss map)"
         )
     )
 

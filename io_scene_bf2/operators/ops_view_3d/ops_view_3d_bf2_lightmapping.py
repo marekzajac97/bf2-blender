@@ -14,6 +14,7 @@ from ...core.tools.lightmaping import (load_level,
                                TerrainBaker,
                                PostProcessor,
                                get_default_heightmap_patch_count_and_size,
+                               check_gpu,
                                LIGHTMAPPING_CONFIG_TEMPLATE)
 
 class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
@@ -310,9 +311,17 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     ) # type: ignore
 
     normal_maps: BoolProperty(
-        name="Normal Maps",
-        description="When disabled, bakes lightmaps without normal maps on materials. Usually results in less noisy lightmaps",
+        name="Use Normal Maps",
+        description="Bakes lightmaps with normal map details/shadows. Disabling this usually results in less noisy lightmaps",
         default=False
+    ) # type: ignore
+
+    max_lod: IntProperty(
+        name="Max LOD",
+        description="Skips baking lightmaps for lower detail LODs",
+        default=6,
+        min=0,
+        max=6
     ) # type: ignore
 
     bake_objects: BoolProperty(
@@ -427,6 +436,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
                                 only_selected=self.bake_objects_mode == 'ONLY_SELECTED',
                                 normal_maps=self.normal_maps,
                                 skip_existing=self.resume,
+                                max_lod=self.max_lod,
                                 reporter=Reporter(self.report))
             self.bakers.append(baker)
         if self.bake_terrain:
@@ -464,20 +474,21 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
 
         layout.operator(VIEW3D_OT_bf2_load_level.bl_idname, icon='IMPORT')
 
-        main = layout.column(heading="Bake")
+        main = layout.column()
         header, body = main.panel("BF2_PT_bake_settings", default_closed=True)
         header.label(text="Bake Settings")
         if body:
             body.prop(scene, "bf2_lm_outdir")
             body.prop(scene, "bf2_lm_dds_compression")
             body.separator(factor=1.0, type='LINE')
-            body.prop(scene, "bf2_lm_bake_objects")
+            body.prop(scene, "bf2_lm_bake_objects", text='Bake Objects')
             col = body.column()
             col.prop(scene, "bf2_lm_bake_objects_mode", text=" ")
             col.prop(scene, "bf2_lm_normal_maps")
+            col.prop(scene, "bf2_lm_max_lod")
             col.enabled = scene.bf2_lm_bake_objects
             body.separator(factor=1.0, type='LINE')
-            body.prop(scene, "bf2_lm_bake_terrain")
+            body.prop(scene, "bf2_lm_bake_terrain", text='Bake Terrain')
             col = body.column()
             col.prop(scene, "bf2_lm_patch_count")
             col.prop(scene, "bf2_lm_patch_size")
@@ -485,6 +496,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             body.separator(factor=1.0, type='LINE')
             body.prop(scene, "bf2_lm_resume")
             row = main.row()
+
             props = row.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
             props.outdir = scene.bf2_lm_outdir
             props.dds_compression = scene.bf2_lm_dds_compression
@@ -494,7 +506,12 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             props.patch_count = scene.bf2_lm_patch_count
             props.patch_size = scene.bf2_lm_patch_size
             props.normal_maps = scene.bf2_lm_normal_maps
+            props.max_lod = scene.bf2_lm_max_lod
             props.resume = scene.bf2_lm_resume
+
+            for warn in check_gpu(context):
+                row = main.row()
+                row.label(text=warn, icon='ERROR')
             row.enabled = props.bake_objects or props.bake_terrain
 
             if VIEW3D_OT_bf2_bake.is_running(context):
@@ -646,9 +663,20 @@ def init(rc : RegisterFactory):
 
     rc.reg_prop(Scene, 'bf2_lm_normal_maps',
         BoolProperty(
-            name="Normal Maps",
-            description="When disabled, bakes lightmaps without normal maps on materials. Usually results in less noisy lightmaps",
+            name="Use Normal Maps",
+            description="Bakes lightmaps with normal map details/shadows. Disabling this usually results in less noisy lightmaps",
             default=False,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
+
+    rc.reg_prop(Scene, 'bf2_lm_max_lod',
+        IntProperty(
+            name="Max LOD",
+            description="Skips baking lightmaps for lower detail LODs",
+            default=6,
+            min=0,
+            max=6,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
     )
