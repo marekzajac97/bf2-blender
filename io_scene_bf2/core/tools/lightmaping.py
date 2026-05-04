@@ -7,6 +7,7 @@ import bmesh # type: ignore
 from mathutils import Matrix, Vector # type: ignore
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
+from array import array
 
 from typing import Dict, List
 
@@ -996,6 +997,21 @@ class ObjectBaker(BakerBase):
 
         return True
 
+def _paste_img(dst_img, src_img, x, y):
+    atlas_width, atlas_height = src_img.size
+    num_channels = src_img.channels
+
+    src_pixels = array('f', src_img.pixels[:])
+    w, h = dst_img.size
+
+    tile_pixels = array('f')
+
+    for row in range(h):
+        src_row_start = ((y + row) * atlas_width + x) * num_channels
+        src_row_end = src_row_start + (w * num_channels)
+        tile_pixels.extend(src_pixels[src_row_start:src_row_end])
+
+    dst_img.pixels = tile_pixels.tolist()
 
 class ObjectParallelBaker(BakerBase):
     """
@@ -1009,6 +1025,10 @@ class ObjectParallelBaker(BakerBase):
         self.normal_maps = normal_maps
         self.max_lod = max_lod
         self.atlas_size = atlas_size
+
+        existing_lods = set()
+        if skip_existing:
+            existing_lods = get_all_lightmap_files(output_dir, r'.*=\d{2}=-?\d+=-?\d+=-?\d+')
 
         objects = list()
         if only_selected:
@@ -1026,6 +1046,7 @@ class ObjectParallelBaker(BakerBase):
         # filter LODs
         self.lod_to_geom = dict()
         self.lod_to_objects = dict()
+        self.lod_to_lm_key = dict()
         for root_obj in objects:
             try:
                 geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
@@ -1039,10 +1060,10 @@ class ObjectParallelBaker(BakerBase):
                     continue
 
                 mesh = lod_obj.data
-
-                # TODO: add to TAI data
-                # geom_temp_name = strip_prefix(mesh.name)
-                # lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
+                geom_temp_name = strip_prefix(mesh.name)
+                lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
+                if lm_name in existing_lods:
+                    continue
 
                 lm_size = tuple(lod_obj.bf2_lightmap_size)
                 if lm_size == (0, 0):
@@ -1055,6 +1076,7 @@ class ObjectParallelBaker(BakerBase):
 
                 self.lod_to_objects.setdefault(lod_idx, list()).append(lod_obj)
                 self.lod_to_geom[lod_obj.name] = geom
+                self.lod_to_lm_key[lod_obj.name] = lm_name
 
         # generate atlases
         # LODs of a single object cannot be on the same atlas
@@ -1148,7 +1170,6 @@ class ObjectParallelBaker(BakerBase):
 
             # apply UV changes
             mesh = obj.data
-            # TODO: add to TAI data
             scale_u = rect.width / self.atlas_size[0]
             scale_v = rect.height / self.atlas_size[1]
             offset_u = rect.x / self.atlas_size[0]
@@ -1192,15 +1213,24 @@ class ObjectParallelBaker(BakerBase):
             print(f"Baking atlas {atlas_name} {self.completed_items()}/{self.total_items()}")
             bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
 
-        self.save_bake(bake_image)
-        bpy.data.images.remove(bake_image)
-
         # delete temp mesh
         bpy.data.meshes.remove(temp_mesh, do_unlink=True)
 
         # revert objects to LOD0
         for rect in atlas:
             self._select_lod_for_bake(rect.rid, 0)
+
+        print(f"Splitting atlas {atlas_name} {self.completed_items()}/{self.total_items()}")
+
+        # split and save images
+        for rect in atlas:
+            lm_name = self.lod_to_lm_key[rect.rid.name]
+            tile_img = bpy.data.images.new(name=lm_name, width=rect.width, height=rect.height)
+            _paste_img(tile_img, bake_image, rect.x, rect.y)
+            self.save_bake(tile_img)
+            bpy.data.images.remove(tile_img)
+
+        bpy.data.images.remove(bake_image)
 
         return True
 
@@ -1586,14 +1616,19 @@ def load_level(context, level_dir, use_cache=True,
 
             if not load_unpacked:
                 raise NotImplementedError() # TODO: texture load from FileManager
+            
+            FREE_NORMALS = False # debug
 
             importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh,
-                                    texture_paths=mod_dirs, reporter=reporter, free_normals=True, silent=True)
+                                    texture_paths=mod_dirs, reporter=reporter, free_normals=FREE_NORMALS, silent=True)
             try:
                 mesh_obj = importer.import_mesh()
             except ImportException as e:
                 reporter.error(f"Failed to import mesh '{geom_temp.location}': {e}")
                 continue
+
+            if not FREE_NORMALS:
+                remove_double_verts(mesh_obj, recursive=True)
 
             # determine samples size
             meshes_dir = path.dirname(geom_temp.location)

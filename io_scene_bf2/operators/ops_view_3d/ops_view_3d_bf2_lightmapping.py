@@ -10,7 +10,7 @@ from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
 from ...core.utils import Reporter, next_power_of_2, prev_power_of_2
 from ...core.tools.lightmaping import (load_level,
-                               # ObjectParallelBaker as ObjectBaker,
+                               ObjectParallelBaker,
                                ObjectBaker,
                                TerrainBaker,
                                PostProcessor,
@@ -283,6 +283,8 @@ def get_patch_count(self):
     def_val = self.bl_rna.properties['bf2_lm_patch_count'].default
     return self.get('bf2_lm_patch_count', def_val) 
 
+import time
+
 class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     bl_idname = "bf2.lightmap_bake"
     bl_label = "Bake"
@@ -323,6 +325,20 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         default=6,
         min=0,
         max=6
+    ) # type: ignore
+
+    atlas_dim: IntProperty(
+        name="Atlas size",
+        description="Atlas dimensions (width and height) to use for baking a single batch. A bigger atlas will use more GPU memory.",
+        default=2048,
+        min=0,
+        max=8192
+    ) # type: ignore
+
+    batch_mode: BoolProperty(
+        name="Use Atlas",
+        description="Bake objects in batches on a texture atlas. This should better utilize GPU when baking a lot of small objects thus cutting down the rendering time (use only if you have a capable hardware)",
+        default=False
     ) # type: ignore
 
     bake_objects: BoolProperty(
@@ -430,15 +446,22 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             self.report({"ERROR"}, f"Choosen out path '{self.outdir}' is NOT a directory!")
             return {'CANCELLED'}
 
+        obj_kwargs = dict(
+            dds_fmt=self.dds_compression,
+            only_selected=self.bake_objects_mode == 'ONLY_SELECTED',
+            normal_maps=self.normal_maps,
+            skip_existing=self.resume,
+            max_lod=self.max_lod,
+            reporter=Reporter(self.report)
+        )
+
         self.bakers = list()
         if self.bake_objects:
-            baker = ObjectBaker(context, self.outdir,
-                                dds_fmt=self.dds_compression,
-                                only_selected=self.bake_objects_mode == 'ONLY_SELECTED',
-                                normal_maps=self.normal_maps,
-                                skip_existing=self.resume,
-                                max_lod=self.max_lod,
-                                reporter=Reporter(self.report))
+            if self.batch_mode:
+                obj_kwargs['atlas_size'] = (self.atlas_dim, self.atlas_dim)
+                baker = ObjectParallelBaker(context, self.outdir,**obj_kwargs)
+            else:
+                baker = ObjectBaker(context, self.outdir,**obj_kwargs)
             self.bakers.append(baker)
         if self.bake_terrain:
             baker = TerrainBaker(context, self.outdir,
@@ -482,13 +505,18 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             body.prop(scene, "bf2_lm_outdir")
             body.prop(scene, "bf2_lm_dds_compression")
             body.separator(factor=1.0, type='LINE')
+
             body.prop(scene, "bf2_lm_bake_objects", text='Bake Objects')
             col = body.column()
             col.prop(scene, "bf2_lm_bake_objects_mode", text=" ")
             col.prop(scene, "bf2_lm_normal_maps")
+            col.prop(scene, "bf2_lm_batch_mode")
+            if scene.bf2_lm_batch_mode:
+                col.prop(scene, "bf2_lm_atlas_dim")
             col.prop(scene, "bf2_lm_max_lod")
             col.enabled = scene.bf2_lm_bake_objects
             body.separator(factor=1.0, type='LINE')
+
             body.prop(scene, "bf2_lm_bake_terrain", text='Bake Terrain')
             col = body.column()
             col.prop(scene, "bf2_lm_patch_count")
@@ -509,6 +537,8 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             props.normal_maps = scene.bf2_lm_normal_maps
             props.max_lod = scene.bf2_lm_max_lod
             props.resume = scene.bf2_lm_resume
+            props.batch_mode = scene.bf2_lm_batch_mode
+            props.atlas_dim = scene.bf2_lm_atlas_dim
 
             for warn in check_gpu(context):
                 row = main.row()
@@ -686,6 +716,26 @@ def init(rc : RegisterFactory):
         BoolProperty(
             name="Resume",
             description="Resume previously canceled bake by skipping Objects which has been lightmapped already",
+            default=False,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
+
+    rc.reg_prop(Scene, 'bf2_lm_atlas_dim',
+        IntProperty(
+            name="Atlas size",
+            description="Atlas dimensions (width and height) to use for baking a single batch. A bigger atlas will use more GPU memory.",
+            default=2048,
+            min=0,
+            max=8192,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
+
+    rc.reg_prop(Scene, 'bf2_lm_batch_mode',
+        BoolProperty(
+            name="Use Atlas",
+            description="Bake objects in batches on a texture atlas. This should better utilize GPU when baking a lot of small objects thus cutting down the rendering time (use only if you have a capable hardware)",
             default=False,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
