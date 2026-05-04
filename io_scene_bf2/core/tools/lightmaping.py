@@ -1616,19 +1616,16 @@ def load_level(context, level_dir, use_cache=True,
 
             if not load_unpacked:
                 raise NotImplementedError() # TODO: texture load from FileManager
-            
-            FREE_NORMALS = False # debug
 
             importer = MeshImporter(context, geom_temp.location, loader=lambda: bf2_mesh,
-                                    texture_paths=mod_dirs, reporter=reporter, free_normals=FREE_NORMALS, silent=True)
+                                    texture_paths=mod_dirs, reporter=reporter, silent=True)
             try:
                 mesh_obj = importer.import_mesh()
             except ImportException as e:
                 reporter.error(f"Failed to import mesh '{geom_temp.location}': {e}")
                 continue
 
-            if not FREE_NORMALS:
-                remove_double_verts(mesh_obj, recursive=True)
+            remove_double_verts(mesh_obj, recursive=True)
 
             # determine samples size
             meshes_dir = path.dirname(geom_temp.location)
@@ -1637,40 +1634,48 @@ def load_level(context, level_dir, use_cache=True,
             MIN_LM_SIZE = 8
             geom_info = GeometryTemplateConfig.Geom() # TODO: Geom1 support
             mesh_info.geoms.append(geom_info)
+
+            skip_lightmaps = (geom_temp.dont_generate_lightmaps or
+                'StaticMesh' != geom_temp.geometry_type or
+                not bf2_mesh.has_uv(4))
+
             for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
                 lm_size = None
 
-                if lod_idx == 0:
-                    fname = path.join(meshes_dir, geom_temp.name + '.samples')
-                else:
-                    fname = path.join(meshes_dir, geom_temp.name + f'.samp_{lod_idx:02d}')
-
-                if load_unpacked:
-                    if path.isfile(fname):
-                        with open(fname, "rb") as f:
-                            lm_size = BF2Samples.read_map_size_from(f)
-                else:
-                    raise NotImplementedError() # TODO
-
-                if lm_size is None:
-                    if lod0_lm_size is not None:
-                        # halve the LOD0 size
-                        lm_size = [max(int(i / (2**lod_idx)), MIN_LM_SIZE) for i in lod0_lm_size]
+                if not skip_lightmaps:
+                    if lod_idx == 0:
+                        fname = path.join(meshes_dir, geom_temp.name + '.samples')
                     else:
-                        # guess using surface area of the mesh
-                        mesh_area = _calc_mesh_area(lod_obj.data)
-                        if not lm_size_thresholds:
-                            reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', .samples file not found and LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
-                            lm_size = (0, 0)
-                        else: 
-                            for lms, min_area in reversed(lm_size_thresholds):
-                                if mesh_area >= min_area:
-                                    lm_size = (lms, lms)
-                                    break
-                if lm_size is None:
-                    lm_size = (MIN_LM_SIZE, MIN_LM_SIZE)
-                if lod_idx == 0:
-                    lod0_lm_size = lm_size
+                        fname = path.join(meshes_dir, geom_temp.name + f'.samp_{lod_idx:02d}')
+
+                    if load_unpacked:
+                        if path.isfile(fname):
+                            with open(fname, "rb") as f:
+                                lm_size = BF2Samples.read_map_size_from(f)
+                    else:
+                        raise NotImplementedError() # TODO
+
+                    if lm_size is None:
+                        if lod0_lm_size is not None:
+                            # halve the LOD0 size
+                            lm_size = [max(int(i / (2**lod_idx)), MIN_LM_SIZE) for i in lod0_lm_size]
+                        else:
+                            # guess using surface area of the mesh
+                            mesh_area = _calc_mesh_area(lod_obj.data)
+                            if not lm_size_thresholds:
+                                reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', .samples file not found and LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
+                                lm_size = (0, 0)
+                            else: 
+                                for lms, min_area in reversed(lm_size_thresholds):
+                                    if mesh_area >= min_area:
+                                        lm_size = (lms, lms)
+                                        break
+                    if lm_size is None:
+                        lm_size = (MIN_LM_SIZE, MIN_LM_SIZE)
+                    if lod_idx == 0:
+                        lod0_lm_size = lm_size
+                else:
+                    lm_size = (0, 0)
 
                 lod_info = GeometryTemplateConfig.Lod(lod_obj.data, lm_size)
                 geom_info.lods.append(lod_info)
@@ -1683,10 +1688,6 @@ def load_level(context, level_dir, use_cache=True,
             delete_object(mesh_obj, remove_data=False)
 
         # instantiate meshes
-        skip_lightmaps = (geom_temp.dont_generate_lightmaps or
-            'StaticMesh' != geom_temp.geometry_type or
-            not bf2_mesh.has_uv(4))
-
         for matrix_world in temp_cfg.instances:
             # XXX: objects will be named by ObjectTemplate
             # and meshes will be named by GeometryTemplate
