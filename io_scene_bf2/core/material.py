@@ -209,8 +209,8 @@ def _split_str_from_word_set(s : str, word_set : set):
             return None # contains word not in wordset
     return words
 
-def get_staticmesh_uv_channels(maps):
-    uv_channels = set()
+def get_staticmesh_uv_channel_mapping(maps):
+    map_to_uv_chan = dict()
     has_dirt = 'Dirt' in maps
     for texture_map in maps:
         if texture_map == 'Base':
@@ -225,8 +225,11 @@ def get_staticmesh_uv_channels(maps):
             uv_chan = 1
         elif texture_map == 'NCrack':
             uv_chan = 3 if has_dirt else 2
-        uv_channels.add(uv_chan)
-    return uv_channels
+        map_to_uv_chan[texture_map] = uv_chan
+    return map_to_uv_chan
+
+def get_staticmesh_uv_channels(maps):
+    return set(get_staticmesh_uv_channel_mapping(maps).values())
 
 def get_staticmesh_technique_from_maps(material):
     map_type_to_file = get_material_maps(material)

@@ -228,7 +228,7 @@ def on_texture_map_update(self, context, index):
             if not prop_val:
                 show_error(context,
                         title='Invalid texture path!',
-                        text=f'Given path: "{prop_val}" is not relative to any of the MOD paths defined in add-on preferences')
+                        text=f'Given path: "{getattr(self, prop_name)}" is not relative to any of the MOD paths defined in add-on preferences')
                 prop_val = ''
     else:
         pass # relative path probably typed manually, dunno what could check here  

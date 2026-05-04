@@ -6,8 +6,12 @@ import bpy # type: ignore
 import bmesh # type: ignore
 from mathutils import Matrix, Vector # type: ignore
 from abc import ABC, abstractmethod
+from contextlib import nullcontext
 
 from typing import Dict, List
+
+from ... import rectpack
+
 from ..bf2.bf2_engine import (BF2Engine,
                             FileManagerFileNotFound,
                             ObjectTemplate,
@@ -16,7 +20,10 @@ from ..bf2.bf2_engine import (BF2Engine,
                             Object)
 from ..bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh, BF2Samples
 from ..mod_loader import ModLoader
-from ..material import setup_material, get_material_maps, STATICMESH_TEXUTRE_MAP_TYPES
+from ..material import (setup_material,
+                        get_material_maps,
+                        get_staticmesh_uv_channel_mapping,
+                        STATICMESH_TEXUTRE_MAP_TYPES)
 from ..mesh import MeshImporter, MeshExporter
 from ..utils import (DEFAULT_REPORTER,
                     swap_zy, file_name,
@@ -671,6 +678,8 @@ class TerrainBaker(BakerBase):
         for obj in context.selected_objects:
             obj.select_set(False)
 
+        context.view_layer.objects.active = self.terrain
+
         self.terrain.hide_set(False)
         self.terrain.select_set(True)
         self.terrain.hide_render = False
@@ -736,7 +745,32 @@ class TerrainBaker(BakerBase):
 # baking objects
 # -------------------
 
-def _add_texture_node(material, texture_file, texture_paths, reporter):
+def _add_ao_node(material):
+    node_tree = material.node_tree
+    bsdf_node = None
+    output_node = None
+    for node in node_tree.nodes:
+        if node.type == 'BSDF_PRINCIPLED':
+            bsdf_node = node
+        if node.type == 'OUTPUT_MATERIAL':
+            output_node = node
+        if bsdf_node and output_node:
+            break
+
+    mix = node_tree.nodes.new('ShaderNodeMixShader')
+    ao = node_tree.nodes.new('ShaderNodeAmbientOcclusion')
+
+    node_tree.links.new(bsdf_node.outputs[0], mix.inputs[2])
+    node_tree.links.new(ao.outputs[1], mix.inputs[0])
+    node_tree.links.new(mix.outputs[0], output_node.inputs[0])
+
+def _add_texture_node(material, texture_file, uv_index, texture_paths, reporter):
+    node_tree = material.node_tree
+    uv_node = None
+    for node in node_tree.nodes:
+        if node.type == 'UVMAP' and node.uv_map == f'UV{uv_index}':
+            uv_node = node
+
     for texture_path in texture_paths:
         abs_path = os.path.join(texture_path, texture_file)
         if os.path.isfile(abs_path):
@@ -745,10 +779,12 @@ def _add_texture_node(material, texture_file, texture_paths, reporter):
         if texture_paths:
             reporter.warning(f"Texture file '{texture_file}' not found in any of the texture paths")
         abs_path = ''
-    tex_node = material.node_tree.nodes.new('ShaderNodeTexImage')
+    tex_node = node_tree.nodes.new('ShaderNodeTexImage')
     if abs_path:
         tex_node.image = bpy.data.images.load(abs_path, check_existing=True)
         tex_node.image.alpha_mode = 'STRAIGHT'
+
+    node_tree.links.new(uv_node.outputs['UV'], tex_node.inputs['Vector'])
     return tex_node
 
 def _make_ray_visibility_mask():
@@ -807,23 +843,23 @@ def _make_ray_visibility_mask():
 
     return node_tree
 
-def _unplug_socket_from_bsdf(material, socket_name):
+def _unplug_socket_from(material, socket_name, node_type='BSDF_PRINCIPLED'):
     if not material.is_bf2_material:
         return None
     node_tree = material.node_tree
     for node_link in node_tree.links:
         node = node_link.to_node
-        if node.type == 'BSDF_PRINCIPLED' and node_link.to_socket.name == socket_name:
+        if node.type == node_type and node_link.to_socket.name == socket_name:
             from_socket = node_link.from_socket
             node_tree.links.remove(node_link)
             return from_socket
 
-def _plug_socket_to_bsdf(material, socket_name, from_socket):
+def _plug_socket_to(material, socket_name, from_socket, node_type='BSDF_PRINCIPLED'):
     if not material.is_bf2_material:
         return
     node_tree = material.node_tree
     for node in node_tree.nodes:
-        if node.type == 'BSDF_PRINCIPLED':
+        if node.type == node_type:
             node_socket = node.inputs[socket_name]
             material.node_tree.links.new(from_socket, node_socket)
 
@@ -831,12 +867,25 @@ def _gen_lm_key(geom_template_name, position, lod):
     x, y, z = [str(int(i)) for i in position]
     return '='.join([geom_template_name.lower(), f'{lod:02d}', x, z, y])
 
+class StripNormalMaps:
+    def __init__(self, materials):
+        self.materials = materials
+        self.normal_sockets = list()
+
+    def __enter__(self):
+        for material in self.materials:
+            self.normal_sockets.append(_unplug_socket_from(material, 'Normal'))
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        for normal_socket, material in zip(self.normal_sockets, self.materials):
+            if normal_socket:
+                _plug_socket_to(material, 'Normal', normal_socket)
+
 class ObjectBaker(BakerBase):
-    def __init__(self, context, output_dir, dds_fmt='NONE', lod_mask=None,
+    def __init__(self, context, output_dir, dds_fmt='NONE',
                  only_selected=False, normal_maps=False, skip_existing=False,
                  max_lod=99, reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
-        self.lod_mask = lod_mask
         self.reporter = reporter
         self.normal_maps = normal_maps
         self.max_lod = max_lod
@@ -903,8 +952,6 @@ class ObjectBaker(BakerBase):
 
             lod_obj = geom[lod_idx]
 
-            if self.lod_mask is not None and lod_idx not in self.lod_mask:
-                continue
             mesh = lod_obj.data
             geom_temp_name = strip_prefix(mesh.name)
             lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
@@ -928,21 +975,233 @@ class ObjectBaker(BakerBase):
             bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
 
             # add bake lightmap texture for each material
-            normal_sockets = list()
-            for material in lod_obj.data.materials:
+
+            materials = list(lod_obj.data.materials)
+            for material in materials:
                 _setup_material_for_baking(material, bake_image)
-                if not self.normal_maps:
-                    normal_sockets.append(_unplug_socket_from_bsdf(material, 'Normal'))
+
+            if self.normal_maps:
+                snm = nullcontext()
+            else:
+                snm = StripNormalMaps(materials)
 
             self._select_lod_for_bake(geom, lod_idx)
-            bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+
+            with snm:
+                context.view_layer.objects.active = lod_obj
+                bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+
             self.save_bake(bake_image)
             bpy.data.images.remove(bake_image)
 
-            if normal_sockets:
-                for normal_socket, material in zip(normal_sockets, lod_obj.data.materials):
-                    if normal_socket:
-                        _plug_socket_to_bsdf(material, 'Normal', normal_socket)
+        return True
+
+
+class ObjectParallelBaker(BakerBase):
+    """
+    Object baker that bakes multiple objects at once into an atlas to better utilize GPU
+    """
+    def __init__(self, context, output_dir, dds_fmt='NONE',
+                 only_selected=False, normal_maps=False, atlas_size=(2048, 2048),
+                 max_lod=99, skip_existing=None, reporter=DEFAULT_REPORTER):
+        super().__init__(output_dir, dds_fmt)
+        self.reporter = reporter
+        self.normal_maps = normal_maps
+        self.max_lod = max_lod
+        self.atlas_size = atlas_size
+
+        objects = list()
+        if only_selected:
+            for obj in context.selected_objects:
+                root_obj = find_root(obj)
+                if root_obj not in objects:
+                    objects.append(root_obj)
+        elif 'StaticObjects' in context.scene.collection.children:
+            for obj in context.scene.collection.children['StaticObjects'].objects:
+                if obj.parent is None and obj.data is None:
+                    objects.append(obj)
+
+        objects.sort(key=lambda o: o.name)
+
+        # filter LODs
+        self.lod_to_geom = dict()
+        self.lod_to_objects = dict()
+        for root_obj in objects:
+            try:
+                geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
+            except Exception as e:
+                self.reporter.warning(f"Skipping bake for '{root_obj.name}': {e}")
+                continue
+
+            geom = geoms[0] # TODO: Geom1 support
+            for lod_idx, lod_obj in enumerate(geom):
+                if lod_idx > self.max_lod:
+                    continue
+
+                mesh = lod_obj.data
+
+                # TODO: add to TAI data
+                # geom_temp_name = strip_prefix(mesh.name)
+                # lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
+
+                lm_size = tuple(lod_obj.bf2_lightmap_size)
+                if lm_size == (0, 0):
+                    self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
+                    continue
+
+                if 'UV4' not in lod_obj.data.uv_layers:
+                    self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap UV layer (UV4) is missing")
+                    continue
+
+                self.lod_to_objects.setdefault(lod_idx, list()).append(lod_obj)
+                self.lod_to_geom[lod_obj.name] = geom
+
+        # generate atlases
+        # LODs of a single object cannot be on the same atlas
+        # and to get best quality atlases will get split per LOD
+        self._atlases = list()
+        for lod_idx, objects in self.lod_to_objects.items():
+            packer = rectpack.newPacker(rotation=False)
+
+            for obj in objects:
+                width, height = obj.bf2_lightmap_size
+                packer.add_rect(width, height, obj)
+
+            for _ in range(0, 99):
+                packer.add_bin(*self.atlas_size)
+
+            packer.pack()
+
+            for bin in packer:
+                self._atlases.append(bin)
+
+        self.total_count = len(self._atlases)
+        _setup_scene_for_baking(context)
+
+    def _select_lod_for_bake(self, lod_obj, lod):
+        geom = self.lod_to_geom[lod_obj.name]
+        for lod_idx, lod_obj in enumerate(geom):
+            if lod_idx == lod:
+                lod_obj.hide_set(False)
+                lod_obj.select_set(True)
+                lod_obj.hide_render = False
+            else:
+                lod_obj.hide_set(True)
+                lod_obj.select_set(False)
+                lod_obj.hide_render = True
+
+    def _apply_uv_offset_and_scale(self, mesh, scale_u, scale_v, offset_u, offset_v):
+            # get applied scale/offset
+            bf2_lm_uv_scale = mesh.get('bf2_lm_uv_scale', (1.0, 1.0))
+            bf2_lm_uv_offset = mesh.get('bf2_lm_uv_offset', (0.0, 0.0))
+
+            # calc relative scale/offset
+            scale_u /= bf2_lm_uv_scale[0]
+            scale_v /= bf2_lm_uv_scale[1]
+            offset_u -= bf2_lm_uv_offset[0]
+            offset_v -= bf2_lm_uv_offset[1]
+
+            uv_layer = mesh.uv_layers['UV4']
+            uv_buf = len(uv_layer.data) * 2 * [None]
+            uv_layer.data.foreach_get('uv', uv_buf)
+            def do_scale_and_offset(i, value):
+                if i % 2 == 0:
+                    return (value % 1.0) * scale_u + offset_u
+                else:
+                    return (value % 1.0) * scale_v + offset_v
+            uv_layer.data.foreach_set('uv', [do_scale_and_offset(i, value) for i, value in enumerate(uv_buf)])
+
+            # mark as modified
+            mesh['bf2_lm_uv_scale'] = (scale_u, scale_v)
+            mesh['bf2_lm_uv_offset'] = (offset_u, offset_v)
+
+    def type(self):
+        return 'Objects'
+
+    def total_items(self):
+        return self.total_count
+
+    def completed_items(self):
+        return self.total_count - len(self._atlases)
+
+    def bake_next(self, context):
+        if not self._atlases:
+            return False
+
+        atlas_index = self.completed_items()
+        atlas_name = f'LightmapAtlas{atlas_index}'
+        atlas = self._atlases.pop(0)
+
+        print(f"Preparing atlas {atlas_name} {self.completed_items()}/{self.total_items()}")
+
+        # deselect all
+        bpy.ops.object.select_all(action='DESELECT')
+
+        for rect in atlas:
+            # create a deep-copy of each object
+            obj = rect.rid.copy()
+            context.scene.collection.objects.link(obj)
+            obj.hide_set(False)
+            obj.select_set(True)
+            obj.hide_render = False
+            obj.data = obj.data.copy()
+
+            # apply UV changes
+            mesh = obj.data
+            # TODO: add to TAI data
+            scale_u = rect.width / self.atlas_size[0]
+            scale_v = rect.height / self.atlas_size[1]
+            offset_u = rect.x / self.atlas_size[0]
+            offset_v = rect.y / self.atlas_size[1]
+            self._apply_uv_offset_and_scale(mesh, scale_u, scale_v, offset_u, offset_v)
+
+        # join all objects into a single one
+        # baking objects separately doesn't give any benefit since cycles does it sequentially
+        temp_mesh = bpy.data.meshes.new(atlas_name)
+        temp_obj = bpy.data.objects.new(atlas_name, temp_mesh)
+        context.scene.collection.objects.link(temp_obj)
+        bpy.context.view_layer.objects.active = temp_obj
+        temp_obj.select_set(True)
+        bpy.ops.object.join()
+        temp_mesh.uv_layers.active = temp_mesh.uv_layers['UV4']
+        if temp_mesh.materials[0] is None:
+            temp_mesh.materials.pop(index=0)
+
+        # hide original objects
+        for rect in atlas:
+            self._select_lod_for_bake(rect.rid, -1)
+
+        # create bake image
+        bake_image = bpy.data.images.get(atlas_name)
+        if bake_image:
+            bpy.data.images.remove(bake_image)
+
+        bake_image = bpy.data.images.new(name=atlas_name, width=self.atlas_size[0], height=self.atlas_size[1])
+
+        materials = temp_mesh.materials
+        # add bake lightmap texture for each material
+        for material in materials:
+            _setup_material_for_baking(material, bake_image)
+
+        if self.normal_maps:
+            snm = nullcontext()
+        else:
+            snm = StripNormalMaps(materials)
+
+        with snm:
+            print(f"Baking atlas {atlas_name} {self.completed_items()}/{self.total_items()}")
+            bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+
+        self.save_bake(bake_image)
+        bpy.data.images.remove(bake_image)
+
+        # delete temp mesh
+        bpy.data.meshes.remove(temp_mesh, do_unlink=True)
+
+        # revert objects to LOD0
+        for rect in atlas:
+            self._select_lod_for_bake(rect.rid, 0)
+
         return True
 
 # -------------------
@@ -1132,55 +1391,67 @@ def _get_template_configs(template, matrix, config, templates : Dict[str, Object
             child_matrix.translation = swap_zy(child.position)
             _get_template_configs(child.template, matrix @ child_matrix, config, templates, reporter)
 
-def _do_material_tweaks(config, geom_temp_name, mesh, texture_paths, ray_vis_mask, reporter):
-    for material in mesh.materials:
-        modified = False
-        backface_cull = True
-        if _match_config_pattern(geom_temp_name, config, 'FORCE_TWO_SIDED'):
-            backface_cull = False
-            modified = True
-
-        alpha_mode = None
-        ray_mask = None
-        for name, path in get_material_maps(material).items():
-            if name not in ('Base', 'Detail', 'Dirt', 'Crack'):
+def _do_material_tweaks(config, geom_temp_name, geom, texture_paths, ray_vis_mask, reporter):
+    materials_done = set()
+    for lod_obj in geom:
+        mesh = lod_obj.data
+        for material in mesh.materials:
+            if material.name in materials_done:
                 continue
 
-            replace_cfg = _match_config_pattern(path, config, 'TEXTURE_REPLACE', lambda p: p['from'])
-            if not replace_cfg:
-                continue
+            materials_done.add(material.name)
 
-            if alpha_mode and replace_cfg.get('alpha_mode', alpha_mode) != alpha_mode:
-                raise RuntimeError(f"Bad config, texture replace results in conflicting `alpha_mode`s on '{mesh.name}'")
+            modified = False
+            backface_cull = True
+            if _match_config_pattern(geom_temp_name, config, 'FORCE_TWO_SIDED'):
+                backface_cull = False
+                modified = True
 
-            alpha_mode = replace_cfg.get('alpha_mode', None)
-            if alpha_mode == 'RAY_MASK':
-                ray_mask = replace_cfg['to']
-                continue
+            alpha_mode = None
+            ray_masks_to_add = dict()
+            mat_maps = get_material_maps(material)
+            map_to_uv = get_staticmesh_uv_channel_mapping(mat_maps)
+            for map_name, path in mat_maps.items():
+                if map_name not in ('Base', 'Detail', 'Dirt', 'Crack'):
+                    continue
 
-            material.is_bf2_material = False # temporarily disable so update() doesn't trigger
-            index = STATICMESH_TEXUTRE_MAP_TYPES.index(name)
-            setattr(material, f"texture_slot_{index}", replace_cfg['to'])
-            if alpha_mode == 'ALPHA_TEST':
-                material.bf2_alpha_mode = 'ALPHA_TEST'
-            material.is_bf2_material = True
+                replace_cfg = _match_config_pattern(path, config, 'TEXTURE_REPLACE', lambda p: p['from'])
+                if not replace_cfg:
+                    continue
 
-            # reporter.info(f"Replaced texture '{path}' for '{mesh.name}' as requested")
-            modified = True
+                if alpha_mode and replace_cfg.get('alpha_mode', alpha_mode) != alpha_mode:
+                    raise RuntimeError(f"Bad config, texture replace results in conflicting `alpha_mode`s on '{mesh.name}'")
 
-        if modified:
-            setup_material(material, texture_paths=texture_paths, reporter=reporter, backface_cull=backface_cull) # re-apply
+                alpha_mode = replace_cfg.get('alpha_mode', None)
+                if alpha_mode == 'RAY_MASK':
+                    ray_masks_to_add[map_name] = replace_cfg['to']
+                    continue # added below
 
-        if ray_mask:
-            tex_node = _add_texture_node(material, ray_mask, texture_paths, reporter)
-            node_tree = material.node_tree
-            ray_vis_mask_node = node_tree.nodes.new('ShaderNodeGroup')
-            ray_vis_mask_node.node_tree = ray_vis_mask
-            alpha_socket = _unplug_socket_from_bsdf(material, 'Alpha')
-            node_tree.links.new(alpha_socket, ray_vis_mask_node.inputs['Alpha'])
-            _plug_socket_to_bsdf(material, 'Alpha', ray_vis_mask_node.outputs['Alpha'])
-            node_tree.links.new(tex_node.outputs['Alpha'], ray_vis_mask_node.inputs['Mask'])
-            # reporter.info(f"Added ray mask '{path}' for '{mesh.name}' as requested")
+                material.is_bf2_material = False # temporarily disable so update() doesn't trigger
+                index = STATICMESH_TEXUTRE_MAP_TYPES.index(map_name)
+                setattr(material, f"texture_slot_{index}", replace_cfg['to'])
+                if alpha_mode == 'ALPHA_TEST':
+                    material.bf2_alpha_mode = 'ALPHA_TEST'
+                material.is_bf2_material = True
+
+                # reporter.info(f"Replaced texture '{path}' for '{mesh.name}' as requested")
+                modified = True
+
+            if modified:
+                setup_material(material, texture_paths=texture_paths, reporter=reporter, backface_cull=backface_cull) # re-apply
+
+            for map_name, ray_mask in ray_masks_to_add.items():
+                tex_node = _add_texture_node(material, ray_mask, map_to_uv[map_name], texture_paths, reporter)
+                node_tree = material.node_tree
+                ray_vis_mask_node = node_tree.nodes.new('ShaderNodeGroup')
+                ray_vis_mask_node.node_tree = ray_vis_mask
+                alpha_socket = _unplug_socket_from(material, 'Alpha')
+                node_tree.links.new(alpha_socket, ray_vis_mask_node.inputs['Alpha'])
+                _plug_socket_to(material, 'Alpha', ray_vis_mask_node.outputs['Alpha'])
+                node_tree.links.new(tex_node.outputs['Alpha'], ray_vis_mask_node.inputs['Mask'])
+                # reporter.info(f"Added ray mask '{path}' for '{mesh.name}' as requested")
+
+            _add_ao_node(material)
 
 def _get_lm_size_thresholds(config, reporter):
     lm_size_thresholds = list()
@@ -1211,7 +1482,7 @@ def _run_all_con_files(root_dir):
 def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
-               water_attenuation=0.1, mod_dirs=[], max_lod_to_load=None,
+               water_attenuation=0.15, mod_dirs=[], max_lod_to_load=None,
                config=None, config_file='', reporter=DEFAULT_REPORTER):
 
     level_dir = level_dir.rstrip('/').rstrip('\\')
@@ -1371,14 +1642,16 @@ def load_level(context, level_dir, use_cache=True,
 
             # do material tweaks
             if 'StaticMesh' == geom_temp.geometry_type:
-                for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
-                    _do_material_tweaks(config, geom_temp.name, lod_obj.data, mod_dirs, ray_vis_mask, reporter)
+                _do_material_tweaks(config, geom_temp.name, geoms[0], mod_dirs, ray_vis_mask, reporter) # TODO: Geom1 support
 
             # delete source objects, keep mesh instances
             delete_object(mesh_obj, remove_data=False)
 
         # instantiate meshes
-        skip_lightmaps = geom_temp.dont_generate_lightmaps or 'StaticMesh' != geom_temp.geometry_type
+        skip_lightmaps = (geom_temp.dont_generate_lightmaps or
+            'StaticMesh' != geom_temp.geometry_type or
+            not bf2_mesh.has_uv(4))
+
         for matrix_world in temp_cfg.instances:
             # XXX: objects will be named by ObjectTemplate
             # and meshes will be named by GeometryTemplate

@@ -10,6 +10,7 @@ from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
 from ...core.utils import Reporter, next_power_of_2, prev_power_of_2
 from ...core.tools.lightmaping import (load_level,
+                               # ObjectParallelBaker as ObjectBaker,
                                ObjectBaker,
                                TerrainBaker,
                                PostProcessor,
@@ -168,7 +169,7 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
     water_light_attenuation: FloatProperty(
         name="Water light attenuation",
         description="Used for setting up the water depth material. Higher values make the water more opaque",
-        default=0.3,
+        default=0.15,
         min=0.0
     ) # type: ignore
 

@@ -362,18 +362,27 @@ CFG_FILE_PATH = r'D:\Battlefield 2\mods\fh2\lightmap_config.py'
 OUTPUT_DIR = r'C:\Users\Admin\AppData\Local\Temp'
 
 AMBIENT_LIGHT_INTENSITY = 0.5
+SUN_LIGHT_INTENSITY_SCALE = 1.0
+SKY_LIGHT_INTENSITY_SCALE = 1.0
 
+# load the level
 c = bpy.context
 load_level(c, LEVEL_DIR, texture_paths=MOD_PATHS, config_file=CFG_FILE_PATH)
 
 # adjust render settings
+assert context.preferences.addons['cycles'].preferences.compute_device_type != 'NONE'
 c.scene.cycles.samples = 8192
 c.scene.cycles.adaptive_threshold = 0.001
+c.scene.cycles.denoising_use_gpu = True
+c.scene.cycles.device = 'GPU'
+c.scene.cycles.use_light_tree = False
+c.scene.cycles.light_sampling_threshold = 0.05
 
-# adjust light settings (if needed)
-# bpy.data.lights['Sun'].energy = ...
-# bpy.data.worlds['SkyLight'].node_tree.nodes["Background"].inputs['Strength'].default_value = ...
+# adjust light settings
+bpy.data.lights['Sun'].energy *= SUN_LIGHT_INTENSITY
+bpy.data.worlds['SkyLight'].node_tree.nodes["Background"].inputs['Strength'].default_value *= SKY_LIGHT_INTENSITY
 
+# start baking
 ObjectBaker(c, OUTPUT_DIR).bake_all(c)
 TerrainBaker(c, OUTPUT_DIR).bake_all(c)
 PostProcessor(c, OUTPUT_DIR, ambient_light_intensity=AMBIENT_LIGHT_INTENSITY).process_all(c)

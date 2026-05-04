@@ -187,7 +187,11 @@ class MainConsole():
             self.report('Invalid argument arity')
             return
 
-        obj_method(*args)
+        try:
+            obj_method(*args)
+        except TypeError as e:
+            self.report(f'Failed to execute {command}: {e}')
+            return
 
     def _get_args(self, line):
         if '"' not in line:
