@@ -73,9 +73,12 @@ class BakerBase(ABC):
     def completed_items(self):
         ...
 
-    @abstractmethod
     def bake_next(self, context):
-        ...
+        if not self.prepare_next(context):
+            return False
+        bpy.ops.object.bake(**self.get_bake_params())
+        self.complete_bake(context, False)
+        return True
 
     def save_bake(self, image, name=''):
         if not name:
@@ -579,54 +582,55 @@ class TerrainBaker(BakerBase):
                  patch_count=None, patch_size=None, skip_existing=False,
                  reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
-        self.reporter = reporter
-        self.terrain = find_heightmap(context)
-        if not self.terrain:
+        self._reporter = reporter
+
+        self._terrain = find_heightmap(context)
+        if not self._terrain:
             raise RuntimeError(f'Heightmap object not found')
 
         if patch_count is None or patch_size is None:
-            hm_size = get_heightmap_size(self.terrain)
+            hm_size = get_heightmap_size(self._terrain)
             if hm_size is None:
                 raise RuntimeError(f'Cannot determine heightmap size')
             if hm_size not in DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES:
                 raise RuntimeError(f'Cannot determine default values for patch_count and patch_size')
             patch_count, patch_size = DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES[hm_size]
 
-        self.grid_size = math.isqrt(patch_count)
-        if self.grid_size * self.grid_size != patch_count:
+        grid_size = math.isqrt(patch_count)
+        if grid_size * grid_size != patch_count:
             raise RuntimeError(f'patch_count must be a power of 4')
 
         self.patches_to_bake = list()
         if skip_existing:
             existing_patches = get_all_lightmap_files(output_dir, r'tx\d{2}x\d{2}')
-            for col in range(self.grid_size):
-                for row in range(self.grid_size):
+            for col in range(grid_size):
+                for row in range(grid_size):
                     name = f'tx{col:02d}x{row:02d}'
                     print(f"{name} exists, skipping")
                     if name not in existing_patches:
                         self.patches_to_bake.append((col, row))
         else:
-            for col in range(self.grid_size):
-                for row in range(self.grid_size):
+            for col in range(grid_size):
+                for row in range(grid_size):
                     self.patches_to_bake.append((col, row))
-        self.patch_index = 0
-        self.patch_size = patch_size
-        self.patch_count = patch_count
+        self._patch_index = 0
+        self._patch_size = patch_size
+        self._patch_count = patch_count
 
-        mesh = self.terrain.data
+        mesh = self._terrain.data
         vert_count = math.isqrt(len(mesh.vertices))
         if vert_count * vert_count != len(mesh.vertices) or not is_pow_two(vert_count - 1):
             raise RuntimeError(f'heightmap vert count is invalid')
         
-        self.default_terrain_mat = bpy.data.materials['DefaultTerrain']
-        self.water_depth_mat = bpy.data.materials['WaterDepth']
-        self.flatten_water_mod = self.terrain.modifiers['FlattenAtWaterLevel']
+        self._default_terrain_mat = bpy.data.materials['DefaultTerrain']
+        self._water_depth_mat = bpy.data.materials['WaterDepth']
+        self._flatten_water_mod = self._terrain.modifiers['FlattenAtWaterLevel']
 
-        self.combine_channels = _make_combine_channels()
-        context.scene.compositing_node_group = self.combine_channels
+        self._combine_channels = _make_combine_channels()
+        context.scene.compositing_node_group = self._combine_channels
 
         mesh.materials.clear()
-        mesh.materials.append(self.default_terrain_mat)
+        mesh.materials.append(self._default_terrain_mat)
 
         # we gon simply scale the UV up so the 0-1 range fits one whole patch
         # then shift the UV when rendering the grid
@@ -638,109 +642,147 @@ class TerrainBaker(BakerBase):
 
         def do_scale_and_offset(i, value):
             if i % 2 == 0:
-                return self.grid_size * value
+                return grid_size * value
             else:
-                return 1 - self.grid_size * value
+                return 1 - grid_size * value
         self.uv_layer.data.foreach_set('uv', [do_scale_and_offset(i, value) for i, value in enumerate(tmp)])
 
-        self.texture_node_light = _setup_material_for_baking(self.default_terrain_mat, uv=self.uv_layer.name)
-        self.texture_node_water_depth = _setup_material_for_baking(self.water_depth_mat, uv=self.uv_layer.name)
+        self._texture_node_light = _setup_material_for_baking(self._default_terrain_mat, uv=self.uv_layer.name)
+        self._texture_node_water_depth = _setup_material_for_baking(self._water_depth_mat, uv=self.uv_layer.name)
+        self._is_water_pass = False
 
         _setup_scene_for_baking(context)
+
+        # cleanup possible lefover render result
         if 'Render Result' in bpy.data.images:
             render_result = bpy.data.images['Render Result']
             bpy.data.images.remove(render_result)
 
+
     def _skipped_patches(self):
-        return self.patch_count - len(self.patches_to_bake)
+        return self._patch_count - len(self.patches_to_bake)
 
     def type(self):
         return 'Terrain'
 
     def total_items(self):
-        return self.patch_count
+        return self._patch_count
 
     def completed_items(self):
-        return self.patch_index  + self._skipped_patches()
+        return self._patch_index  + self._skipped_patches()
 
     def cleanup(self, context):
-        mesh = self.terrain.data
+        mesh = self._terrain.data
         context.scene.compositing_node_group = None
-        mesh.materials[0] = self.default_terrain_mat
+        mesh.materials[0] = self._default_terrain_mat
         mesh.uv_layers.remove(self.uv_layer)
+        if self._texture_node_light.image:
+            bpy.data.images.remove(self._texture_node_light.image)
+        if self._texture_node_water_depth.image:
+            bpy.data.images.remove(self._texture_node_water_depth.image)
 
-    def bake_next(self, context):
-        mesh = self.terrain.data
-
-        if self.patch_index >= len(self.patches_to_bake):
-            self.cleanup(context)
+    def _setup_next_patch(self, context):
+        if self._patch_index >= len(self.patches_to_bake):
             return False
+
+        if self._is_water_pass:
+            return True # skip, was set up already before light pass
 
         for obj in context.selected_objects:
             obj.select_set(False)
 
-        context.view_layer.objects.active = self.terrain
-
-        self.terrain.hide_set(False)
-        self.terrain.select_set(True)
-        self.terrain.hide_render = False
+        context.view_layer.objects.active = self._terrain
+        self._terrain.hide_set(False)
+        self._terrain.select_set(True)
+        self._terrain.hide_render = False
 
         print(f"Baking terrain patch {self.completed_items() + 1}/{self.total_items()}")
 
-        col, row = self.patches_to_bake[self.patch_index]
-        if self.patch_index == 0:
+        col, row = self.patches_to_bake[self._patch_index]
+        if self._patch_index == 0:
             prev_col = 0
             prev_row = 0
         else:
-            prev_col, prev_row = self.patches_to_bake[self.patch_index-1]
+            prev_col, prev_row = self.patches_to_bake[self._patch_index - 1]
 
         u_offset = col - prev_col
         v_offset = row - prev_row
 
-        name = f'tx{col:02d}x{row:02d}'
-
         _offset_uvs(self.uv_layer, -u_offset, v_offset)
+        return True
 
-        light_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageLight', width=self.patch_size, height=self.patch_size)
-        water_depth_map = bpy.data.images.new(name=f'TerrainLightmapBakeImageWaterDepth', width=self.patch_size, height=self.patch_size)
+    def _combine_passes(self, context):
+        light_map = self._texture_node_light.image
+        water_depth_map = self._texture_node_water_depth.image
+        assert light_map and water_depth_map
 
-        for water_pass in [False, True]:
-            if water_pass:
-                self.flatten_water_mod.show_render = False
-                mesh.materials[0] = self.water_depth_mat
-                self.texture_node_water_depth.image = water_depth_map
-            else:
-                self.flatten_water_mod.show_render = True
-                mesh.materials[0] = self.default_terrain_mat
-                self.texture_node_light.image = light_map
-
-            context.scene.render.bake.use_pass_direct = not water_pass
-            context.scene.render.bake.use_pass_indirect = not water_pass
-            context.scene.render.bake.use_pass_color = water_pass
-            bpy.ops.object.bake(type='DIFFUSE', uv_layer=self.uv_layer.name)
-
-        # combine both passes in compositor
         with PreserveColorSpaceSettings(context):
             context.scene.view_settings.view_transform = 'Standard'
-            self.combine_channels.nodes['LightMap'].image = light_map
-            self.combine_channels.nodes['WaterDepthMap'].image = water_depth_map
-            context.scene.render.resolution_x = self.patch_size
-            context.scene.render.resolution_y = self.patch_size
+            self._combine_channels.nodes['LightMap'].image = light_map
+            self._combine_channels.nodes['WaterDepthMap'].image = water_depth_map
+            context.scene.render.resolution_x = self._patch_size
+            context.scene.render.resolution_y = self._patch_size
             bpy.ops.render.render()
 
-            # save output
             render_result = bpy.data.images['Render Result']
-            self.save_bake(render_result, name)
+
+            col, row = self.patches_to_bake[self._patch_index]
+            self.save_bake(render_result, f'tx{col:02d}x{row:02d}')
 
             # cleanup
-            self.combine_channels.nodes['LightMap'].image = None
-            self.combine_channels.nodes['WaterDepthMap'].image = None
+            self._combine_channels.nodes['LightMap'].image = None
+            self._combine_channels.nodes['WaterDepthMap'].image = None
+            self._texture_node_light.image = None
+            self._texture_node_water_depth.image = None
             bpy.data.images.remove(light_map)
             bpy.data.images.remove(water_depth_map)
             bpy.data.images.remove(render_result)
 
-        self.patch_index += 1
+    def get_bake_params(self):
+        return {'type': 'DIFFUSE', 'uv_layer': self.uv_layer.name}
+
+    def prepare_next(self, context):
+        mesh = self._terrain.data
+
+        if not self._setup_next_patch(context):
+            self.cleanup(context)
+            return False
+
+        if not self._is_water_pass:
+            self._texture_node_light.image = bpy.data.images.new(
+                name='TerrainLightmapBakeImageLight',
+                width=self._patch_size, height=self._patch_size)
+
+            self._flatten_water_mod.show_render = True
+            mesh.materials[0] = self._default_terrain_mat
+
+            context.scene.render.bake.use_pass_direct = True
+            context.scene.render.bake.use_pass_indirect = True
+            context.scene.render.bake.use_pass_color = False
+        else:
+            self._texture_node_water_depth.image = bpy.data.images.new(
+                name='TerrainLightmapBakeImageWaterDepth',
+                width=self._patch_size, height=self._patch_size)
+
+            self._flatten_water_mod.show_render = False
+            mesh.materials[0] = self._water_depth_mat
+
+            context.scene.render.bake.use_pass_direct = False
+            context.scene.render.bake.use_pass_indirect = False
+            context.scene.render.bake.use_pass_color = True
+
         return True
+
+    def complete_bake(self, context, canceled):
+        if canceled:
+            return
+
+        if self._is_water_pass:
+            self._combine_passes(context)
+            self._patch_index += 1
+            self._is_water_pass = False
+        else:
+            self._is_water_pass = True
 
 # -------------------
 # baking objects
@@ -869,15 +911,16 @@ def _gen_lm_key(geom_template_name, position, lod):
     return '='.join([geom_template_name.lower(), f'{lod:02d}', x, z, y])
 
 class StripNormalMaps:
-    def __init__(self, materials):
-        self.materials = materials
+    def __init__(self):
+        self.materials = list()
         self.normal_sockets = list()
 
-    def __enter__(self):
+    def apply(self, materials):
+        self.materials = materials
         for material in self.materials:
             self.normal_sockets.append(_unplug_socket_from(material, 'Normal'))
 
-    def __exit__(self, exception_type, exception_value, exception_traceback):
+    def revert(self):
         for normal_socket, material in zip(self.normal_sockets, self.materials):
             if normal_socket:
                 _plug_socket_to(material, 'Normal', normal_socket)
@@ -887,27 +930,33 @@ class ObjectBaker(BakerBase):
                  only_selected=False, normal_maps=False, skip_existing=False,
                  max_lod=99, reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
-        self.reporter = reporter
-        self.normal_maps = normal_maps
-        self.max_lod = max_lod
-        self.objects = list()
+        self._reporter = reporter
+        self._strip_normal_maps = None if normal_maps else StripNormalMaps()
+        self._max_lod = max_lod
+        self._objects = list()
 
-        self.existing_lods = set()
+        self._existing_lods = set()
         if skip_existing:
-            self.existing_lods = get_all_lightmap_files(output_dir, r'.*=\d{2}=-?\d+=-?\d+=-?\d+')
+            self._existing_lods = get_all_lightmap_files(output_dir, r'.*=\d{2}=-?\d+=-?\d+=-?\d+')
 
         if only_selected:
             for obj in context.selected_objects:
                 root_obj = find_root(obj)
-                if root_obj not in self.objects:
-                    self.objects.append(root_obj)
+                if root_obj not in self._objects:
+                    self._objects.append(root_obj)
         elif 'StaticObjects' in context.scene.collection.children:
             for obj in context.scene.collection.children['StaticObjects'].objects:
                 if obj.parent is None and obj.data is None:
-                    self.objects.append(obj)
+                    self._objects.append(obj)
 
-        self.objects.sort(key=lambda o: o.name)
-        self.total_count = len(self.objects)
+        self._objects.sort(key=lambda o: o.name)
+        self._total_count = len(self._objects)
+
+        self._lod_idx = -1
+        self._geom = None
+        self._bake_image = None
+        self._snm = None
+
         _setup_scene_for_baking(context)
 
     def _select_lod_for_bake(self, geom, lod):
@@ -925,93 +974,101 @@ class ObjectBaker(BakerBase):
         return 'Objects'
 
     def total_items(self):
-        return self.total_count
+        return self._total_count
 
     def completed_items(self):
-        return self.total_count - len(self.objects)
+        return self._total_count - len(self._objects)
 
-    def bake_next(self, context):
-        if not self.objects:
-            return False
+    def cleanup(self, context):
+        if not self._geom:
+            return
+        self._select_lod_for_bake(self._geom, 0)
 
+    def get_bake_params(self):
+        return {'type': 'DIFFUSE', 'uv_layer': 'UV4'}
+
+    def prepare_next(self, context):
         for obj in context.selected_objects:
             obj.select_set(False)
 
-        root_obj = self.objects.pop(0)
+        if self._lod_idx < 0:
+            # switch to new object
+            if not self._objects:
+                self.cleanup(context)
+                return False
 
-        print(f"Baking object {root_obj.name} {self.completed_items()}/{self.total_count}")
-        try:
-            geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
-        except Exception as e:
-            self.reporter.warning(f"Skipping bake for '{root_obj.name}': {e}")
-            return True
+            root_obj = self._objects[0]
+            try:
+                geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
+            except Exception as e:
+                self._reporter.warning(f"Skipping bake for '{root_obj.name}': {e}")
+                return self.prepare_next(context)
 
-        geom = geoms[0] # TODO: Geom1 support
-        for lod_idx in range(len(geom)-1, -1, -1): # enum lods in reversed order
-            if lod_idx > self.max_lod:
+            self._geom = geoms[0] # TODO: Geom1
+            self._lod_idx = len(self._geom) - 1
+
+            print(f"Baking object {root_obj.name} {self.completed_items()}/{self._total_count}")
+        else:
+            root_obj = self._objects[0]
+
+        while self._lod_idx >= 0:
+            if self._lod_idx > self._max_lod:
+                self._lod_idx -= 1
                 continue
 
-            lod_obj = geom[lod_idx]
-
+            lod_obj = self._geom[self._lod_idx]
             mesh = lod_obj.data
             geom_temp_name = strip_prefix(mesh.name)
-            lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, lod_idx)
-            if lm_name in self.existing_lods:
+            lm_name = _gen_lm_key(geom_temp_name, root_obj.matrix_world.translation, self._lod_idx)
+
+            if lm_name in self._existing_lods:
+                self._lod_idx -= 1
                 continue
 
             lm_size = tuple(lod_obj.bf2_lightmap_size)
             if lm_size == (0, 0):
-                self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
+                self._reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
+                self._lod_idx -= 1
                 continue
 
             if 'UV4' not in lod_obj.data.uv_layers:
-                self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap UV layer (UV4) is missing")
+                self._reporter.warning(f"skipping '{lod_obj.name}' because lightmap UV layer (UV4) is missing")
+                self._lod_idx -= 1
                 continue
 
-            # create bake image
             bake_image = bpy.data.images.get(lm_name)
             if bake_image:
                 bpy.data.images.remove(bake_image)
+            self._bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
 
-            bake_image = bpy.data.images.new(name=lm_name, width=lm_size[0], height=lm_size[1])
+            for material in lod_obj.data.materials:
+                _setup_material_for_baking(material, self._bake_image)
 
-            # add bake lightmap texture for each material
+            if self._strip_normal_maps:
+                self._strip_normal_maps.apply(lod_obj.data.materials)
 
-            materials = list(lod_obj.data.materials)
-            for material in materials:
-                _setup_material_for_baking(material, bake_image)
+            self._select_lod_for_bake(self._geom, self._lod_idx)
+            context.view_layer.objects.active = lod_obj
+            return True
 
-            if self.normal_maps:
-                snm = nullcontext()
-            else:
-                snm = StripNormalMaps(materials)
+        return self.prepare_next(context)
 
-            self._select_lod_for_bake(geom, lod_idx)
+    def complete_bake(self, context, canceled):
+        if self._strip_normal_maps:
+            self._strip_normal_maps.revert()
+            self._strip_normal_maps = None
 
-            with snm:
-                context.view_layer.objects.active = lod_obj
-                bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+        if not canceled:
+            self.save_bake(self._bake_image)
 
-            self.save_bake(bake_image)
-            bpy.data.images.remove(bake_image)
+        bpy.data.images.remove(self._bake_image)
+        self._bake_image = None
 
-        return True
+        self._lod_idx -= 1
+        if self._lod_idx < 0:
+            self._objects.pop(0)
+            self._geom = None
 
-def _paste_img(dst_img, src_img, x, y):
-    atlas_width, atlas_height = src_img.size
-    num_channels = src_img.channels
-
-    src_pixels = array('f', src_img.pixels[:])
-    w, h = dst_img.size
-
-    tile_pixels = array('f')
-
-    for row in range(h):
-        src_row_start = ((y + row) * atlas_width + x) * num_channels
-        src_row_end = src_row_start + (w * num_channels)
-        tile_pixels.extend(src_pixels[src_row_start:src_row_end])
-
-    dst_img.pixels = tile_pixels.tolist()
 
 class ObjectParallelBaker(BakerBase):
     """
@@ -1021,10 +1078,10 @@ class ObjectParallelBaker(BakerBase):
                  only_selected=False, normal_maps=False, atlas_size=(2048, 2048),
                  max_lod=99, skip_existing=None, reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
-        self.reporter = reporter
-        self.normal_maps = normal_maps
-        self.max_lod = max_lod
-        self.atlas_size = atlas_size
+        self._reporter = reporter
+        self._strip_normal_maps = None if normal_maps else StripNormalMaps()
+        self._max_lod = max_lod
+        self._atlas_size = atlas_size
 
         existing_lods = set()
         if skip_existing:
@@ -1044,19 +1101,19 @@ class ObjectParallelBaker(BakerBase):
         objects.sort(key=lambda o: o.name)
 
         # filter LODs
-        self.lod_to_geom = dict()
-        self.lod_to_objects = dict()
-        self.lod_to_lm_key = dict()
+        self._lod_to_geom = dict()
+        self._lod_to_objects = dict()
+        self._lod_to_lm_key = dict()
         for root_obj in objects:
             try:
                 geoms = MeshExporter.collect_geoms_lods(root_obj, skip_checks=True)
             except Exception as e:
-                self.reporter.warning(f"Skipping bake for '{root_obj.name}': {e}")
+                self._reporter.warning(f"Skipping bake for '{root_obj.name}': {e}")
                 continue
 
             geom = geoms[0] # TODO: Geom1 support
             for lod_idx, lod_obj in enumerate(geom):
-                if lod_idx > self.max_lod:
+                if lod_idx > self._max_lod:
                     continue
 
                 mesh = lod_obj.data
@@ -1067,22 +1124,22 @@ class ObjectParallelBaker(BakerBase):
 
                 lm_size = tuple(lod_obj.bf2_lightmap_size)
                 if lm_size == (0, 0):
-                    self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
+                    self._reporter.warning(f"skipping '{lod_obj.name}' because lightmap size is not set")
                     continue
 
                 if 'UV4' not in lod_obj.data.uv_layers:
-                    self.reporter.warning(f"skipping '{lod_obj.name}' because lightmap UV layer (UV4) is missing")
+                    self._reporter.warning(f"skipping '{lod_obj.name}' because lightmap UV layer (UV4) is missing")
                     continue
 
-                self.lod_to_objects.setdefault(lod_idx, list()).append(lod_obj)
-                self.lod_to_geom[lod_obj.name] = geom
-                self.lod_to_lm_key[lod_obj.name] = lm_name
+                self._lod_to_objects.setdefault(lod_idx, list()).append(lod_obj)
+                self._lod_to_geom[lod_obj.name] = geom
+                self._lod_to_lm_key[lod_obj.name] = lm_name
 
         # generate atlases
         # LODs of a single object cannot be on the same atlas
         # and to get best quality atlases will get split per LOD
         self._atlases = list()
-        for lod_idx, objects in self.lod_to_objects.items():
+        for lod_idx, objects in self._lod_to_objects.items():
             packer = rectpack.newPacker(rotation=False)
 
             for obj in objects:
@@ -1090,18 +1147,23 @@ class ObjectParallelBaker(BakerBase):
                 packer.add_rect(width, height, obj)
 
             for _ in range(0, 99):
-                packer.add_bin(*self.atlas_size)
+                packer.add_bin(*self._atlas_size)
 
             packer.pack()
 
             for bin in packer:
                 self._atlases.append(bin)
 
-        self.total_count = len(self._atlases)
+        self._total_count = len(self._atlases)
+
+        self._bake_image = None
+        self._temp_obj = None
+        self._snm = None
+
         _setup_scene_for_baking(context)
 
     def _select_lod_for_bake(self, lod_obj, lod):
-        geom = self.lod_to_geom[lod_obj.name]
+        geom = self._lod_to_geom[lod_obj.name]
         for lod_idx, lod_obj in enumerate(geom):
             if lod_idx == lod:
                 lod_obj.hide_set(False)
@@ -1141,26 +1203,27 @@ class ObjectParallelBaker(BakerBase):
         return 'Objects'
 
     def total_items(self):
-        return self.total_count
+        return self._total_count
 
     def completed_items(self):
-        return self.total_count - len(self._atlases)
+        return self._total_count - len(self._atlases)
 
-    def bake_next(self, context):
+    def get_bake_params(self):
+        return {'type': 'DIFFUSE', 'uv_layer': 'UV4'}
+
+    def prepare_next(self, context):
         if not self._atlases:
             return False
 
         atlas_index = self.completed_items()
         atlas_name = f'LightmapAtlas{atlas_index}'
-        atlas = self._atlases.pop(0)
+        atlas = self._atlases[0]
 
-        print(f"Preparing atlas {atlas_name} {self.completed_items()}/{self.total_items()}")
+        print(f"Preparing atlas {atlas_name} {self.completed_items() + 1}/{self.total_items()}")
 
-        # deselect all
         bpy.ops.object.select_all(action='DESELECT')
 
         for rect in atlas:
-            # create a deep-copy of each object
             obj = rect.rid.copy()
             context.scene.collection.objects.link(obj)
             obj.hide_set(False)
@@ -1168,71 +1231,81 @@ class ObjectParallelBaker(BakerBase):
             obj.hide_render = False
             obj.data = obj.data.copy()
 
-            # apply UV changes
             mesh = obj.data
-            scale_u = rect.width / self.atlas_size[0]
-            scale_v = rect.height / self.atlas_size[1]
-            offset_u = rect.x / self.atlas_size[0]
-            offset_v = rect.y / self.atlas_size[1]
+            scale_u = rect.width / self._atlas_size[0]
+            scale_v = rect.height / self._atlas_size[1]
+            offset_u = rect.x / self._atlas_size[0]
+            offset_v = rect.y / self._atlas_size[1]
             self._apply_uv_offset_and_scale(mesh, scale_u, scale_v, offset_u, offset_v)
 
-        # join all objects into a single one
-        # baking objects separately doesn't give any benefit since cycles does it sequentially
         temp_mesh = bpy.data.meshes.new(atlas_name)
-        temp_obj = bpy.data.objects.new(atlas_name, temp_mesh)
-        context.scene.collection.objects.link(temp_obj)
-        bpy.context.view_layer.objects.active = temp_obj
-        temp_obj.select_set(True)
+        self._temp_obj = bpy.data.objects.new(atlas_name, temp_mesh)
+        context.scene.collection.objects.link(self._temp_obj)
+        bpy.context.view_layer.objects.active = self._temp_obj
+        self._temp_obj.select_set(True)
         bpy.ops.object.join()
         temp_mesh.uv_layers.active = temp_mesh.uv_layers['UV4']
         if temp_mesh.materials[0] is None:
             temp_mesh.materials.pop(index=0)
 
-        # hide original objects
         for rect in atlas:
             self._select_lod_for_bake(rect.rid, -1)
 
-        # create bake image
         bake_image = bpy.data.images.get(atlas_name)
         if bake_image:
             bpy.data.images.remove(bake_image)
+        self._bake_image = bpy.data.images.new(
+            name=atlas_name, width=self._atlas_size[0], height=self._atlas_size[1])
 
-        bake_image = bpy.data.images.new(name=atlas_name, width=self.atlas_size[0], height=self.atlas_size[1])
+        for material in temp_mesh.materials:
+            _setup_material_for_baking(material, self._bake_image)
 
-        materials = temp_mesh.materials
-        # add bake lightmap texture for each material
-        for material in materials:
-            _setup_material_for_baking(material, bake_image)
+        if self._strip_normal_maps:
+            self._strip_normal_maps.apply(temp_mesh.materials)
 
-        if self.normal_maps:
-            snm = nullcontext()
-        else:
-            snm = StripNormalMaps(materials)
+        return True
 
-        with snm:
-            print(f"Baking atlas {atlas_name} {self.completed_items()}/{self.total_items()}")
-            bpy.ops.object.bake(type='DIFFUSE', uv_layer='UV4')
+    def complete_bake(self, context, canceled):
+        if self._strip_normal_maps:
+            self._strip_normal_maps.revert()
+            self._strip_normal_maps = None
 
-        # delete temp mesh
-        bpy.data.meshes.remove(temp_mesh, do_unlink=True)
+        bpy.data.meshes.remove(self._temp_obj.data, do_unlink=True)
+        self._temp_obj = None
 
-        # revert objects to LOD0
+        atlas_index = self.completed_items()
+        atlas_name = f'LightmapAtlas{atlas_index}'
+        atlas = self._atlases.pop(0)
+
+        # revert objects to lod 0
         for rect in atlas:
             self._select_lod_for_bake(rect.rid, 0)
 
-        print(f"Splitting atlas {atlas_name} {self.completed_items()}/{self.total_items()}")
+        if not canceled:
+            print(f"Splitting atlas {atlas_name} {self.completed_items()}/{self.total_items()}")
 
-        # split and save images
-        for rect in atlas:
-            lm_name = self.lod_to_lm_key[rect.rid.name]
-            tile_img = bpy.data.images.new(name=lm_name, width=rect.width, height=rect.height)
-            _paste_img(tile_img, bake_image, rect.x, rect.y)
-            self.save_bake(tile_img)
-            bpy.data.images.remove(tile_img)
+            src_img = self._bake_image
+            atlas_width, atlas_height = src_img.size
+            num_channels = src_img.channels
+            src_pixels = array('f', src_img.pixels[:])
 
-        bpy.data.images.remove(bake_image)
+            for rect in atlas:
+                lm_name = self._lod_to_lm_key[rect.rid.name]
+                tile_img = bpy.data.images.new(
+                    name=lm_name, width=rect.width, height=rect.height)
+                w, h = tile_img.size
+                tile_pixels = array('f')
+                for row in range(h):
+                    src_row_start = ((rect.y + row) * atlas_width + rect.x) * num_channels
+                    src_row_end = src_row_start + (w * num_channels)
+                    tile_pixels.extend(src_pixels[src_row_start:src_row_end])
+                tile_img.pixels = tile_pixels.tolist()
 
-        return True
+                self.save_bake(tile_img)
+                bpy.data.images.remove(tile_img)
+
+        bpy.data.images.remove(self._bake_image)
+        self._bake_image = None
 
 # -------------------
 # scene setup
@@ -1481,7 +1554,7 @@ def _do_material_tweaks(config, geom_temp_name, geom, texture_paths, ray_vis_mas
                 node_tree.links.new(tex_node.outputs['Alpha'], ray_vis_mask_node.inputs['Mask'])
                 # reporter.info(f"Added ray mask '{path}' for '{mesh.name}' as requested")
 
-            _add_ao_node(material)
+            # _add_ao_node(material)
 
 def _get_lm_size_thresholds(config, reporter):
     lm_size_thresholds = list()
