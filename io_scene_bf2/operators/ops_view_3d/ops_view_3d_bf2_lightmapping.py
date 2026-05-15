@@ -252,6 +252,23 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
     def invoke(self, context, event):
         return super().invoke(context, event)
 
+ATLAS_MAX_SIZE = 8192
+ATLAS_MIN_SIZE = 512
+
+def set_atlas_size(self, val):
+    prev_val = self.bf2_lm_atlas_dim
+    if val > prev_val:
+        val = next_power_of_2(val)
+    else:
+        val = prev_power_of_2(val)
+    val = max(ATLAS_MIN_SIZE, val)
+    val = min(ATLAS_MAX_SIZE, val)
+    self['bf2_lm_atlas_dim'] = val
+
+def get_atlas_size(self):
+    def_val = self.bl_rna.properties['bf2_lm_atlas_dim'].default
+    return self.get('bf2_lm_atlas_dim', def_val) 
+
 TERRAIN_MAX_SIZE = 4096
 TERRAIN_MIN_SIZE = 16
 
@@ -340,13 +357,13 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     ) # type: ignore
 
     bake_objects: BoolProperty(
-        name="Objects",
+        name="Bake Objects",
         description="Bake lightmaps for static objects",
         default=True
     ) # type: ignore
 
     bake_terrain: BoolProperty(
-        name="Terrain",
+        name="Bake Terrain",
         description="Bake lightmaps for terrain",
         default=True
     ) # type: ignore
@@ -372,23 +389,20 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     ) # type: ignore
 
     non_blocking: BoolProperty(
-        name="Non-Blocking (Experimental)",
-        description="Bake asynchronously without freezing the UI. Baking cannot be canceled once started",
-        default=False
+        name="Non-Blocking",
+        description="Bake asynchronously without freezing the UI",
+        default=False,
+        options={'HIDDEN'}
     ) # type: ignore
 
     @classmethod
-    def get_running(cls, context):
+    def is_running(cls, context):
         for op in context.window.modal_operators:
             if op is None:
                 continue
             if op.bl_idname == 'BF2_OT_lightmap_bake':
-                return op
-        return None
-
-    @classmethod
-    def is_running(cls, context):
-        return cls.get_running(context) is not None
+                return True
+        return False
 
     def active_baker(self):
         if not self.bakers:
@@ -423,11 +437,11 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             baker = self.active_baker()
             if not baker:
                 return False # done
-            if not baker._nb_prepare_next(context):
+            if not baker.prepare_next(context):
                 self.bakers.remove(baker)
                 continue
             try:
-                bpy.ops.object.bake('INVOKE_DEFAULT', **baker._nb_get_bake_params())
+                bpy.ops.object.bake('INVOKE_DEFAULT', **baker.get_bake_params())
                 return True
             except Exception:
                 self.report({"ERROR"}, traceback.format_exc())
@@ -442,13 +456,14 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             return
 
         try:
-            baker._nb_complete_bake(context, canceled)
+            baker.complete_bake(context, canceled)
         except Exception:
             self.report({"ERROR"}, traceback.format_exc())
             self._baking_abort = True
             return
 
         if canceled:
+            self._unregister_handlers()
             self._baking_cancel = True
 
         self.setup_timer(context) # trigger next modal() call
@@ -575,6 +590,10 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
 
         return {'RUNNING_MODAL'}
 
+    def invoke(self, context, event):
+        self.non_blocking = True
+        return self.execute(context)
+
 class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
     bl_category = "BF2"
     bl_space_type = 'VIEW_3D'
@@ -605,20 +624,20 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             col.prop(scene, "bf2_lm_bake_objects_mode", text=" ")
             col.prop(scene, "bf2_lm_normal_maps")
             col.prop(scene, "bf2_lm_batch_mode")
-            if scene.bf2_lm_batch_mode:
-                col.prop(scene, "bf2_lm_atlas_dim")
+            row = col.row()
+            row.prop(scene, "bf2_lm_atlas_dim")
+            row.active = scene.bf2_lm_batch_mode
             col.prop(scene, "bf2_lm_max_lod")
-            col.enabled = scene.bf2_lm_bake_objects
+            col.active = scene.bf2_lm_bake_objects
             body.separator(factor=1.0, type='LINE')
 
             body.prop(scene, "bf2_lm_bake_terrain", text='Bake Terrain')
             col = body.column()
             col.prop(scene, "bf2_lm_patch_count")
             col.prop(scene, "bf2_lm_patch_size")
-            col.enabled = scene.bf2_lm_bake_terrain
+            col.active = scene.bf2_lm_bake_terrain
             body.separator(factor=1.0, type='LINE')
             body.prop(scene, "bf2_lm_resume")
-            body.prop(scene, "bf2_lm_non_blocking")
             row = main.row()
 
             props = row.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
@@ -632,7 +651,6 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             props.normal_maps = scene.bf2_lm_normal_maps
             props.max_lod = scene.bf2_lm_max_lod
             props.resume = scene.bf2_lm_resume
-            props.non_blocking = scene.bf2_lm_non_blocking
             props.batch_mode = scene.bf2_lm_batch_mode
             props.atlas_dim = scene.bf2_lm_atlas_dim
 
@@ -641,7 +659,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                 row.label(text=warn, icon='ERROR')
             row.enabled = props.bake_objects or props.bake_terrain
 
-            if op := VIEW3D_OT_bf2_bake.get_running(context):
+            if VIEW3D_OT_bf2_bake.is_running(context):
                 row = layout.row()
                 row.progress(
                     factor=context.scene.bf2_lm_progress_value,
@@ -649,9 +667,8 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                     text=context.scene.bf2_lm_progress_msg 
                 )
                 row.scale_x = 2
-                if not op.non_blocking:
-                    row = layout.row()
-                    row.label(text='Press ESC to cancel', icon='CANCEL')
+                row = layout.row()
+                row.label(text='Press ESC to cancel', icon='CANCEL')
 
         header, body = layout.panel("BF2_PT_post_process", default_closed=True)
         header.label(text="Post-process")
@@ -687,7 +704,7 @@ def init(rc : RegisterFactory):
 
     rc.reg_prop(Scene, 'bf2_lm_bake_objects',
         BoolProperty(
-            name="Objects",
+            name="Bake Objects",
             description="Bake lightmaps for static objects",
             default=True,
             options=set()  # Remove ANIMATABLE default option.
@@ -696,13 +713,13 @@ def init(rc : RegisterFactory):
 
     rc.reg_prop(Scene, 'bf2_lm_bake_terrain',
         BoolProperty(
-            name="Terrain",
+            name="Bake Terrain",
             description="Bake lightmaps for terrain",
             default=True,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
     )
-    
+
     rc.reg_prop(Scene, 'bf2_lm_bake_objects_mode',
         EnumProperty(
             name="Objects",
@@ -818,22 +835,15 @@ def init(rc : RegisterFactory):
         ) # type: ignore
     )
 
-    rc.reg_prop(Scene, 'bf2_lm_non_blocking',
-        BoolProperty(
-            name="Non-Blocking bake",
-            description="Bake asynchronously. UI stays responsive but baking cannot be canceled once started",
-            default=False,
-            options=set()
-        ) # type: ignore
-    )
-
     rc.reg_prop(Scene, 'bf2_lm_atlas_dim',
         IntProperty(
             name="Atlas size",
             description="Atlas dimensions (width and height) to use for baking a single batch. A bigger atlas will use more GPU memory.",
             default=2048,
-            min=0,
+            min=512,
             max=8192,
+            get=get_atlas_size,
+            set=set_atlas_size,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
     )
