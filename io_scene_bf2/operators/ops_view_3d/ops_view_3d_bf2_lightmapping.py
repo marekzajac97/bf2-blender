@@ -283,8 +283,6 @@ def get_patch_count(self):
     def_val = self.bl_rna.properties['bf2_lm_patch_count'].default
     return self.get('bf2_lm_patch_count', def_val) 
 
-import time
-
 class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     bl_idname = "bf2.lightmap_bake"
     bl_label = "Bake"
@@ -373,12 +371,24 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         default=False
     ) # type: ignore
 
+    non_blocking: BoolProperty(
+        name="Non-Blocking (Experimental)",
+        description="Bake asynchronously without freezing the UI. Baking cannot be canceled once started",
+        default=False
+    ) # type: ignore
+
+    @classmethod
+    def get_running(cls, context):
+        for op in context.window.modal_operators:
+            if op is None:
+                continue
+            if op.bl_idname == 'BF2_OT_lightmap_bake':
+                return op
+        return None
+
     @classmethod
     def is_running(cls, context):
-        for op in context.window.modal_operators:
-            if op.bl_idname == 'BF2_OT_lightmap_bake':
-                return True
-        return False
+        return cls.get_running(context) is not None
 
     def active_baker(self):
         if not self.bakers:
@@ -406,35 +416,111 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         context.window_manager.event_timer_remove(self.timer)
 
     def setup_timer(self, context):
-        self.timer = context.window_manager.event_timer_add(0, window=context.window)
+        self.timer = context.window_manager.event_timer_add(0, window=self._window)
+
+    def _bake_next(self, context):
+        while True:
+            baker = self.active_baker()
+            if not baker:
+                return False # done
+            if not baker._nb_prepare_next(context):
+                self.bakers.remove(baker)
+                continue
+            try:
+                bpy.ops.object.bake('INVOKE_DEFAULT', **baker._nb_get_bake_params())
+                return True
+            except Exception:
+                self.report({"ERROR"}, traceback.format_exc())
+                return False
+
+    def _complete_bake(self, canceled):
+        context = bpy.context
+        baker = self.active_baker()
+        if not baker:
+            self.report({"ERROR"}, "No active baker")
+            self._baking_abort = True
+            return
+
+        try:
+            baker._nb_complete_bake(context, canceled)
+        except Exception:
+            self.report({"ERROR"}, traceback.format_exc())
+            self._baking_abort = True
+            return
+
+        if canceled:
+            self._baking_cancel = True
+
+        self.setup_timer(context) # trigger next modal() call
+
+    def _on_bake_complete_handler(self, *args):
+        self._complete_bake(False)
+
+    def _on_bake_cancel_handler(self, *args):
+        self._complete_bake(True)
+
+    def _register_handlers(self):
+        bpy.app.handlers.object_bake_complete.append(self._on_bake_complete_handler)
+        bpy.app.handlers.object_bake_cancel.append(self._on_bake_cancel_handler)
+
+    def _unregister_handlers(self):
+        try:
+            bpy.app.handlers.object_bake_complete.remove(self._on_bake_complete_handler)
+        except ValueError:
+            pass
+        try:
+            bpy.app.handlers.object_bake_cancel.remove(self._on_bake_cancel_handler)
+        except ValueError:
+            pass
+
+    def _on_bake_canceled(self, context):
+        baker = self.active_baker()
+        if baker:
+            self.update_progress(context, status='Canceled')
+            baker.cleanup(context)
+        self.report({"WARNING"}, "Baking has been canceled!")
 
     def modal(self, context, event):
         if event.type=='ESC' and event.value=='PRESS':
-            baker = self.active_baker()
-            if baker:
-                self.update_progress(context, status='Canceled')
-                baker.cleanup(context)
-
-            self.report({"WARNING"}, "Baking has been canceled!")
-            self.cancel_timer(context)
-            return {'FINISHED'}
+            if self.non_blocking:
+                return {'PASS_THROUGH'}
+            self._baking_cancel = True
         elif event.type != 'TIMER':
             return {'PASS_THROUGH'}
 
         self.cancel_timer(context)
-
-        baker = self.active_baker()
-        if not baker.bake_next(context):
-            self.bakers.remove(baker)
-        self.update_progress(context)
-
-        baker = self.active_baker()
-        if baker:
-            self.setup_timer(context)
-            return {'RUNNING_MODAL'}
-        else:
-            self.report({"INFO"}, "Baking has finished!")
+        if self._baking_cancel:
+            self._on_bake_canceled(context)
             return {'FINISHED'}
+
+        if self.non_blocking:
+            stop = False
+            if self._baking_abort:
+                stop = True
+            elif not self._bake_next(context):
+                self.report({"INFO"}, "Baking has finished!")
+                stop = True
+
+            self.update_progress(context)
+
+            if stop:
+                self._unregister_handlers()
+                return {'FINISHED'}
+            else:
+                return {'RUNNING_MODAL'}
+        else:
+            baker = self.active_baker()
+            if not baker.bake_next(context):
+                self.bakers.remove(baker)
+            self.update_progress(context)
+
+            baker = self.active_baker()
+            if baker:
+                self.setup_timer(context)
+                return {'RUNNING_MODAL'}
+            else:
+                self.report({"INFO"}, "Baking has finished!")
+                return {'FINISHED'}
 
     def execute(self, context):
         if self.is_running(context):
@@ -476,9 +562,17 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             self.report({"INFO"}, f"Nothing to bake")
             return {'CANCELLED'}
 
+        self._baking_abort = False
+        self._baking_cancel = False
+        self._window = context.window
+
         self.update_progress(context)
         self.setup_timer(context)
         context.window_manager.modal_handler_add(self)
+
+        if self.non_blocking:
+            self._register_handlers()
+
         return {'RUNNING_MODAL'}
 
 class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
@@ -524,6 +618,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             col.enabled = scene.bf2_lm_bake_terrain
             body.separator(factor=1.0, type='LINE')
             body.prop(scene, "bf2_lm_resume")
+            body.prop(scene, "bf2_lm_non_blocking")
             row = main.row()
 
             props = row.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
@@ -537,6 +632,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             props.normal_maps = scene.bf2_lm_normal_maps
             props.max_lod = scene.bf2_lm_max_lod
             props.resume = scene.bf2_lm_resume
+            props.non_blocking = scene.bf2_lm_non_blocking
             props.batch_mode = scene.bf2_lm_batch_mode
             props.atlas_dim = scene.bf2_lm_atlas_dim
 
@@ -545,7 +641,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                 row.label(text=warn, icon='ERROR')
             row.enabled = props.bake_objects or props.bake_terrain
 
-            if VIEW3D_OT_bf2_bake.is_running(context):
+            if op := VIEW3D_OT_bf2_bake.get_running(context):
                 row = layout.row()
                 row.progress(
                     factor=context.scene.bf2_lm_progress_value,
@@ -553,8 +649,9 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                     text=context.scene.bf2_lm_progress_msg 
                 )
                 row.scale_x = 2
-                row = layout.row()
-                row.label(text='Press ESC to cancel', icon='CANCEL')
+                if not op.non_blocking:
+                    row = layout.row()
+                    row.label(text='Press ESC to cancel', icon='CANCEL')
 
         header, body = layout.panel("BF2_PT_post_process", default_closed=True)
         header.label(text="Post-process")
@@ -718,6 +815,15 @@ def init(rc : RegisterFactory):
             description="Resume previously canceled bake by skipping Objects which has been lightmapped already",
             default=False,
             options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
+
+    rc.reg_prop(Scene, 'bf2_lm_non_blocking',
+        BoolProperty(
+            name="Non-Blocking bake",
+            description="Bake asynchronously. UI stays responsive but baking cannot be canceled once started",
+            default=False,
+            options=set()
         ) # type: ignore
     )
 
