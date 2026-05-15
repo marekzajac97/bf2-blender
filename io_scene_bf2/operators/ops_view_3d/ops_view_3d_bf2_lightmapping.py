@@ -9,14 +9,14 @@ from bpy_extras.io_utils import ImportHelper # type: ignore
 from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
 from ...core.utils import Reporter, next_power_of_2, prev_power_of_2
-from ...core.tools.lightmaping import (load_level,
+from ...core.tools.lightmapping.scene import load_level, LIGHTMAPPING_CONFIG_TEMPLATE
+from ...core.tools.lightmapping.baking import (
                                ObjectParallelBaker,
                                ObjectBaker,
                                TerrainBaker,
                                PostProcessor,
                                get_default_heightmap_patch_count_and_size,
-                               check_gpu,
-                               LIGHTMAPPING_CONFIG_TEMPLATE)
+                               check_gpu)
 
 class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
     bl_idname = "bf2.lm_post_process"
