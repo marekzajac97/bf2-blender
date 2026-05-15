@@ -345,7 +345,7 @@ def _offset_uvs(uv_layer, u, v):
 class TerrainBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE',
                  patch_count=None, patch_size=None, skip_existing=False,
-                 reporter=DEFAULT_REPORTER):
+                 water_attenuation=0.15, reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
         self._reporter = reporter
 
@@ -386,10 +386,11 @@ class TerrainBaker(BakerBase):
         vert_count = math.isqrt(len(mesh.vertices))
         if vert_count * vert_count != len(mesh.vertices) or not is_pow_two(vert_count - 1):
             raise RuntimeError(f'heightmap vert count is invalid')
-        
+
         self._default_terrain_mat = bpy.data.materials['DefaultTerrain']
         self._water_depth_mat = bpy.data.materials['WaterDepth']
         self._flatten_water_mod = self._terrain.modifiers['FlattenAtWaterLevel']
+        self._terrain['water_attenuation'] = water_attenuation # referenced by the shader
 
         self._combine_channels = _make_combine_channels()
         context.scene.compositing_node_group = self._combine_channels

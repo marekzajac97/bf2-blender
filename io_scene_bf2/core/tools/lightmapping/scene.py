@@ -153,7 +153,7 @@ def _make_flatten_at_water_level():
     node_tree.links.new(combine_xyz.outputs['Vector'], set_position.inputs['Position'])
     return node_tree
 
-def _make_water_depth_material(water_level, water_attenuation):
+def _make_water_depth_material():
     if 'WaterDepth' in bpy.data.materials:
         water_depth = bpy.data.materials['WaterDepth']
         bpy.data.materials.remove(water_depth)
@@ -172,23 +172,32 @@ def _make_water_depth_material(water_level, water_attenuation):
     node_tree.links.new(geometry.outputs['Position'], separate_xyz.inputs['Vector'])
 
     # substract water level value from Z
+    watter_lvl_node = node_tree.nodes.new("ShaderNodeAttribute")
+    watter_lvl_node.name = "WaterLevel"
+    watter_lvl_node.label = "WaterLevel"
+    watter_lvl_node.attribute_type = 'OBJECT'
+    watter_lvl_node.attribute_name = 'water_level'
+    watter_lvl_node.location = (2 * NODE_SPACING, -100)
+
     math_substract = node_tree.nodes.new("ShaderNodeMath")
     math_substract.operation = 'SUBTRACT'
-    math_substract.inputs[1].default_value = water_level
     math_substract.location = (2 * NODE_SPACING, 100)
+
+    node_tree.links.new(watter_lvl_node.outputs['Factor'], math_substract.inputs[1])
     node_tree.links.new(separate_xyz.outputs['Z'], math_substract.inputs[0])
 
     # multiply by water attenuation coefficient
-    watter_att_node = node_tree.nodes.new("ShaderNodeValue")
+    watter_att_node = node_tree.nodes.new("ShaderNodeAttribute")
     watter_att_node.name = "WaterAttenuation"
     watter_att_node.label = "WaterAttenuation"
-    watter_att_node.outputs['Value'].default_value = water_attenuation
+    watter_att_node.attribute_type = 'OBJECT'
+    watter_att_node.attribute_name = 'water_attenuation'
     watter_att_node.location = (1 * NODE_SPACING, -100)
 
     math_multiply = node_tree.nodes.new("ShaderNodeMath")
     math_multiply.operation = 'MULTIPLY'
     math_multiply.location = (2 * NODE_SPACING, 0)
-    node_tree.links.new(watter_att_node.outputs['Value'], math_multiply.inputs[1])
+    node_tree.links.new(watter_att_node.outputs['Factor'], math_multiply.inputs[1])
     node_tree.links.new(math_substract.outputs['Value'], math_multiply.inputs[0])
 
     # calc exponent
@@ -397,7 +406,7 @@ def _calc_mesh_area(mesh):
     bm.free()
     return area
 
-def _load_heightmap(context, level_dir, water_attenuation):
+def _load_heightmap(context, level_dir):
     file_manager = BF2Engine().file_manager
     main_console = BF2Engine().main_console
 
@@ -433,8 +442,11 @@ def _load_heightmap(context, level_dir, water_attenuation):
     material = _make_default_terrain_material(minimap_path)
     terrain.data.materials.append(material)
 
-    material = _make_water_depth_material(hm_cluster.water_level, water_attenuation) 
-    material.use_fake_user = True # will be used later
+    # setup waterdepth material, will be used later
+    terrain['water_attenuation'] = 0.15
+    terrain['water_level'] = hm_cluster.water_level
+    material = _make_water_depth_material() 
+    material.use_fake_user = True
 
     modifier = terrain.modifiers.new(type='NODES', name="FlattenAtWaterLevel")
     modifier.node_group = _make_flatten_at_water_level()
@@ -617,7 +629,7 @@ def _run_all_con_files(root_dir):
 def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
-               water_attenuation=0.15, mod_dirs=[], max_lod_to_load=None,
+               mod_dirs=[], max_lod_to_load=None,
                config=None, config_file='', reporter=DEFAULT_REPORTER):
 
     level_dir = level_dir.rstrip('/').rstrip('\\')
@@ -809,7 +821,7 @@ def load_level(context, level_dir, use_cache=True,
                 lm_keys.add(lm_key)
 
     if load_heightmap:
-        _load_heightmap(context, level_dir, water_attenuation)
+        _load_heightmap(context, level_dir)
 
     if load_lights:
         lights = _make_collection(context, "Lights")

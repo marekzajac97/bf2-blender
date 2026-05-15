@@ -166,13 +166,6 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
         default=True
     ) # type: ignore
 
-    water_light_attenuation: FloatProperty(
-        name="Water light attenuation",
-        description="Used for setting up the water depth material. Higher values make the water more opaque",
-        default=0.15,
-        min=0.0
-    ) # type: ignore
-
     load_lights: BoolProperty(
         name="Load Lights",
         description="Import sun from Sky.con and point lights from the config file",
@@ -235,7 +228,6 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
                        load_overgrowth=self.load_overgrowth,
                        load_heightmap=self.load_heightmap,
                        load_lights=self.load_lights,
-                       water_attenuation=self.water_light_attenuation,
                        max_lod_to_load=self.max_lod_to_load,
                        mod_dirs=mod_dirs,
                        config=config,
@@ -382,9 +374,17 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         default=1024
     ) # type: ignore
 
+    water_attenuation: FloatProperty(
+        name="Water attenuation",
+        description="Water light attenuation coefficient. Higher values make the water more opaque with increasing depth",
+        default=0.15,
+        min=0.0,
+        max=1.0
+    ) # type: ignore
+
     resume: BoolProperty(
         name="Resume",
-        description="Resume previously canceled bake by skipping Objects which has been lightmapped already",
+        description="Resume previously canceled bake by skipping lightmaps which have already been created",
         default=False
     ) # type: ignore
 
@@ -560,9 +560,13 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         if self.bake_objects:
             if self.batch_mode:
                 obj_kwargs['atlas_size'] = (self.atlas_dim, self.atlas_dim)
-                baker = ObjectParallelBaker(context, self.outdir,**obj_kwargs)
+                obj_baker_cls = ObjectParallelBaker
             else:
-                baker = ObjectBaker(context, self.outdir,**obj_kwargs)
+                obj_baker_cls = ObjectBaker
+
+            objects_subdir = os.path.join(self.outdir, 'objects')
+            os.makedirs(objects_subdir, exist_ok=True)
+            baker = obj_baker_cls(context, objects_subdir, **obj_kwargs)
             self.bakers.append(baker)
         if self.bake_terrain:
             baker = TerrainBaker(context, self.outdir,
@@ -570,6 +574,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
                                  patch_count=self.patch_count,
                                  patch_size=self.patch_size,
                                  skip_existing=self.resume,
+                                 water_attenuation=self.water_attenuation,
                                  reporter=Reporter(self.report))
             self.bakers.append(baker)
 
@@ -635,6 +640,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             col = body.column()
             col.prop(scene, "bf2_lm_patch_count")
             col.prop(scene, "bf2_lm_patch_size")
+            col.prop(scene, "bf2_lm_water_attenuation")
             col.active = scene.bf2_lm_bake_terrain
             body.separator(factor=1.0, type='LINE')
             body.prop(scene, "bf2_lm_resume")
@@ -653,6 +659,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             props.resume = scene.bf2_lm_resume
             props.batch_mode = scene.bf2_lm_batch_mode
             props.atlas_dim = scene.bf2_lm_atlas_dim
+            props.water_attenuation = scene.bf2_lm_water_attenuation
 
             for warn in check_gpu(context):
                 row = main.row()
@@ -826,10 +833,21 @@ def init(rc : RegisterFactory):
         ) # type: ignore
     )
 
+    rc.reg_prop(Scene, 'bf2_lm_water_attenuation',
+        FloatProperty(
+            name="Water attenuation",
+            description="Water light attenuation coefficient. Higher values make the water more opaque with increasing depth",
+            default=0.15,
+            min=0.0,
+            max=1.0,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
+
     rc.reg_prop(Scene, 'bf2_lm_resume',
         BoolProperty(
             name="Resume",
-            description="Resume previously canceled bake by skipping Objects which has been lightmapped already",
+            description="Resume previously canceled bake by skipping lightmaps which have already been created",
             default=False,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
