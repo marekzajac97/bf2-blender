@@ -2,6 +2,7 @@ import os
 import os.path as path
 import math
 import re
+import tempfile
 import bpy # type: ignore
 import bmesh # type: ignore
 from mathutils import Matrix, Vector # type: ignore
@@ -58,8 +59,10 @@ def module_from_file(py_file):
 
 class BakerBase(ABC):
     def __init__(self, output_dir, dds_fmt='NONE'):
-        self.output_dir =output_dir
+        self.output_dir = output_dir
         self.dds_fmt = dds_fmt
+        self._post_processor = None
+        self._post_process_out_dir = None
 
     @abstractmethod
     def type(self):
@@ -73,17 +76,51 @@ class BakerBase(ABC):
     def completed_items(self):
         ...
 
+    def post_process_enable(self, ambient_light_level, out_dir=''):
+        self._post_process_out_dir = out_dir
+        self._post_processor = _make_add_ambinet_light(ambient_light_level)
+
+    def _run_post_process_render(self, context, image, name, output_dir):
+        if not self._post_processor:
+            return
+
+        context.scene.compositing_node_group = self._post_processor
+        with PreserveColorSpaceSettings(context):
+            context.scene.view_settings.view_transform = 'Standard'
+
+            self._post_processor.nodes['SrcImage'].image = image
+            context.scene.render.resolution_x = image.size[0]
+            context.scene.render.resolution_y = image.size[1]
+            context.scene.render.image_settings.file_format = 'TARGA'
+            bpy.ops.render.render()
+
+            # save output
+            render_result = bpy.data.images['Render Result']
+            save_img_as_dds(render_result, os.path.join(output_dir, f'{name}.dds'), self.dds_fmt)
+
+            # cleanup
+            self._post_processor.nodes['SrcImage'].image = None
+            bpy.data.images.remove(render_result)
+
+    def _post_process_and_save(self, context, image, name=''):
+        if not name:
+            name = image.name
+
+        if self._post_processor and (not self._post_process_out_dir or
+                                     os.path.normpath(self._post_process_out_dir) == os.path.normpath(self.output_dir)):
+            # override with post processed result
+            self._run_post_process_render(context, image, name, self.output_dir)
+        else:
+            # keep both
+            save_img_as_dds(image, path.join(self.output_dir, f'{name}.dds'), self.dds_fmt)
+            self._run_post_process_render(context, image, name, self._post_process_out_dir)
+
     def bake_next(self, context):
         if not self.prepare_next(context):
             return False
         bpy.ops.object.bake(**self.get_bake_params())
         self.complete_bake(context, False)
         return True
-
-    def save_bake(self, image, name=''):
-        if not name:
-            name = image.name
-        save_img_as_dds(image, path.join(self.output_dir, f'{name}.dds'), self.dds_fmt)
 
     def bake_all(self, context):
         while self.bake_next(context):
@@ -724,10 +761,30 @@ class TerrainBaker(BakerBase):
             context.scene.render.resolution_y = self._patch_size
             bpy.ops.render.render()
 
-            render_result = bpy.data.images['Render Result']
-
             col, row = self.patches_to_bake[self._patch_index]
-            self.save_bake(render_result, f'tx{col:02d}x{row:02d}')
+            filename = f'tx{col:02d}x{row:02d}'
+
+            render_result = bpy.data.images['Render Result']
+            if self._post_processor:
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    # file_path = os.path.join(tmp_dir, "tmp.tga")
+                    # render_result.file_format = 'TARGA'
+                    # render_result.filepath_raw = file_path
+                    # render_result.alpha_mode = 'STRAIGHT'
+                    # render_result.save(filepath=file_path)
+                    # bpy.data.images.remove(render_result)
+
+                    save_img_as_dds(render_result, path.join(tmp_dir, f'{filename}.dds'), self.dds_fmt)
+                    file_path = path.join(tmp_dir, f'{filename}.dds')
+                    # reload as new img
+                    image = bpy.data.images.load(file_path)
+                    image.name = filename
+                    print(file_path)
+                    self._post_process_and_save(context, image, filename)
+                    # render_result will be deleted by post process
+            else:
+                self._post_process_and_save(context, render_result, filename)
+                bpy.data.images.remove(render_result)
 
             # cleanup
             self._combine_channels.nodes['LightMap'].image = None
@@ -736,7 +793,6 @@ class TerrainBaker(BakerBase):
             self._texture_node_water_depth.image = None
             bpy.data.images.remove(light_map)
             bpy.data.images.remove(water_depth_map)
-            bpy.data.images.remove(render_result)
 
     def get_bake_params(self):
         return {'type': 'DIFFUSE', 'uv_layer': self.uv_layer.name}
@@ -1059,7 +1115,7 @@ class ObjectBaker(BakerBase):
             self._strip_normal_maps = None
 
         if not canceled:
-            self.save_bake(self._bake_image)
+            self._post_process_and_save(context, self._bake_image)
 
         bpy.data.images.remove(self._bake_image)
         self._bake_image = None
@@ -1301,7 +1357,7 @@ class ObjectParallelBaker(BakerBase):
                     tile_pixels.extend(src_pixels[src_row_start:src_row_end])
                 tile_img.pixels = tile_pixels.tolist()
 
-                self.save_bake(tile_img)
+                self._post_process_and_save(context, tile_img)
                 bpy.data.images.remove(tile_img)
 
         bpy.data.images.remove(self._bake_image)
