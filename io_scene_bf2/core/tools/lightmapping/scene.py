@@ -485,25 +485,31 @@ class GeometryTemplateConfig:
     def __init__(self):
         self.geoms = list()
 
-    def instantiate(self, collection, name):
+    def instantiate(self, collection, name, lod0_only=False):
+        if lod0_only:
+            lod_data = self.geoms[0].lods[0]
+            lod_obj = bpy.data.objects.new(name, lod_data.mesh)
+            collection.objects.link(lod_obj)
+            return lod_obj
+
         root = bpy.data.objects.new(name, None)
         root.hide_render = True
+        root.hide_viewport = True
         collection.objects.link(root)
-        root.hide_set(True)
         for geom_idx, geom in enumerate(self.geoms):
             geom_obj = bpy.data.objects.new(f'G{geom_idx}__' + name, None)
             geom_obj.parent = root
             geom_obj.hide_render = True
+            geom_obj.hide_viewport = True
             collection.objects.link(geom_obj)
-            geom_obj.hide_set(True)
             for lod_idx, lod_data in enumerate(geom.lods):
                 lod_obj = bpy.data.objects.new(f'G{geom_idx}L{lod_idx}__' + name, lod_data.mesh)
                 lod_obj.parent = geom_obj
                 lod_obj.bf2_lightmap_size = lod_data.lm_size
-                collection.objects.link(lod_obj)
                 if lod_idx != 0:
                     lod_obj.hide_render = True
-                    lod_obj.hide_set(True)
+                    lod_obj.hide_viewport = True
+                collection.objects.link(lod_obj)
         return root
 
 def _get_template_configs(template, matrix, config, templates : Dict[str, ObjectTemplateConfig], reporter):
@@ -629,7 +635,7 @@ def _run_all_con_files(root_dir):
 def load_level(context, level_dir, use_cache=True,
                load_unpacked=True, load_static_objects=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
-               mod_dirs=[], max_lod_to_load=None,
+               mod_dirs=[], max_lod_to_load=None, lm_skip_lod0_only=True,
                config=None, config_file='', reporter=DEFAULT_REPORTER):
 
     level_dir = level_dir.rstrip('/').rstrip('\\')
@@ -706,7 +712,11 @@ def load_level(context, level_dir, use_cache=True,
     lm_keys = set()
     geom_template_to_mesh : Dict[str, GeometryTemplateConfig] = dict() # differen ObjectTemplates may use same GeometryTemplate
 
+    current = 0
+    total_count = len(templates)
     for template_name, temp_cfg in templates.items():
+        print(f'importing {template_name} ({current}/{total_count})')
+
         geom_temp = temp_cfg.geom
         if not geom_temp:
             continue # skip, just for point lights
@@ -754,7 +764,7 @@ def load_level(context, level_dir, use_cache=True,
 
             skip_lightmaps = (geom_temp.dont_generate_lightmaps or
                 'StaticMesh' != geom_temp.geometry_type or
-                not bf2_mesh.has_uv(4))
+                not bf2_mesh.has_uv(4)) # overgrowth doesn't have lightmap UV
 
             for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
                 lm_size = None
@@ -806,11 +816,14 @@ def load_level(context, level_dir, use_cache=True,
 
         # instantiate meshes
         for matrix_world in temp_cfg.instances:
-            # XXX: objects will be named by ObjectTemplate
-            # and meshes will be named by GeometryTemplate
-            # which is not always the same!
             collection = static_objects_skip if skip_lightmaps else static_objects
-            obj = mesh_info.instantiate(collection, temp_cfg.template.name)
+
+            # optimization to minimize the number of objects: if we don't need to lightmap the object just import LOD0
+            # objects.new() becomes very slow as object count increases
+            lod0_only = skip_lightmaps and lm_skip_lod0_only
+
+            # XXX: objects are be named by ObjectTemplate and meshes are named by GeometryTemplate which is not always the same!
+            obj = mesh_info.instantiate(collection, temp_cfg.template.name, lod0_only=lod0_only)
             obj.matrix_world = matrix_world
 
             # check LM key collisions

@@ -458,9 +458,9 @@ class TerrainBaker(BakerBase):
             obj.select_set(False)
 
         context.view_layer.objects.active = self._terrain
-        self._terrain.hide_set(False)
         self._terrain.select_set(True)
         self._terrain.hide_render = False
+        self._terrain.hide_viewport = False
 
         print(f"Baking terrain patch {self.completed_items() + 1}/{self.total_items()}")
 
@@ -569,6 +569,17 @@ class StripNormalMaps:
             if normal_socket:
                 plug_socket_to(material, 'Normal', normal_socket)
 
+def _select_lod_for_bake(geom, lod):
+    for lod_idx, lod_obj in enumerate(geom):
+        if lod_idx == lod:
+            lod_obj.hide_render = False
+            lod_obj.hide_viewport = False
+            lod_obj.select_set(True)
+        else:
+            lod_obj.select_set(False)
+            lod_obj.hide_render = True
+            lod_obj.hide_viewport = True
+
 class ObjectBaker(BakerBase):
     def __init__(self, context, output_dir, dds_fmt='NONE',
                  only_selected=False, normal_maps=False, skip_existing=False,
@@ -603,17 +614,6 @@ class ObjectBaker(BakerBase):
 
         _setup_scene_for_baking(context)
 
-    def _select_lod_for_bake(self, geom, lod):
-        for lod_idx, lod_obj in enumerate(geom):
-            if lod_idx == lod:
-                lod_obj.hide_set(False)
-                lod_obj.select_set(True)
-                lod_obj.hide_render = False
-            else:
-                lod_obj.hide_set(True)
-                lod_obj.select_set(False)
-                lod_obj.hide_render = True
-
     def type(self):
         return 'Objects'
 
@@ -626,7 +626,7 @@ class ObjectBaker(BakerBase):
     def cleanup(self, context):
         if not self._geom:
             return
-        self._select_lod_for_bake(self._geom, 0)
+        _select_lod_for_bake(self._geom, 0)
 
     def get_bake_params(self):
         return {'type': 'DIFFUSE', 'uv_layer': 'UV4'}
@@ -691,7 +691,7 @@ class ObjectBaker(BakerBase):
             if self._strip_normal_maps:
                 self._strip_normal_maps.apply(lod_obj.data.materials)
 
-            self._select_lod_for_bake(self._geom, self._lod_idx)
+            _select_lod_for_bake(self._geom, self._lod_idx)
             context.view_layer.objects.active = lod_obj
             return True
 
@@ -806,18 +806,6 @@ class ObjectParallelBaker(BakerBase):
 
         _setup_scene_for_baking(context)
 
-    def _select_lod_for_bake(self, lod_obj, lod):
-        geom = self._lod_to_geom[lod_obj.name]
-        for lod_idx, lod_obj in enumerate(geom):
-            if lod_idx == lod:
-                lod_obj.hide_set(False)
-                lod_obj.select_set(True)
-                lod_obj.hide_render = False
-            else:
-                lod_obj.hide_set(True)
-                lod_obj.select_set(False)
-                lod_obj.hide_render = True
-
     def _apply_uv_offset_and_scale(self, mesh, scale_u, scale_v, offset_u, offset_v):
             # get applied scale/offset
             bf2_lm_uv_scale = mesh.get('bf2_lm_uv_scale', (1.0, 1.0))
@@ -893,7 +881,8 @@ class ObjectParallelBaker(BakerBase):
             temp_mesh.materials.pop(index=0)
 
         for rect in atlas:
-            self._select_lod_for_bake(rect.rid, -1)
+            geom = self._lod_to_geom[rect.rid.name]
+            _select_lod_for_bake(geom, -1)
 
         bake_image = bpy.data.images.get(atlas_name)
         if bake_image:
@@ -923,7 +912,8 @@ class ObjectParallelBaker(BakerBase):
 
         # revert objects to lod 0
         for rect in atlas:
-            self._select_lod_for_bake(rect.rid, 0)
+            geom = self._lod_to_geom[rect.rid.name]
+            _select_lod_for_bake(geom, 0)
 
         if not canceled:
             print(f"Splitting atlas {atlas_name} {self.completed_items()}/{self.total_items()}")

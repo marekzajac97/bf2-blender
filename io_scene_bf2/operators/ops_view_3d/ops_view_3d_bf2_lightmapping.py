@@ -180,16 +180,22 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
         max=6
     ) # type: ignore
 
+    lm_skip_lod0_only: BoolProperty(
+        name="Simplify hierarchies",
+        description="Import only LOD0 for non-lightmapable map objects (Overgrowth, BundledMeshes etc.) to reduce the overall object count in the scene and improve import speed",
+        default=True
+    ) # type: ignore
+
     def draw(self, context):
         layout = self.layout
         layout.prop(self, 'load_static_objects')
         layout.prop(self, 'load_overgrowth')
         col = layout.column()
         col.prop(self, 'max_lod_to_load')
+        col.prop(self, 'lm_skip_lod0_only')
         col.enabled = self.load_static_objects or self.load_overgrowth
         layout.prop(self, 'load_heightmap')
         col = layout.column()
-        col.prop(self, 'water_light_attenuation')
         col.enabled = self.load_heightmap
         layout.prop(self, 'load_lights')
 
@@ -229,6 +235,7 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
                        load_heightmap=self.load_heightmap,
                        load_lights=self.load_lights,
                        max_lod_to_load=self.max_lod_to_load,
+                       lm_skip_lod0_only=self.lm_skip_lod0_only,
                        mod_dirs=mod_dirs,
                        config=config,
                        reporter=Reporter(self.report))
@@ -544,7 +551,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             self.report({"ERROR"}, f"Post-processor is running")
             return {'CANCELLED'}
         if not os.path.isdir(self.outdir):
-            self.report({"ERROR"}, f"Choosen out path '{self.outdir}' is NOT a directory!")
+            self.report({"ERROR"}, f"Chosen out path '{self.outdir}' is NOT a directory!")
             return {'CANCELLED'}
 
         obj_kwargs = dict(

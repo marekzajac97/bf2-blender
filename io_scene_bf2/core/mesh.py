@@ -263,7 +263,7 @@ class MeshImporter:
                 texture_map_types = TEXTURE_MAPS[material.bf2_shader]
                 texture_maps = get_tex_type_to_file_mapping(material, bf2_mat.maps)
                 for map_type, map_file in texture_maps.items():
-                    if os.path.isabs(map_file):
+                    if map_file.startswith('/') or map_file.startswith('\\'):
                         if not self.silent:
                             self.reporter.warning(f"Invalid material texture map path: '{map_file}' is an absolute path, ignoring and converting to relative path...")
                         map_file = map_file.lstrip('/').lstrip('\\')
