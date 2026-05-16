@@ -482,7 +482,7 @@ class StripNormalMaps:
         self.normal_sockets = list()
 
     def apply(self, materials):
-        self.materials = materials
+        self.materials = list(materials)
         for material in self.materials:
             self.normal_sockets.append(unplug_socket_from(material, 'Normal'))
 
@@ -490,6 +490,8 @@ class StripNormalMaps:
         for normal_socket, material in zip(self.normal_sockets, self.materials):
             if normal_socket:
                 plug_socket_to(material, 'Normal', normal_socket)
+        self.materials.clear()
+        self.normal_sockets.clear()
 
 def _select_lod_for_bake(geom, lod):
     for lod_idx, lod_obj in enumerate(geom):
@@ -622,7 +624,6 @@ class ObjectBaker(BakerBase):
     def complete_bake(self, context, canceled):
         if self._strip_normal_maps:
             self._strip_normal_maps.revert()
-            self._strip_normal_maps = None
 
         if not canceled:
             self._post_process_and_save(context, self._bake_image)
@@ -642,12 +643,16 @@ class ObjectParallelBaker(BakerBase):
     """
     def __init__(self, context, output_dir, dds_fmt='NONE',
                  only_selected=False, normal_maps=False, atlas_size=(2048, 2048),
-                 max_lod=99, skip_existing=None, reporter=DEFAULT_REPORTER):
+                 max_lod=99, use_margin=True, skip_existing=None, reporter=DEFAULT_REPORTER):
         super().__init__(output_dir, dds_fmt)
         self._reporter = reporter
         self._strip_normal_maps = None if normal_maps else StripNormalMaps()
         self._max_lod = max_lod
         self._atlas_size = atlas_size
+        self._margin = context.scene.render.bake.margin if use_margin else 0
+
+        if self._margin % 2 != 0:
+            raise ValueError(f"bake margin ({self._margin}) cannot be odd")
 
         existing_lods = set()
         if skip_existing:
@@ -710,6 +715,13 @@ class ObjectParallelBaker(BakerBase):
 
             for obj in objects:
                 width, height = obj.bf2_lightmap_size
+                width += self._margin
+                height += self._margin
+
+                if width > self._atlas_size[0] or height > self._atlas_size[1]:
+                    w, h = obj.bf2_lightmap_size
+                    raise ValueError(f"lightmap size for '{obj.name}' ({w}x{h} plus margin of {self._margin}) doesn't fit on the specified atlas size ({self._atlas_size[0]}x{self._atlas_size[1]})")
+
                 packer.add_rect(width, height, obj)
 
             for _ in range(0, 99):
@@ -786,10 +798,10 @@ class ObjectParallelBaker(BakerBase):
             obj.data = obj.data.copy()
 
             mesh = obj.data
-            scale_u = rect.width / self._atlas_size[0]
-            scale_v = rect.height / self._atlas_size[1]
-            offset_u = rect.x / self._atlas_size[0]
-            offset_v = rect.y / self._atlas_size[1]
+            scale_u = (rect.width - self._margin) / self._atlas_size[0]
+            scale_v = (rect.height - self._margin) / self._atlas_size[1]
+            offset_u = (rect.x + int(self._margin / 2)) / self._atlas_size[0]
+            offset_v = (rect.y + int(self._margin / 2)) / self._atlas_size[1]
             self._apply_uv_offset_and_scale(mesh, scale_u, scale_v, offset_u, offset_v)
 
         temp_mesh = bpy.data.meshes.new(atlas_name)
@@ -823,7 +835,6 @@ class ObjectParallelBaker(BakerBase):
     def complete_bake(self, context, canceled):
         if self._strip_normal_maps:
             self._strip_normal_maps.revert()
-            self._strip_normal_maps = None
 
         bpy.data.meshes.remove(self._temp_obj.data, do_unlink=True)
         self._temp_obj = None
@@ -847,10 +858,13 @@ class ObjectParallelBaker(BakerBase):
 
             for rect in atlas:
                 lm_name = self._lod_to_lm_key[rect.rid.name]
+                w = rect.width - self._margin
+                h = rect.height - self._margin
+                y = rect.y + int(self._margin / 2)
+                x = rect.x + int(self._margin / 2)
                 tile_img = bpy.data.images.new(
-                    name=lm_name, width=rect.width, height=rect.height)
-                w, h = tile_img.size
-                tile = src_pixels[rect.y:rect.y+h, rect.x:rect.x+w, :]
+                    name=lm_name, width=w, height=h)
+                tile = src_pixels[y:y+h, x:x+w, :]
                 tile_img.pixels = tile.ravel().tolist()
 
                 self._post_process_and_save(context, tile_img)

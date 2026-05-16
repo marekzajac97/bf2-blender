@@ -253,23 +253,6 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
     def invoke(self, context, event):
         return super().invoke(context, event)
 
-ATLAS_MAX_SIZE = 8192
-ATLAS_MIN_SIZE = 512
-
-def set_atlas_size(self, val):
-    prev_val = self.bf2_lm_atlas_dim
-    if val > prev_val:
-        val = next_power_of_2(val)
-    else:
-        val = prev_power_of_2(val)
-    val = max(ATLAS_MIN_SIZE, val)
-    val = min(ATLAS_MAX_SIZE, val)
-    self['bf2_lm_atlas_dim'] = val
-
-def get_atlas_size(self):
-    def_val = self.bl_rna.properties['bf2_lm_atlas_dim'].default
-    return self.get('bf2_lm_atlas_dim', def_val) 
-
 TERRAIN_MAX_SIZE = 4096
 TERRAIN_MIN_SIZE = 16
 
@@ -345,7 +328,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
 
     atlas_dim: IntProperty(
         name="Atlas size",
-        description="Atlas dimensions (width and height) to use for baking a single batch. A bigger atlas will use more GPU memory.",
+        description="Atlas dimensions (width and height) to use for baking a single batch. A bigger atlas will use more GPU memory but can fit more objects in a single batch.",
         default=2048,
         min=0,
         max=8192
@@ -353,7 +336,8 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
 
     batch_mode: BoolProperty(
         name="Use Atlas",
-        description="Bake objects in batches on a texture atlas. This should better utilize GPU when baking a lot of small objects thus cutting down the rendering time (use only if you have a capable hardware)",
+        description="Bake objects in batches on a texture atlas. This should better utilize GPU when baking a lot of small objects thus cutting down the rendering time (use only if you have a capable hardware)\n\n"
+                    "NOTE: The margin (from the Bake settings) will be used to prevent bleeding from one object to another, keep this in mind when choosing the atlas size",
         default=False
     ) # type: ignore
 
@@ -817,6 +801,7 @@ def init(rc : RegisterFactory):
             name="Patch size",
             description="Texture size of a single terrain patch",
             default=1024,
+            subtype='PIXEL',
             get=get_patch_size,
             set=set_patch_size,
             options=set()  # Remove ANIMATABLE default option.
@@ -901,12 +886,11 @@ def init(rc : RegisterFactory):
     rc.reg_prop(Scene, 'bf2_lm_atlas_dim',
         IntProperty(
             name="Atlas size",
-            description="Atlas dimensions (width and height) to use for baking a single batch. A bigger atlas will use more GPU memory.",
-            default=2048,
+            description="Atlas dimensions (width and height) to use for baking a single batch. A bigger atlas will use more GPU memory but can fit more objects in a single batch.",
+            default=2192,
             min=512,
             max=8192,
-            get=get_atlas_size,
-            set=set_atlas_size,
+            subtype='PIXEL',
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
     )
@@ -914,7 +898,8 @@ def init(rc : RegisterFactory):
     rc.reg_prop(Scene, 'bf2_lm_batch_mode',
         BoolProperty(
             name="Use Atlas",
-            description="Bake objects in batches on a texture atlas. This should better utilize GPU when baking a lot of small objects thus cutting down the rendering time (use only if you have a capable hardware)",
+            description="Bake objects in batches on a texture atlas. This should better utilize GPU when baking a lot of small objects thus cutting down the rendering time (use only if you have a capable hardware)\n\n"
+                        "NOTE: The margin (from the Bake settings) will be used to prevent bleeding from one object to another, keep this in mind when choosing the atlas size",
             default=False,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
