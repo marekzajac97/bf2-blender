@@ -4,7 +4,7 @@ import math
 import re
 import bpy # type: ignore
 from abc import ABC, abstractmethod
-from array import array
+import numpy as np
 
 from .... import rectpack
 from ...mesh import MeshExporter
@@ -248,55 +248,6 @@ class PreserveColorSpaceSettings():
 # baking terrain
 # -------------------
 
-def _make_combine_channels():
-    if 'CombineLightAndWaterDepth' in bpy.data.node_groups:
-        node_group = bpy.data.node_groups['CombineLightAndWaterDepth']
-        bpy.data.node_groups.remove(node_group)
-
-    node_tree = bpy.data.node_groups.new(type = 'CompositorNodeTree', name = "CombineLightAndWaterDepth")
-
-    image_light = node_tree.nodes.new("CompositorNodeImage")
-    image_light.name = "LightMap"
-
-    image_water = node_tree.nodes.new("CompositorNodeImage")
-    image_water.name = "WaterDepthMap"
-
-    node_tree.interface.new_socket(name="Image", in_out='OUTPUT', socket_type='NodeSocketColor')
-    group_output = node_tree.nodes.new("NodeGroupOutput")
-    group_output.name = "Group Output"
-    group_output.is_active_output = True
-
-    separate_color_light = node_tree.nodes.new("CompositorNodeSeparateColor")
-    separate_color_water = node_tree.nodes.new("CompositorNodeSeparateColor")
-    combine_color = node_tree.nodes.new("CompositorNodeCombineColor")
-
-    node_tree.links.new(
-        image_water.outputs['Image'],
-        separate_color_water.inputs['Image']
-    )
-    node_tree.links.new(
-        image_light.outputs['Image'],
-        separate_color_light.inputs['Image']
-    )
-    node_tree.links.new(
-        separate_color_water.outputs['Red'],
-        combine_color.inputs['Red']
-    )
-    node_tree.links.new(
-        separate_color_light.outputs['Green'],
-        combine_color.inputs['Green']
-    )
-    node_tree.links.new(
-        separate_color_light.outputs['Blue'],
-        combine_color.inputs['Blue']
-    )
-    node_tree.links.new(
-        combine_color.outputs['Image'],
-        group_output.inputs['Image']
-    )
-
-    return node_tree
-
 DEFAULT_HM_SIZE_TO_PATCH_COUNT_AND_RES = {
     512: (16, 1024),
     1024: (16, 2048),
@@ -392,9 +343,6 @@ class TerrainBaker(BakerBase):
         self._flatten_water_mod = self._terrain.modifiers['FlattenAtWaterLevel']
         self._terrain['water_attenuation'] = water_attenuation # referenced by the shader
 
-        self._combine_channels = _make_combine_channels()
-        context.scene.compositing_node_group = self._combine_channels
-
         mesh.materials.clear()
         mesh.materials.append(self._default_terrain_mat)
 
@@ -439,7 +387,6 @@ class TerrainBaker(BakerBase):
 
     def cleanup(self, context):
         mesh = self._terrain.data
-        context.scene.compositing_node_group = None
         mesh.materials[0] = self._default_terrain_mat
         mesh.uv_layers.remove(self.uv_layer)
         if self._texture_node_light.image:
@@ -482,27 +429,18 @@ class TerrainBaker(BakerBase):
         water_depth_map = self._texture_node_water_depth.image
         assert light_map and water_depth_map
 
-        with PreserveColorSpaceSettings(context):
-            context.scene.view_settings.view_transform = 'Standard'
-            self._combine_channels.nodes['LightMap'].image = light_map
-            self._combine_channels.nodes['WaterDepthMap'].image = water_depth_map
-            context.scene.render.resolution_x = self._patch_size
-            context.scene.render.resolution_y = self._patch_size
-            bpy.ops.render.render()
+        light_pixels = np.array(light_map.pixels[:])
+        water_pixels = np.array(water_depth_map.pixels[:])
+        light_pixels[0::4] = water_pixels[0::4]
+        light_map.pixels = light_pixels.tolist()
 
-            render_result = bpy.data.images['Render Result']
+        col, row = self.patches_to_bake[self._patch_index]
+        self.save_bake(light_map, f'tx{col:02d}x{row:02d}')
 
-            col, row = self.patches_to_bake[self._patch_index]
-            self.save_bake(render_result, f'tx{col:02d}x{row:02d}')
-
-            # cleanup
-            self._combine_channels.nodes['LightMap'].image = None
-            self._combine_channels.nodes['WaterDepthMap'].image = None
-            self._texture_node_light.image = None
-            self._texture_node_water_depth.image = None
-            bpy.data.images.remove(light_map)
-            bpy.data.images.remove(water_depth_map)
-            bpy.data.images.remove(render_result)
+        self._texture_node_light.image = None
+        self._texture_node_water_depth.image = None
+        bpy.data.images.remove(light_map)
+        bpy.data.images.remove(water_depth_map)
 
     def get_bake_params(self):
         return {'type': 'DIFFUSE', 'uv_layer': self.uv_layer.name}
@@ -921,19 +859,15 @@ class ObjectParallelBaker(BakerBase):
             src_img = self._bake_image
             atlas_width, atlas_height = src_img.size
             num_channels = src_img.channels
-            src_pixels = array('f', src_img.pixels[:])
+            src_pixels = np.array(src_img.pixels[:]).reshape((atlas_height, atlas_width, num_channels))
 
             for rect in atlas:
                 lm_name = self._lod_to_lm_key[rect.rid.name]
                 tile_img = bpy.data.images.new(
                     name=lm_name, width=rect.width, height=rect.height)
                 w, h = tile_img.size
-                tile_pixels = array('f')
-                for row in range(h):
-                    src_row_start = ((rect.y + row) * atlas_width + rect.x) * num_channels
-                    src_row_end = src_row_start + (w * num_channels)
-                    tile_pixels.extend(src_pixels[src_row_start:src_row_end])
-                tile_img.pixels = tile_pixels.tolist()
+                tile = src_pixels[rect.y:rect.y+h, rect.x:rect.x+w, :]
+                tile_img.pixels = tile.ravel().tolist()
 
                 self.save_bake(tile_img)
                 bpy.data.images.remove(tile_img)
