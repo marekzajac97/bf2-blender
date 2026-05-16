@@ -20,8 +20,10 @@ from .common import plug_socket_to, unplug_socket_from, gen_lm_key
 
 class BakerBase(ABC):
     def __init__(self, output_dir, dds_fmt='NONE'):
-        self.output_dir =output_dir
-        self.dds_fmt = dds_fmt
+        self._output_dir = output_dir
+        self._dds_fmt = dds_fmt
+        self._post_processor = None
+        self._post_process_out_dir = None
 
     @abstractmethod
     def type(self):
@@ -35,17 +37,51 @@ class BakerBase(ABC):
     def completed_items(self):
         ...
 
+    def post_process_enable(self, post_processor, out_dir=''):
+        self._post_process_out_dir = out_dir
+        self._post_processor = post_processor
+
+    def _run_post_process_render(self, context, image, name, output_dir):
+        if not self._post_processor:
+            return
+
+        context.scene.compositing_node_group = self._post_processor
+        with PreserveColorSpaceSettings(context):
+            context.scene.view_settings.view_transform = 'Standard'
+
+            self._post_processor.nodes['SrcImage'].image = image
+            context.scene.render.resolution_x = image.size[0]
+            context.scene.render.resolution_y = image.size[1]
+            context.scene.render.image_settings.file_format = 'TARGA'
+            bpy.ops.render.render()
+
+            # save output
+            render_result = bpy.data.images['Render Result']
+            save_img_as_dds(render_result, os.path.join(output_dir, f'{name}.dds'), self._dds_fmt)
+
+            # cleanup
+            self._post_processor.nodes['SrcImage'].image = None
+            bpy.data.images.remove(render_result)
+
+    def _post_process_and_save(self, context, image, name=''):
+        if not name:
+            name = image.name
+
+        if self._post_processor and (not self._post_process_out_dir or
+                                     os.path.normpath(self._post_process_out_dir) == os.path.normpath(self._output_dir)):
+            # override with post processed result
+            self._run_post_process_render(context, image, name, self._output_dir)
+        else:
+            # keep both
+            save_img_as_dds(image, path.join(self._output_dir, f'{name}.dds'), self._dds_fmt)
+            self._run_post_process_render(context, image, name, self._post_process_out_dir)
+
     def bake_next(self, context):
         if not self.prepare_next(context):
             return False
         bpy.ops.object.bake(**self.get_bake_params())
         self.complete_bake(context, False)
         return True
-
-    def save_bake(self, image, name=''):
-        if not name:
-            name = image.name
-        save_img_as_dds(image, path.join(self.output_dir, f'{name}.dds'), self.dds_fmt)
 
     def bake_all(self, context):
         while self.bake_next(context):
@@ -112,7 +148,7 @@ def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
     node_tree.nodes.active = texture_node
     return texture_node
 
-def _make_add_ambient_light(ambient_light_level):
+def make_add_ambient_light(ambient_light_level):
     if 'AddAmbientLight' in bpy.data.node_groups:
         node_group = bpy.data.node_groups['AddAmbientLight']
         bpy.data.node_groups.remove(node_group)
@@ -171,7 +207,7 @@ class PostProcessor:
             out_dir = src_dir
 
         self.dds_fmt = dds_fmt
-        self.add_ambient_light = _make_add_ambient_light(ambient_light_intensity)
+        self.add_ambient_light = make_add_ambient_light(ambient_light_intensity)
         context.scene.compositing_node_group = self.add_ambient_light
         self.out_dir = out_dir
         self.textures = list()
@@ -435,7 +471,7 @@ class TerrainBaker(BakerBase):
         light_map.pixels = light_pixels.tolist()
 
         col, row = self.patches_to_bake[self._patch_index]
-        self.save_bake(light_map, f'tx{col:02d}x{row:02d}')
+        self._post_process_and_save(context, light_map, f'tx{col:02d}x{row:02d}')
 
         self._texture_node_light.image = None
         self._texture_node_water_depth.image = None
@@ -641,7 +677,7 @@ class ObjectBaker(BakerBase):
             self._strip_normal_maps = None
 
         if not canceled:
-            self.save_bake(self._bake_image)
+            self._post_process_and_save(context, self._bake_image)
 
         bpy.data.images.remove(self._bake_image)
         self._bake_image = None
@@ -869,7 +905,7 @@ class ObjectParallelBaker(BakerBase):
                 tile = src_pixels[rect.y:rect.y+h, rect.x:rect.x+w, :]
                 tile_img.pixels = tile.ravel().tolist()
 
-                self.save_bake(tile_img)
+                self._post_process_and_save(context, tile_img)
                 bpy.data.images.remove(tile_img)
 
         bpy.data.images.remove(self._bake_image)

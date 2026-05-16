@@ -15,13 +15,14 @@ from ...core.tools.lightmapping.baking import (
                                ObjectBaker,
                                TerrainBaker,
                                PostProcessor,
+                               make_add_ambient_light,
                                get_default_heightmap_patch_count_and_size,
                                check_gpu)
 
 class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
     bl_idname = "bf2.lm_post_process"
     bl_label = "Post process"
-    bl_description = "Post process baked lightmaps"
+    bl_description = "Run only the post-processing pass on the baked lightmaps"
 
     srcdir: StringProperty (
             name="Source directory",
@@ -53,6 +54,8 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
     @classmethod
     def is_running(cls, context):
         for op in context.window.modal_operators:
+            if op is None:
+                continue
             if op.bl_idname == 'BF2_OT_lm_post_process':
                 return True
         return False
@@ -367,6 +370,12 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         default=True
     ) # type: ignore
 
+    post_process: BoolProperty(
+        name="Post-process",
+        description="Run post-processing pass after each bake",
+        default=True
+    ) # type: ignore
+
     patch_count: IntProperty(
         name="Patch count",
         description="Number of terrain patches, must be a power of four",
@@ -456,6 +465,8 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
 
     def _complete_bake(self, canceled):
         context = bpy.context
+        self.setup_timer(context) # trigger next modal() call
+
         baker = self.active_baker()
         if not baker:
             self.report({"ERROR"}, "No active baker")
@@ -472,8 +483,6 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         if canceled:
             self._unregister_handlers()
             self._baking_cancel = True
-
-        self.setup_timer(context) # trigger next modal() call
 
     def _on_bake_complete_handler(self, *args):
         self._complete_bake(False)
@@ -585,6 +594,11 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
                                  reporter=Reporter(self.report))
             self.bakers.append(baker)
 
+        if self.post_process:
+            post_processor = make_add_ambient_light(context.scene.bf2_lm_ambient_light_level)
+            for baker in self.bakers:
+                baker.post_process_enable(post_processor, context.scene.bf2_lm_post_process_outdir)
+
         if not self.bakers:
             self.report({"INFO"}, f"Nothing to bake")
             return {'CANCELLED'}
@@ -650,9 +664,16 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             col.prop(scene, "bf2_lm_water_attenuation")
             col.active = scene.bf2_lm_bake_terrain
             body.separator(factor=1.0, type='LINE')
-            body.prop(scene, "bf2_lm_resume")
-            row = main.row()
+            body.prop(scene, "bf2_lm_post_process")
+            col = body.column()
+            col.prop(scene, "bf2_lm_post_process_outdir")
+            col.prop(scene, "bf2_lm_ambient_light_level")
+            col.active = scene.bf2_lm_post_process
 
+            body.separator(factor=1.0, type='LINE')
+            body.prop(scene, "bf2_lm_resume")
+
+            row = main.row()
             props = row.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
             props.outdir = scene.bf2_lm_outdir
             props.dds_compression = scene.bf2_lm_dds_compression
@@ -667,11 +688,20 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             props.batch_mode = scene.bf2_lm_batch_mode
             props.atlas_dim = scene.bf2_lm_atlas_dim
             props.water_attenuation = scene.bf2_lm_water_attenuation
+            props.post_process = scene.bf2_lm_post_process
+            row.enabled = props.bake_objects or props.bake_terrain
+
+            if scene.bf2_lm_post_process:
+                if not scene.bf2_lm_post_process_outdir:
+                    col = body.column()
+                    row = col.row()
+                    row.label(text="Post-process output directory not set,", icon='ERROR')
+                    row = col.row()
+                    row.label(text="raw bake results will get overwritten!", icon='BLANK1')
 
             for warn in check_gpu(context):
                 row = main.row()
                 row.label(text=warn, icon='ERROR')
-            row.enabled = props.bake_objects or props.bake_terrain
 
             if VIEW3D_OT_bf2_bake.is_running(context):
                 row = layout.row()
@@ -684,14 +714,13 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                 row = layout.row()
                 row.label(text='Press ESC to cancel', icon='CANCEL')
 
-        header, body = layout.panel("BF2_PT_post_process", default_closed=True)
-        header.label(text="Post-process")
-        if body:
-            body.prop(scene, "bf2_lm_post_process_outdir", text='Output directory')
-            body.prop(scene, "bf2_lm_ambient_light_level")
-            props = body.operator(VIEW3D_OT_bf2_lm_post_process.bl_idname, icon='OUTPUT')
+            row = main.row()
+            props = row.operator(VIEW3D_OT_bf2_lm_post_process.bl_idname, icon='OUTPUT')
             props.srcdir = scene.bf2_lm_outdir
-            props.outdir = scene.bf2_lm_post_process_outdir
+            if scene.bf2_lm_post_process_outdir:
+                props.outdir = scene.bf2_lm_post_process_outdir
+            else:
+                props.outdir = scene.bf2_lm_outdir
             props.dds_compression = scene.bf2_lm_dds_compression
             props.intensity = scene.bf2_lm_ambient_light_level
 
@@ -705,6 +734,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                 row.scale_x = 2
                 row = layout.row()
                 row.label(text='Press ESC to cancel', icon='CANCEL')
+            row.enabled = scene.bf2_lm_post_process
 
 # ---------------------------------------------------
 
@@ -767,7 +797,7 @@ def init(rc : RegisterFactory):
 
     rc.reg_prop(Scene, 'bf2_lm_post_process_outdir',
         StringProperty (
-            name="Output directory for lightmap post-processing",
+            name="Output directory for lightmap post-processing. If not set, bake results will be overwritten",
             subtype="DIR_PATH"
         ) # type: ignore
     )
@@ -856,6 +886,15 @@ def init(rc : RegisterFactory):
             name="Resume",
             description="Resume previously canceled bake by skipping lightmaps which have already been created",
             default=False,
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
+
+    rc.reg_prop(Scene, 'bf2_lm_post_process',
+        BoolProperty(
+            name="Post-process",
+            description="Run post-processing pass after each bake",
+            default=True,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
     )
