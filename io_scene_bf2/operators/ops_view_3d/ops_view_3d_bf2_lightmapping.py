@@ -356,7 +356,7 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     post_process: BoolProperty(
         name="Post-process",
         description="Run post-processing pass after each bake",
-        default=True
+        default=False
     ) # type: ignore
 
     patch_count: IntProperty(
@@ -683,7 +683,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                     row.label(text="raw bake results will get overwritten!", icon='BLANK1')
 
             for warn in check_gpu(context):
-                row = main.row()
+                row = body.row()
                 row.label(text=warn, icon='ERROR')
 
             if VIEW3D_OT_bf2_bake.is_running(context):
@@ -878,7 +878,7 @@ def init(rc : RegisterFactory):
         BoolProperty(
             name="Post-process",
             description="Run post-processing pass after each bake",
-            default=True,
+            default=False,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
     )

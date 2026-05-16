@@ -278,7 +278,7 @@ Default render settings are not that great for baking lightmaps and before you h
 To test your render settings you may bake only a single object first by unchecking *Bake Terrain* and choosing *Only Selected* for objects.
 
 ## Post-processing (Ambient lights)
-After your lightmaps are baked you will notice that some areas like interiors that don't receive much sunlight or skylight are way too dark, so you may want to add some ambient light to the lightmaps. The ambient light is basically a "flat" light uniformly affecting every surface. I couldn't find a good way to implement such lighting in Blender therefore it can only be added to lightmaps post bake. This has a disadvantage of not being able to see it in the render preview but the benefit of rather quickly changing the amount of ambient light later without re-baking.
+After your lightmaps are baked you will notice that some areas like interiors that don't receive much sunlight or skylight are way too dark, so you may want to add some ambient light to the lightmaps. The ambient light is basically a "flat" light uniformly affecting every surface. I couldn't find a good way to implement such lighting in Blender therefore it can only be added to lightmaps post bake. This has a disadvantage of not being able to see it in the render preview but the benefit of rather quickly changing the amount of ambient light later without re-baking. You can have the post-processing pass done after every single bake or postpone it until after baking is fully complete.
 
 # Video Tutorials
 Some of the tutorials might be slightly outdated, always read the documentation first!
