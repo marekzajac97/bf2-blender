@@ -287,16 +287,19 @@ FOURCC_TO_DXGI = {
     'NONE': 'R8G8B8A8_UNORM'
 }
 
-def save_img_as_dds(img, outfile, compression='DXT5'):
+def convert_to_dds(in_file, out_dir, compression):
+    dds_fmt = FOURCC_TO_DXGI[compression]
+    texconv = Texconv()
+    texconv.convert_to_dds(in_file, dds_fmt, out=out_dir, verbose=False)
+
+def save_img_as_dds(img, outfile, compression='DXT5', reload=False):
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_file = os.path.join(tmp_dir, file_name(outfile) + '.tga')
         img.file_format = 'TARGA'
         img.filepath_raw = tmp_file
         img.alpha_mode = 'STRAIGHT'
         img.save(filepath=tmp_file)
-        dds_fmt = FOURCC_TO_DXGI[compression]
-        texconv = Texconv()
-        texconv.convert_to_dds(tmp_file, dds_fmt, out=os.path.dirname(outfile), verbose=False)
+        convert_to_dds(tmp_file, os.path.dirname(outfile), compression)
 
 def file_name(fname):
     return os.path.splitext(os.path.basename(fname))[0]

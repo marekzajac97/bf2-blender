@@ -15,7 +15,6 @@ from ...core.tools.lightmapping.baking import (
                                ObjectBaker,
                                TerrainBaker,
                                PostProcessor,
-                               make_add_ambient_light,
                                get_default_heightmap_patch_count_and_size,
                                check_gpu)
 
@@ -595,9 +594,9 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
             self.bakers.append(baker)
 
         if self.post_process:
-            post_processor = make_add_ambient_light(context.scene.bf2_lm_ambient_light_level)
             for baker in self.bakers:
-                baker.post_process_enable(post_processor, context.scene.bf2_lm_post_process_outdir)
+                baker.post_process_enable(context.scene.bf2_lm_ambient_light_level,
+                                          context.scene.bf2_lm_post_process_outdir)
 
         if not self.bakers:
             self.report({"INFO"}, f"Nothing to bake")

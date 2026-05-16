@@ -2,6 +2,7 @@ import os
 import os.path as path
 import math
 import re
+import tempfile
 import bpy # type: ignore
 from abc import ABC, abstractmethod
 import numpy as np
@@ -9,6 +10,7 @@ import numpy as np
 from .... import rectpack
 from ...mesh import MeshExporter
 from ...utils import (DEFAULT_REPORTER,
+                    convert_to_dds, file_name,
                     save_img_as_dds, find_root,
                     is_pow_two, obj_bounds,
                     strip_geom_lod_prefix as strip_prefix)
@@ -22,8 +24,8 @@ class BakerBase(ABC):
     def __init__(self, output_dir, dds_fmt='NONE'):
         self._output_dir = output_dir
         self._dds_fmt = dds_fmt
-        self._post_processor = None
-        self._post_process_out_dir = None
+        self._pp_ambient_light_level = 0
+        self._pp_out_dir = None
 
     @abstractmethod
     def type(self):
@@ -37,44 +39,44 @@ class BakerBase(ABC):
     def completed_items(self):
         ...
 
-    def post_process_enable(self, post_processor, out_dir=''):
-        self._post_process_out_dir = out_dir
-        self._post_processor = post_processor
+    def post_process_enable(self, ambient_light_level, out_dir=''):
+        self._pp_ambient_light_level = ambient_light_level
+        self._pp_out_dir = out_dir
 
-    def _run_post_process_render(self, context, image, name, output_dir):
-        if not self._post_processor:
-            return
-
-        context.scene.compositing_node_group = self._post_processor
-        with PreserveColorSpaceSettings(context):
-            context.scene.view_settings.view_transform = 'Standard'
-
-            self._post_processor.nodes['SrcImage'].image = image
-            context.scene.render.resolution_x = image.size[0]
-            context.scene.render.resolution_y = image.size[1]
-            context.scene.render.image_settings.file_format = 'TARGA'
-            bpy.ops.render.render()
-
-            # save output
-            render_result = bpy.data.images['Render Result']
-            save_img_as_dds(render_result, os.path.join(output_dir, f'{name}.dds'), self._dds_fmt)
-
-            # cleanup
-            self._post_processor.nodes['SrcImage'].image = None
-            bpy.data.images.remove(render_result)
+    def _post_process(self, image):
+        channels = image.channels
+        w, h = image.size
+        pixels = np.array(image.pixels[:]).reshape((h, w, channels))
+        pixels[:, :, 2] = pixels[:, :, 2] * (1 - self._pp_ambient_light_level) + self._pp_ambient_light_level
+        image.pixels = pixels.ravel().tolist()
+        image.update()
 
     def _post_process_and_save(self, context, image, name=''):
         if not name:
             name = image.name
 
-        if self._post_processor and (not self._post_process_out_dir or
-                                     os.path.normpath(self._post_process_out_dir) == os.path.normpath(self._output_dir)):
+        img_name = f'{name}.dds'
+        if self._pp_out_dir is None:
+            # post processing disabled
+            save_img_as_dds(image, os.path.join(self._output_dir, img_name), self._dds_fmt)
+            return
+
+        if(not self._pp_out_dir or os.path.normpath(self._pp_out_dir) == os.path.normpath(self._output_dir)):
             # override with post processed result
-            self._run_post_process_render(context, image, name, self._output_dir)
+            self._post_process(image)
+            save_img_as_dds(image, os.path.join(self._output_dir, img_name), self._dds_fmt)
         else:
-            # keep both
-            save_img_as_dds(image, path.join(self._output_dir, f'{name}.dds'), self._dds_fmt)
-            self._run_post_process_render(context, image, name, self._post_process_out_dir)
+            # keep both variants
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_file = os.path.join(tmp_dir, f'{name}.tga')
+                image.file_format = 'TARGA'
+                image.filepath_raw = tmp_file
+                image.alpha_mode = 'STRAIGHT'
+                image.save(filepath=tmp_file)
+                convert_to_dds(tmp_file, self._output_dir, self._dds_fmt)
+                self._post_process(image)
+                image.save(filepath=tmp_file)
+                convert_to_dds(tmp_file, self._pp_out_dir, self._dds_fmt)
 
     def bake_next(self, context):
         if not self.prepare_next(context):
@@ -148,111 +150,57 @@ def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
     node_tree.nodes.active = texture_node
     return texture_node
 
-def make_add_ambient_light(ambient_light_level):
-    if 'AddAmbientLight' in bpy.data.node_groups:
-        node_group = bpy.data.node_groups['AddAmbientLight']
-        bpy.data.node_groups.remove(node_group)
-
-    node_tree = bpy.data.node_groups.new(type = 'CompositorNodeTree', name = "AddAmbientLight")
-
-    image = node_tree.nodes.new("CompositorNodeImage")
-    image.name = "SrcImage"
-
-    node_tree.interface.new_socket(name="Image", in_out='OUTPUT', socket_type='NodeSocketColor')
-    group_output = node_tree.nodes.new("NodeGroupOutput")
-    group_output.name = "Group Output"
-    group_output.is_active_output = True
-
-    separate_color = node_tree.nodes.new("CompositorNodeSeparateColor")
-    combine_color = node_tree.nodes.new("CompositorNodeCombineColor")
-
-    srgb_val = math.pow((ambient_light_level + 0.055) / 1.055, 2.4)
-    map_range = node_tree.nodes.new('ShaderNodeMapRange')
-    map_range.inputs['To Min'].default_value = srgb_val
-
-    node_tree.links.new(
-        image.outputs['Image'],
-        separate_color.inputs['Image']
-    )
-    node_tree.links.new(
-        separate_color.outputs['Green'],
-        combine_color.inputs['Green']
-    )
-    node_tree.links.new(
-        separate_color.outputs['Red'],
-        combine_color.inputs['Red']
-    )
-    node_tree.links.new(
-        separate_color.outputs['Blue'],
-        map_range.inputs['Value']
-    )
-    node_tree.links.new(
-        map_range.outputs['Result'],
-        combine_color.inputs['Blue']
-    )
-    node_tree.links.new(
-        combine_color.outputs['Image'],
-        group_output.inputs['Image']
-    )
-
-    return node_tree
-
 class PostProcessor:
     def __init__(self, context, src_dir, out_dir='', ambient_light_intensity=0.5, dds_fmt='NONE'):
-        if 'Render Result' in bpy.data.images:
-            render_result = bpy.data.images['Render Result']
-            bpy.data.images.remove(render_result)
-
         if not out_dir:
             out_dir = src_dir
 
-        self.dds_fmt = dds_fmt
-        self.add_ambient_light = make_add_ambient_light(ambient_light_intensity)
-        context.scene.compositing_node_group = self.add_ambient_light
-        self.out_dir = out_dir
-        self.textures = list()
+        self._dds_fmt = dds_fmt
+        self._blue_color_boost = ambient_light_intensity
+        self._out_dir = out_dir
+        self._textures = list()
         for file in os.listdir(src_dir):
             filepath = path.join(src_dir, file)
             if not path.isfile(filepath):
                 continue
             if not file.endswith(".dds"):
                 continue
-            self.textures.append(filepath)
-        self.total_count = len(self.textures)
+            self._textures.append(filepath)
+        self._total_count = len(self._textures)
 
     def total_items(self):
-        return self.total_count
+        return self._total_count
 
     def completed_items(self):
-        return self.total_count - len(self.textures)
+        return self._total_count - len(self._textures)
 
     def process_next(self, context):
-        if not self.textures:
+        if not self._textures:
             return False
 
-        filepath = self.textures.pop(0)
+        filepath = self._textures.pop(0)
 
-        with PreserveColorSpaceSettings(context):
+        image = bpy.data.images.load(filepath, check_existing=False)
+        image.alpha_mode = 'NONE'
+
+        w, h = image.size
+        channels = image.channels
+        pixels = np.array(image.pixels[:]).reshape((h, w, channels))
+        pixels[:, :, 2] = pixels[:, :, 2] * (1 - self._blue_color_boost) + self._blue_color_boost
+        image.pixels = pixels.ravel().tolist()
+        image.update()
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_file = os.path.join(tmp_dir, file_name(filepath) + '.tga')
             context.scene.view_settings.view_transform = 'Standard'
-
-            image = bpy.data.images.load(filepath, check_existing=False)
-            image.alpha_mode = 'NONE'
-
-            self.add_ambient_light.nodes['SrcImage'].image = image
             context.scene.render.resolution_x = image.size[0]
             context.scene.render.resolution_y = image.size[1]
+            context.scene.render.image_settings.color_mode = 'RGB'
             context.scene.render.image_settings.file_format = 'TARGA'
-            bpy.ops.render.render()
+            image.save_render(tmp_file, scene=context.scene)
+            convert_to_dds(tmp_file, self._out_dir, self._dds_fmt)
 
-            # save output
-            render_result = bpy.data.images['Render Result']
-            save_img_as_dds(render_result, path.join(self.out_dir, path.basename(filepath)), self.dds_fmt)
-
-            # cleanup
-            self.add_ambient_light.nodes['SrcImage'].image = None
-            bpy.data.images.remove(image)
-            bpy.data.images.remove(render_result)
-        
+        bpy.data.images.remove(image)
         return True
 
     def process_all(self, context):
