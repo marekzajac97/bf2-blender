@@ -712,11 +712,7 @@ def load_level(context, level_dir, use_cache=True,
     lm_keys = set()
     geom_template_to_mesh : Dict[str, GeometryTemplateConfig] = dict() # differen ObjectTemplates may use same GeometryTemplate
 
-    current = 0
-    total_count = len(templates)
     for template_name, temp_cfg in templates.items():
-        print(f'importing {template_name} ({current}/{total_count})')
-
         geom_temp = temp_cfg.geom
         if not geom_temp:
             continue # skip, just for point lights

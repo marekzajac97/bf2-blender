@@ -258,8 +258,8 @@ The add-on also ships with the OG LOD generation tool which can create a low qua
 This is a short guide on how to bake lightmaps using Blender Cycles rendering engine. Given my lack of knowledge in this area the feature is still in experimental state and largely untested. You may require some manual tinkering to get decent results. The lightmapping tools are accessible from the [Sidebar](https://docs.blender.org/manual/en/latest/interface/window_system/regions.html#sidebar) (`BF2` tab).
 ## Setting up the scene
 The first (optional) step is to prepare a configuration file. This defines how to load and post-process assets for lightmapping, but most importantly it contains the list of objects that should emit light. Click on the `+` icon to create a new config template and follow the descriptions of fields provided in comments, add what you need and remember to save it afterwards! When your config file is ready, make sure that your map files are unpacked and proceed with importing them using the `Load level` button, be patient as it may take a few minutes. If loading succeeds, you should see these four collections being created:
-- **StaticObjects**: contains all the objects that should receive lightmaps
-- **StaticObjects_SkipLightmaps**: contains all the objects that aren't StaticMeshes or have `GeometryTemplate.dontGenerateLightmaps 1`
+- **StaticObjects**: contains objects that should receive lightmaps. Only Geom0 will get imported since destroyable objects can't be lighmapped properly. Only LOD0 will be visible in the viewport, other LODs should remain hidden.
+- **StaticObjects_SkipLightmaps**: contains objects that should not receive lightmaps (only used fo shadow casting). Those are non-StaticMeshes, overgrowth, objects that don't have lightmap UV or have `GeometryTemplate.dontGenerateLightmaps` set. By default those objects will use simplified hierarchy (only LOD0) to improve performance and import times.
 - **Lights**: contains all the point lights as well as the *Sun*
 - **Heightmaps**: contains just the primary heightmap. The heightmap will have a modifier applied which flattens all the vertices below the water level so that terrain shadows are casted on the water surface.
 
@@ -270,7 +270,7 @@ If you find it necessary:
 - adjust the intensity of the *Sun* light, its color should be green. Tweak the intensity of the sky light (in Blender called [World](https://docs.blender.org/manual/en/latest/render/lights/world.html) background) its color should be blue. Verify your point light placement and parameters (intensity, radius etc.), their color should be red (unless you need them to appear on the terrain).
 
 ## Tweaking render settings
-Default render settings are not that great for baking lightmaps and before you hit *Bake* you may have to make some changes:
+Default render settings are not that great for baking lightmaps and before you hit *Bake* you may have to make some adjustments:
 - Most importantly, make sure that you have configured [GPU Rendering](https://docs.blender.org/manual/en/latest/render/cycles/gpu_rendering.html). By default Blender uses CPU rendering which is a lot slower. Remember to also toggle *Use GPU* in *Denoiser* settings.
 - Adjust [Sampling](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html) settings: To achieve decent quality lightmaps you'll need to set the *Max Samples* to at least 8192 and the *Noise Threshold* to 0.001 or less.
 - When using many point lights disable the *Light Tree* found under [Lights](https://docs.blender.org/manual/en/latest/render/cycles/render_settings/sampling.html#lights) and use *Light Threshold* instead (from my experience this makes point lights bake a lot faster)
