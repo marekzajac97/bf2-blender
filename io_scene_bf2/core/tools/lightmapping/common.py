@@ -1,3 +1,5 @@
+import re
+import os
 
 def unplug_socket_from(material, socket_name, node_type='BSDF_PRINCIPLED'):
     if not material.is_bf2_material:

@@ -1,7 +1,6 @@
 import os
 import os.path as path
 import math
-import re
 import tempfile
 import bpy # type: ignore
 from abc import ABC, abstractmethod
@@ -207,7 +206,7 @@ class PostProcessor:
         while self.process_next(context):
             pass
 
-def get_all_lightmap_files(dir, pattern):
+def _get_all_lightmap_files(dir, pattern):
     files = set()
     for file in os.listdir(dir):
         if not file.endswith(".dds"):
@@ -216,6 +215,12 @@ def get_all_lightmap_files(dir, pattern):
             continue
         files.add(file[:-4])
     return files
+
+def get_object_lightmaps(dir):
+    return _get_all_lightmap_files(dir, r'.*=\d{2}=-?\d+=-?\d+=-?\d+')
+
+def get_terrain_lightmaps(dir):
+    return _get_all_lightmap_files(dir, r'tx\d{2}x\d{2}')
 
 class PreserveColorSpaceSettings():
     def __init__(self, context):
@@ -302,7 +307,7 @@ class TerrainBaker(BakerBase):
 
         self.patches_to_bake = list()
         if skip_existing:
-            existing_patches = get_all_lightmap_files(output_dir, r'tx\d{2}x\d{2}')
+            existing_patches = get_terrain_lightmaps(output_dir)
             for col in range(grid_size):
                 for row in range(grid_size):
                     name = f'tx{col:02d}x{row:02d}'
@@ -516,7 +521,7 @@ class ObjectBaker(BakerBase):
 
         self._existing_lods = set()
         if skip_existing:
-            self._existing_lods = get_all_lightmap_files(output_dir, r'.*=\d{2}=-?\d+=-?\d+=-?\d+')
+            self._existing_lods = get_object_lightmaps(output_dir)
 
         if only_selected:
             for obj in context.selected_objects:
@@ -656,7 +661,7 @@ class ObjectParallelBaker(BakerBase):
 
         existing_lods = set()
         if skip_existing:
-            existing_lods = get_all_lightmap_files(output_dir, r'.*=\d{2}=-?\d+=-?\d+=-?\d+')
+            existing_lods = get_object_lightmaps(output_dir)
 
         objects = list()
         if only_selected:

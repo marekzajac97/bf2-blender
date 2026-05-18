@@ -17,6 +17,7 @@ from ...core.tools.lightmapping.baking import (
                                PostProcessor,
                                get_default_heightmap_patch_count_and_size,
                                check_gpu)
+from ...core.tools.lightmapping.packing import pack_lightmaps
 
 class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
     bl_idname = "bf2.lm_post_process"
@@ -121,6 +122,56 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         return {'RUNNING_MODAL'}
 
+class VIEW3D_OT_bf2_lm_pack_lightmaps(bpy.types.Operator):
+    bl_idname = "bf2.lm_pack_lightmaps"
+    bl_label = "Pack Lightmaps"
+    bl_description = "Pack individual lightmap DDS files into texture atlases"
+
+    indir: StringProperty (
+            name="Input directory",
+            subtype="DIR_PATH"
+        ) # type: ignore
+
+    outdir: StringProperty (
+            name="Output directory",
+            subtype="DIR_PATH"
+        ) # type: ignore
+
+    dds_compression : EnumProperty(
+        name="DDS compression",
+        default=1,
+        items=[
+            ('DXT1', "DXT1", "", 0),
+            ('NONE', "NONE", "", 1)
+        ]
+    ) # type: ignore
+
+    atlas_dim: IntProperty(
+        name="Atlas size",
+        description="Width and height of each output atlas",
+        default=2048,
+        min=512,
+        max=8192,
+        subtype='PIXEL'
+    ) # type: ignore
+
+    level_name: StringProperty (
+        name="Level name",
+        description="Name of the level to include in the generated LightmapAtlas.tai"
+    ) # type: ignore
+
+    def execute(self, context):
+        if not os.path.isdir(self.indir):
+            self.report({"ERROR"}, f"Input directory '{self.indir}' is NOT a directory!")
+            return {'CANCELLED'}
+        if not os.path.isdir(self.outdir):
+            self.report({"ERROR"}, f"Output directory '{self.outdir}' is NOT a directory!")
+            return {'CANCELLED'}
+
+        pack_lightmaps(os.path.join(self.indir, 'objects'), self.outdir, context.scene.bf2_lm_level_name, self.dds_compression, (self.atlas_dim, self.atlas_dim))
+        self.report({"INFO"}, "Lightmap packing finished")
+        return {'FINISHED'}
+
 class VIEW3D_OT_bf2_new_lm_config(bpy.types.Operator):
     bl_idname = "bf2.new_lm_config"
     bl_label = "Add lightmapping config"
@@ -213,10 +264,11 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
 
         filepath = self.filepath.rstrip('/').rstrip('\\')
 
+        level_path = None
         mod_dirs = get_mod_dirs(context)
         for mod_path in mod_dirs:
             try:
-                Path(self.filepath).relative_to(mod_path).as_posix().lower()
+                level_path = Path(self.filepath).relative_to(mod_path).as_posix().lower()
                 break
             except ValueError:
                 mod_path = ''
@@ -245,6 +297,8 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
             if terrain_cfg := get_default_heightmap_patch_count_and_size(context):
                 context.scene.bf2_lm_patch_count = terrain_cfg[0]
                 context.scene.bf2_lm_patch_size = terrain_cfg[1]
+
+            context.scene.bf2_lm_level_path = level_path
 
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
@@ -719,10 +773,27 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                 row.label(text='Press ESC to cancel', icon='CANCEL')
             row.enabled = scene.bf2_lm_post_process
 
+        header, body = main.panel("BF2_PT_pack_lightmaps", default_closed=True)
+        header.label(text="Pack Lightmaps")
+        if body:
+            body.prop(scene, "bf2_lm_pack_outdir")
+            body.prop(scene, "bf2_lm_pack_atlas_size")
+            row = main.row()
+            props = row.operator(VIEW3D_OT_bf2_lm_pack_lightmaps.bl_idname, icon='PACKAGE')
+            props.indir = scene.bf2_lm_outdir
+            if scene.bf2_lm_pack_outdir:
+                props.outdir = scene.bf2_lm_pack_outdir
+            else:
+                props.outdir = scene.bf2_lm_outdir
+            props.dds_compression = scene.bf2_lm_dds_compression
+            props.atlas_dim = scene.bf2_lm_pack_atlas_size
+            row.enabled = scene.bf2_lm_outdir != ''
+
 # ---------------------------------------------------
 
 def init(rc : RegisterFactory):
     rc.reg_class(VIEW3D_OT_bf2_lm_post_process)
+    rc.reg_class(VIEW3D_OT_bf2_lm_pack_lightmaps)
     rc.reg_class(VIEW3D_OT_bf2_new_lm_config)
     rc.reg_class(VIEW3D_OT_bf2_load_level)
     rc.reg_class(VIEW3D_OT_bf2_bake)
@@ -903,6 +974,30 @@ def init(rc : RegisterFactory):
             default=False,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
+    )
+
+    rc.reg_prop(Scene, 'bf2_lm_pack_outdir',
+        StringProperty (
+            name="Pack output directory",
+            description="Output directory for packed atlases. If not set, the bake output directory will be used",
+            subtype="DIR_PATH"
+        ) # type: ignore
+    )
+
+    rc.reg_prop(Scene, 'bf2_lm_pack_atlas_size',
+        IntProperty(
+            name="Atlas size",
+            description="Width and height of each output atlas",
+            default=2048,
+            min=512,
+            max=8192,
+            subtype='PIXEL',
+            options=set()  # Remove ANIMATABLE default option.
+        ) # type: ignore
+    )
+
+    rc.reg_prop(Scene, 'bf2_lm_level_name',
+        StringProperty ()
     )
 
     rc.reg_class(VIEW3D_PT_bf2_lightmapping_Panel)
