@@ -277,6 +277,53 @@ def prev_power_of_2(n):
         n &= (n - 1)
     return n
 
+def set_power_of_two_int(prop_name):
+    def _set_func(self, val):
+        prev_val = getattr(self, prop_name)
+        prop = self.bl_rna.properties[prop_name]
+        if val > prev_val:
+            val = next_power_of_2(val)
+        else:
+            val = prev_power_of_2(val)
+        val = max(prop.hard_min, val)
+        val = min(prop.hard_max, val)
+        self[prop_name] = val
+    return _set_func
+
+def get_power_of_two_int(prop_name):
+    def _get_func(self):
+        prop = self.bl_rna.properties[prop_name]
+        return self.get(prop_name, prop.default)
+    return _get_func
+
+def set_power_of_two_int_array(prop_name, link_prop=None):
+    def _set_func(self, value):
+        prop = self.bl_rna.properties[prop_name]
+        link_value = False if link_prop is None else getattr(self, link_prop)
+        prev_val = tuple(getattr(self, prop_name))
+        val = list(value)
+        for i in range(prop.array_length):
+            link = False
+            if val[i] != prev_val[i]:
+                link = link_value
+            if val[i] > prev_val[i]:
+                val[i] = next_power_of_2(val[i])
+            else:
+                val[i] = prev_power_of_2(val[i])
+            val[i] = max(prop.hard_min, val[i])
+            val[i] = min(prop.hard_max, val[i])
+            if link:
+                for j in range(prop.array_length):
+                    val[j] = val[i]
+        self[prop_name] = val
+    return _set_func
+
+def get_power_of_two_int_array(prop_name):
+    def _get_func(self):
+        prop = self.bl_rna.properties[prop_name]
+        return self.get(prop_name, prop.default_array)
+    return _get_func 
+
 def is_pow_two(n):
     return (n & (n-1) == 0) and n != 0
 

@@ -150,22 +150,20 @@ def _setup_material_for_baking(material, bake_image=None, uv='UV4'):
     return texture_node
 
 class PostProcessor:
-    def __init__(self, context, src_dir, out_dir='', ambient_light_intensity=0.5, dds_fmt='NONE'):
-        if not out_dir:
-            out_dir = src_dir
-
+    def __init__(self, src_dirs, out_dir, ambient_light_intensity=0.5, dds_fmt='NONE'):
         self._dds_fmt = dds_fmt
         self._blue_color_boost = ambient_light_intensity
         self._out_dir = out_dir
         self._textures = list()
-        for file in os.listdir(src_dir):
-            filepath = path.join(src_dir, file)
-            if not path.isfile(filepath):
-                continue
-            if not file.endswith(".dds"):
-                continue
-            self._textures.append(filepath)
-        self._total_count = len(self._textures)
+        for src_dir in src_dirs:
+            for file in os.listdir(src_dir):
+                filepath = path.join(src_dir, file)
+                if not path.isfile(filepath):
+                    continue
+                if not file.endswith(".dds"):
+                    continue
+                self._textures.append(filepath)
+            self._total_count = len(self._textures)
 
     def total_items(self):
         return self._total_count

@@ -11,7 +11,8 @@ from ..ops_prefs import get_mod_dirs
 
 from ...core.utils import Reporter
 from ...core.utils import (find_root, save_img_as_dds,
-                           next_power_of_2, prev_power_of_2,
+                           set_power_of_two_int_array,
+                           get_power_of_two_int_array,
                            matrix_to_yaw_pitch_roll, swap_zy,
                            strip_geom_lod_prefix,
                            strip_numeric_suffix)
@@ -19,36 +20,6 @@ from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVI
 from ...core.tools.og_lod_generator import generate_og_lod
 from ...core.tools.fence_generator import make_objects_on_curve
 from ...core.material import setup_material
-
-LOD_TEXTURE_MAX_SIZE = 2048
-LOD_TEXTURE_MIN_SIZE = 16
-
-def set_txt_size(self, value, index):
-    prev_val = getattr(self, f'plane_{index}_txt_size')
-    val = list(value)
-    for i in range(2):
-        if val[i] > prev_val[i]:
-            val[i] = next_power_of_2(val[i])
-        else:
-            val[i] = prev_power_of_2(val[i])
-        val[i] = max(LOD_TEXTURE_MIN_SIZE, val[i])
-        val[i] = min(LOD_TEXTURE_MAX_SIZE, val[i])
-    self[f'plane_{index}_txt_size'] = val
-
-def get_txt_size(self, index):
-    def_val = tuple(self.bl_rna.properties[f'plane_{index}_txt_size'].default_array)
-    return self.get(f'plane_{index}_txt_size', def_val)
-
-# for some reason lambdas in get/set crash Blender.. so have to do it this way
-def make_txt_size_setter(index):
-    def fun(self, value):
-        set_txt_size(self, value, index)
-    return fun
-
-def make_txt_size_getter(index):
-    def fun(self):
-        return get_txt_size(self, index)
-    return fun
 
 class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
     bl_idname = "bf2.gen_og_lod"
@@ -126,24 +97,30 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
         name="Front/Back plane texture size",
         default=(256, 256),
         size=2,
-        set=make_txt_size_setter(0),
-        get=make_txt_size_getter(0)
+        min=16,
+        max=2048,
+        set=set_power_of_two_int_array('plane_0_txt_size'),
+        get=get_power_of_two_int_array('plane_0_txt_size')
     ) # type: ignore
 
     plane_1_txt_size: IntVectorProperty(
         name="Left/Right plane texture size",
         default=(256, 256),
         size=2,
-        set=make_txt_size_setter(1),
-        get=make_txt_size_getter(1)
+        min=16,
+        max=2048,
+        set=set_power_of_two_int_array('plane_1_txt_size'),
+        get=get_power_of_two_int_array('plane_1_txt_size')
     ) # type: ignore
 
     plane_2_txt_size: IntVectorProperty(
         name="Top/Bottom plane texture size",
         default=(256, 256),
         size=2,
-        set=make_txt_size_setter(2),
-        get=make_txt_size_getter(2)
+        min=16,
+        max=2048,
+        set=set_power_of_two_int_array('plane_2_txt_size'),
+        get=get_power_of_two_int_array('plane_2_txt_size')
     ) # type: ignore
 
     def draw(self, context):

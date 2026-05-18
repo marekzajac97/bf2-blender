@@ -6,7 +6,7 @@ from bpy.props import (StringProperty, EnumProperty, BoolProperty, # type: ignor
                        IntProperty, IntVectorProperty, CollectionProperty,
                        PointerProperty, FloatProperty, FloatVectorProperty)
 from ..core.bf2.bf2_engine import BF2_OBJECT_TEMPLATE_TYPES
-from ..core.utils import next_power_of_2, prev_power_of_2, find_root, show_error
+from ..core.utils import set_power_of_two_int_array, get_power_of_two_int_array, find_root, show_error
 from ..core.object_template import parse_geom_type_safe
 from .utils import RegisterFactory
 
@@ -21,26 +21,6 @@ def on_bf2_obj_type_enum_update(self, context):
 def on_bf2_obj_type_manual_mode_update(self, context):
     if not self.bf2_object_type_manual_mode:
         self.bf2_object_type = self.bf2_object_type_enum
-
-def set_lm_size(self, value):
-    prev_val = tuple(self.bf2_lightmap_size)
-    val = list(value)
-    for i in range(2):
-        link = False
-        if val[i] != prev_val[i]:
-            link = self.bf2_link_lightmap_size
-        if val[i] > prev_val[i]:
-            val[i] = next_power_of_2(val[i])
-        else:
-            val[i] = prev_power_of_2(val[i])
-        val[i] = max(LIGHTMAP_MIN_SIZE, val[i])
-        val[i] = min(LIGHTMAP_MAX_SIZE, val[i])
-        if link:
-            val[0] = val[1] = val[i]
-    self['bf2_lightmap_size'] = val
-
-def get_lm_size(self):
-    return self.get('bf2_lightmap_size', [0, 0]) 
 
 class OBJECT_PT_bf2_object(bpy.types.Panel):
     bl_label = "Battlefield 2"
@@ -323,8 +303,10 @@ def init(rc : RegisterFactory):
             description="Lightmap bitmap dimensions for baking & samples generation, the value is relevant only for StaticMesh Lod objects (Geom's immediate child)",
             default=(0, 0),
             size=2,
-            set=set_lm_size,
-            get=get_lm_size
+            min=8,
+            max=4096,
+            set=set_power_of_two_int_array('bf2_lightmap_size', link_prop='bf2_link_lightmap_size'),
+            get=get_power_of_two_int_array('bf2_lightmap_size')
         ) # type: ignore
     )
 

@@ -8,7 +8,7 @@ from bpy_extras.io_utils import ImportHelper # type: ignore
 
 from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
-from ...core.utils import Reporter, next_power_of_2, prev_power_of_2
+from ...core.utils import Reporter, set_power_of_two_int, get_power_of_two_int
 from ...core.tools.lightmapping.scene import load_level, LIGHTMAPPING_CONFIG_TEMPLATE
 from ...core.tools.lightmapping.baking import (
                                ObjectParallelBaker,
@@ -19,37 +19,15 @@ from ...core.tools.lightmapping.baking import (
                                check_gpu)
 from ...core.tools.lightmapping.packing import pack_lightmaps
 
+def objects_subdir(directory, mkdir=True):
+    if mkdir:
+        os.makedirs(objects_subdir, exist_ok=True)
+    return os.path.join(directory, 'objects')
+
 class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
     bl_idname = "bf2.lm_post_process"
     bl_label = "Post process"
     bl_description = "Run only the post-processing pass on the baked lightmaps"
-
-    srcdir: StringProperty (
-            name="Source directory",
-            subtype="DIR_PATH"
-        ) # type: ignore
-
-    outdir: StringProperty (
-            name="Output directory",
-            subtype="DIR_PATH"
-        ) # type: ignore
-
-    dds_compression : EnumProperty(
-        name="DDS compression",
-        default=1,
-        items=[
-            ('DXT1', "DXT1", "", 0),
-            ('NONE', "NONE", "", 1)
-        ]
-    ) # type: ignore
-
-    intensity: FloatProperty(
-        name="Intensity",
-        description="Intensity of the ambient light",
-        min=0.0,
-        max=1.0,
-        default=0.663
-    ) # type: ignore
 
     @classmethod
     def is_running(cls, context):
@@ -106,16 +84,18 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
     def execute(self, context):
         if VIEW3D_OT_bf2_bake.is_running(context):
             self.report({"ERROR"}, f"Bake is running")
-        if not os.path.isdir(self.srcdir):
-            self.report({"ERROR"}, f"Choosen src path '{self.srcdir}' is NOT a directory!")
+        srcdir = context.scene.bf2_lm_outdir
+        outdir = context.scene.bf2_lm_post_process_outdir or context.scene.bf2_lm_outdir
+        if not os.path.isdir(srcdir):
+            self.report({"ERROR"}, f"Chosen src path '{srcdir}' is NOT a directory!")
             return {'CANCELLED'}
-        if not os.path.isdir(self.outdir):
-            self.report({"ERROR"}, f"Choosen out path '{self.outdir}' is NOT a directory!")
+        if not os.path.isdir(outdir):
+            self.report({"ERROR"}, f"Chosen out path '{outdir}' is NOT a directory!")
             return {'CANCELLED'}
-        
-        self.processor = PostProcessor(context, self.srcdir, self.outdir,
-                                       ambient_light_intensity=self.intensity,
-                                       dds_fmt=self.dds_compression)
+
+        self.processor = PostProcessor([srcdir, objects_subdir(srcdir, mkdir=False)], outdir,
+                                       ambient_light_intensity=context.scene.bf2_lm_ambient_light_level,
+                                       dds_fmt=context.scene.bf2_lm_dds_compression)
 
         self.update_progress(context)
         self.setup_timer(context)
@@ -125,50 +105,28 @@ class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
 class VIEW3D_OT_bf2_lm_pack_lightmaps(bpy.types.Operator):
     bl_idname = "bf2.lm_pack_lightmaps"
     bl_label = "Pack Lightmaps"
-    bl_description = "Pack individual lightmap DDS files into texture atlases"
-
-    indir: StringProperty (
-            name="Input directory",
-            subtype="DIR_PATH"
-        ) # type: ignore
-
-    outdir: StringProperty (
-            name="Output directory",
-            subtype="DIR_PATH"
-        ) # type: ignore
-
-    dds_compression : EnumProperty(
-        name="DDS compression",
-        default=1,
-        items=[
-            ('DXT1', "DXT1", "", 0),
-            ('NONE', "NONE", "", 1)
-        ]
-    ) # type: ignore
-
-    atlas_dim: IntProperty(
-        name="Atlas size",
-        description="Width and height of each output atlas",
-        default=2048,
-        min=512,
-        max=8192,
-        subtype='PIXEL'
-    ) # type: ignore
-
-    level_name: StringProperty (
-        name="Level name",
-        description="Name of the level to include in the generated LightmapAtlas.tai"
-    ) # type: ignore
+    bl_description = "Pack individual lightmap DDS files into texture atlases and generate LightmapAtlas.tai"
 
     def execute(self, context):
-        if not os.path.isdir(self.indir):
-            self.report({"ERROR"}, f"Input directory '{self.indir}' is NOT a directory!")
+        if context.scene.bf2_lm_post_process_outdir:
+            indir = objects_subdir(context.scene.bf2_lm_post_process_outdir, mkdir=False)
+        else:
+            self.report({"INFO"}, f"Post-process output directory is undefined, using bake output directory as input")
+            indir = objects_subdir(context.scene.bf2_lm_outdir, mkdir=False)
+
+        outdir = context.scene.bf2_lm_pack_outdir or context.scene.bf2_lm_outdir
+        if not os.path.isdir(indir):
+            self.report({"ERROR"}, f"Input directory '{indir}' is NOT a directory!")
             return {'CANCELLED'}
-        if not os.path.isdir(self.outdir):
-            self.report({"ERROR"}, f"Output directory '{self.outdir}' is NOT a directory!")
+        if not os.path.isdir(outdir):
+            self.report({"ERROR"}, f"Output directory '{outdir}' is NOT a directory!")
             return {'CANCELLED'}
 
-        pack_lightmaps(os.path.join(self.indir, 'objects'), self.outdir, context.scene.bf2_lm_level_name, self.dds_compression, (self.atlas_dim, self.atlas_dim))
+        atlas_size = context.scene.bf2_lm_pack_atlas_size
+        pack_lightmaps(indir, outdir,
+                       context.scene.bf2_lm_level_path,
+                       context.scene.bf2_lm_dds_compression,
+                       (atlas_size, atlas_size))
         self.report({"INFO"}, "Lightmap packing finished")
         return {'FINISHED'}
 
@@ -264,7 +222,7 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
 
         filepath = self.filepath.rstrip('/').rstrip('\\')
 
-        level_path = None
+        level_path = None # relative path!
         mod_dirs = get_mod_dirs(context)
         for mod_path in mod_dirs:
             try:
@@ -307,22 +265,6 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
     def invoke(self, context, event):
         return super().invoke(context, event)
 
-TERRAIN_MAX_SIZE = 4096
-TERRAIN_MIN_SIZE = 16
-
-def set_patch_size(self, val):
-    prev_val = self.bf2_lm_patch_size
-    if val > prev_val:
-        val = next_power_of_2(val)
-    else:
-        val = prev_power_of_2(val)
-    val = max(TERRAIN_MIN_SIZE, val)
-    val = min(TERRAIN_MAX_SIZE, val)
-    self['bf2_lm_patch_size'] = val
-
-def get_patch_size(self):
-    def_val = self.bl_rna.properties['bf2_lm_patch_size'].default
-    return self.get('bf2_lm_patch_size', def_val) 
 
 def set_patch_count(self, val):
     prev_val = self.bf2_lm_patch_count
@@ -342,104 +284,6 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
     bl_idname = "bf2.lightmap_bake"
     bl_label = "Bake"
     bl_description = "Bake lighting to texture"
-
-    outdir: StringProperty (
-            name="Output directory",
-            subtype="DIR_PATH"
-        ) # type: ignore
-
-    dds_compression : EnumProperty(
-        name="DDS compression",
-        default=1,
-        items=[
-            ('DXT1', "DXT1", "", 0),
-            ('NONE', "NONE", "", 1)
-        ]
-    ) # type: ignore
-
-    bake_objects_mode : EnumProperty(
-        name="Objects",
-        default=0,
-        items=[
-            ('ALL', "All", "Bake will run for every object in the StaticObjects collection", 0),
-            ('ONLY_SELECTED', "Only Selected", "Bake will run only for the selected objects", 1)
-        ]
-    ) # type: ignore
-
-    normal_maps: BoolProperty(
-        name="Use Normal Maps",
-        description="Bakes lightmaps with normal map details/shadows. Disabling this usually results in less noisy lightmaps",
-        default=False
-    ) # type: ignore
-
-    max_lod: IntProperty(
-        name="Max LOD",
-        description="Skips baking lightmaps for lower detail LODs",
-        default=6,
-        min=0,
-        max=6
-    ) # type: ignore
-
-    atlas_dim: IntProperty(
-        name="Atlas size",
-        description="Atlas dimensions (width and height) to use for baking a single batch. A bigger atlas will use more GPU memory but can fit more objects in a single batch.",
-        default=2048,
-        min=0,
-        max=8192
-    ) # type: ignore
-
-    batch_mode: BoolProperty(
-        name="Use Atlas",
-        description="Bake objects in batches on a texture atlas. This should better utilize GPU when baking a lot of small objects thus cutting down the rendering time (use only if you have a capable hardware)\n\n"
-                    "NOTE: The margin (from the Bake settings) will be used to prevent bleeding from one object to another, keep this in mind when choosing the atlas size",
-        default=False
-    ) # type: ignore
-
-    bake_objects: BoolProperty(
-        name="Bake Objects",
-        description="Bake lightmaps for static objects",
-        default=True
-    ) # type: ignore
-
-    bake_terrain: BoolProperty(
-        name="Bake Terrain",
-        description="Bake lightmaps for terrain",
-        default=True
-    ) # type: ignore
-
-    post_process: BoolProperty(
-        name="Post-process",
-        description="Run post-processing pass after each bake",
-        default=False
-    ) # type: ignore
-
-    patch_count: IntProperty(
-        name="Patch count",
-        description="Number of terrain patches, must be a power of four",
-        default=64,
-        min=4,
-        max=64
-    ) # type: ignore
-
-    patch_size: IntProperty(
-        name="Patch size",
-        description="Texture size of a single terrain patch",
-        default=1024
-    ) # type: ignore
-
-    water_attenuation: FloatProperty(
-        name="Water attenuation",
-        description="Water light attenuation coefficient. Higher values make the water more opaque with increasing depth",
-        default=0.15,
-        min=0.0,
-        max=1.0
-    ) # type: ignore
-
-    resume: BoolProperty(
-        name="Resume",
-        description="Resume previously canceled bake by skipping lightmaps which have already been created",
-        default=False
-    ) # type: ignore
 
     non_blocking: BoolProperty(
         name="Non-Blocking",
@@ -596,43 +440,42 @@ class VIEW3D_OT_bf2_bake(bpy.types.Operator):
         if VIEW3D_OT_bf2_lm_post_process.is_running(context):
             self.report({"ERROR"}, f"Post-processor is running")
             return {'CANCELLED'}
-        if not os.path.isdir(self.outdir):
-            self.report({"ERROR"}, f"Chosen out path '{self.outdir}' is NOT a directory!")
+        if not os.path.isdir(context.scene.bf2_lm_outdir):
+            self.report({"ERROR"}, f"Chosen out path '{context.scene.bf2_lm_outdir}' is NOT a directory!")
             return {'CANCELLED'}
 
         obj_kwargs = dict(
-            dds_fmt=self.dds_compression,
-            only_selected=self.bake_objects_mode == 'ONLY_SELECTED',
-            normal_maps=self.normal_maps,
-            skip_existing=self.resume,
-            max_lod=self.max_lod,
+            dds_fmt=context.scene.bf2_lm_dds_compression,
+            only_selected=context.scene.bf2_lm_bake_objects_mode == 'ONLY_SELECTED',
+            normal_maps=context.scene.bf2_lm_normal_maps,
+            skip_existing=context.scene.bf2_lm_resume,
+            max_lod=context.scene.bf2_lm_max_lod,
             reporter=Reporter(self.report)
         )
 
         self.bakers = list()
-        if self.bake_objects:
-            if self.batch_mode:
-                obj_kwargs['atlas_size'] = (self.atlas_dim, self.atlas_dim)
+        if context.scene.bf2_lm_bake_objects:
+            if context.scene.bf2_lm_batch_mode:
+                obj_kwargs['atlas_size'] = (context.scene.bf2_lm_atlas_dim, context.scene.bf2_lm_atlas_dim)
                 obj_baker_cls = ObjectParallelBaker
             else:
                 obj_baker_cls = ObjectBaker
 
-            objects_subdir = os.path.join(self.outdir, 'objects')
-            os.makedirs(objects_subdir, exist_ok=True)
-            baker = obj_baker_cls(context, objects_subdir, **obj_kwargs)
+            baker = obj_baker_cls(context, objects_subdir(context.scene.bf2_lm_outdir), **obj_kwargs)
             self.bakers.append(baker)
-        if self.bake_terrain:
-            baker = TerrainBaker(context, self.outdir,
-                                 dds_fmt=self.dds_compression,
-                                 patch_count=self.patch_count,
-                                 patch_size=self.patch_size,
-                                 skip_existing=self.resume,
-                                 water_attenuation=self.water_attenuation,
+            if context.scene.bf2_lm_post_process:
+                baker.post_process_enable(context.scene.bf2_lm_ambient_light_level,
+                                          objects_subdir(context.scene.bf2_lm_post_process_outdir))
+        if context.scene.bf2_lm_bake_terrain:
+            baker = TerrainBaker(context, context.scene.bf2_lm_outdir,
+                                 dds_fmt=context.scene.bf2_lm_dds_compression,
+                                 patch_count=context.scene.bf2_lm_patch_count,
+                                 patch_size=context.scene.bf2_lm_patch_size,
+                                 skip_existing=context.scene.bf2_lm_resume,
+                                 water_attenuation=context.scene.bf2_lm_water_attenuation,
                                  reporter=Reporter(self.report))
             self.bakers.append(baker)
-
-        if self.post_process:
-            for baker in self.bakers:
+            if context.scene.bf2_lm_post_process:
                 baker.post_process_enable(context.scene.bf2_lm_ambient_light_level,
                                           context.scene.bf2_lm_post_process_outdir)
 
@@ -711,22 +554,8 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             body.prop(scene, "bf2_lm_resume")
 
             row = main.row()
-            props = row.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
-            props.outdir = scene.bf2_lm_outdir
-            props.dds_compression = scene.bf2_lm_dds_compression
-            props.bake_objects = scene.bf2_lm_bake_objects
-            props.bake_objects_mode = scene.bf2_lm_bake_objects_mode
-            props.bake_terrain = scene.bf2_lm_bake_terrain
-            props.patch_count = scene.bf2_lm_patch_count
-            props.patch_size = scene.bf2_lm_patch_size
-            props.normal_maps = scene.bf2_lm_normal_maps
-            props.max_lod = scene.bf2_lm_max_lod
-            props.resume = scene.bf2_lm_resume
-            props.batch_mode = scene.bf2_lm_batch_mode
-            props.atlas_dim = scene.bf2_lm_atlas_dim
-            props.water_attenuation = scene.bf2_lm_water_attenuation
-            props.post_process = scene.bf2_lm_post_process
-            row.enabled = props.bake_objects or props.bake_terrain
+            row.operator(VIEW3D_OT_bf2_bake.bl_idname, icon='RENDER_STILL')
+            row.enabled = scene.bf2_lm_bake_objects or scene.bf2_lm_bake_terrain
 
             if scene.bf2_lm_post_process:
                 if not scene.bf2_lm_post_process_outdir:
@@ -752,14 +581,7 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
                 row.label(text='Press ESC to cancel', icon='CANCEL')
 
             row = main.row()
-            props = row.operator(VIEW3D_OT_bf2_lm_post_process.bl_idname, icon='OUTPUT')
-            props.srcdir = scene.bf2_lm_outdir
-            if scene.bf2_lm_post_process_outdir:
-                props.outdir = scene.bf2_lm_post_process_outdir
-            else:
-                props.outdir = scene.bf2_lm_outdir
-            props.dds_compression = scene.bf2_lm_dds_compression
-            props.intensity = scene.bf2_lm_ambient_light_level
+            row.operator(VIEW3D_OT_bf2_lm_post_process.bl_idname, icon='OUTPUT')
 
             if VIEW3D_OT_bf2_lm_post_process.is_running(context):
                 row = layout.row()
@@ -774,19 +596,12 @@ class VIEW3D_PT_bf2_lightmapping_Panel(bpy.types.Panel):
             row.enabled = scene.bf2_lm_post_process
 
         header, body = main.panel("BF2_PT_pack_lightmaps", default_closed=True)
-        header.label(text="Pack Lightmaps")
+        header.label(text="Lightmap packing")
         if body:
             body.prop(scene, "bf2_lm_pack_outdir")
             body.prop(scene, "bf2_lm_pack_atlas_size")
             row = main.row()
-            props = row.operator(VIEW3D_OT_bf2_lm_pack_lightmaps.bl_idname, icon='PACKAGE')
-            props.indir = scene.bf2_lm_outdir
-            if scene.bf2_lm_pack_outdir:
-                props.outdir = scene.bf2_lm_pack_outdir
-            else:
-                props.outdir = scene.bf2_lm_outdir
-            props.dds_compression = scene.bf2_lm_dds_compression
-            props.atlas_dim = scene.bf2_lm_pack_atlas_size
+            row.operator(VIEW3D_OT_bf2_lm_pack_lightmaps.bl_idname, icon='PACKAGE')
             row.enabled = scene.bf2_lm_outdir != ''
 
 # ---------------------------------------------------
@@ -872,9 +687,11 @@ def init(rc : RegisterFactory):
             name="Patch size",
             description="Texture size of a single terrain patch",
             default=1024,
+            min=16,
+            max=4096,
+            get=get_power_of_two_int('bf2_lm_patch_size'),
+            set=set_power_of_two_int('bf2_lm_patch_size'),
             subtype='PIXEL',
-            get=get_patch_size,
-            set=set_patch_size,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
     )
@@ -990,13 +807,15 @@ def init(rc : RegisterFactory):
             description="Width and height of each output atlas",
             default=2048,
             min=512,
-            max=8192,
+            max=4096,
+            get=get_power_of_two_int('bf2_lm_pack_atlas_size'),
+            set=set_power_of_two_int('bf2_lm_pack_atlas_size'),
             subtype='PIXEL',
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore
     )
 
-    rc.reg_prop(Scene, 'bf2_lm_level_name',
+    rc.reg_prop(Scene, 'bf2_lm_level_path',
         StringProperty ()
     )
 
