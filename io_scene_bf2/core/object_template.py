@@ -15,12 +15,12 @@ from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import CollMeshImporter, CollMeshExporter
 from .skeleton import find_all_skeletons, find_rig_attached_to_object
 
-from .utils import (delete_object, check_suffix,
+from .utils import (check_transform, delete_object, check_suffix,
                     check_prefix, swap_zy,
                     apply_modifiers as _apply_modifiers,
                     triangulate as _triangulate,
                     remove_double_verts,
-                    compare_val,
+                    check_scale,
                     yaw_pitch_roll_to_matrix,
                     matrix_to_yaw_pitch_roll,
                     strip_geom_lod_prefix as strip_prefix,
@@ -494,40 +494,60 @@ class GeomPartInfo:
         self.is_root = is_root
         self.name = strip_prefix(obj.name)
         self.bf2_object_type = obj.bf2_object_type
-        self.location = obj.location.copy()
-        self.rotation_quaternion = obj.rotation_quaternion.copy()
         self.matrix_local = obj.matrix_local.copy()
         self.children = []
 
 TMP_PREFIX = 'TMP__' # prefix for temporary object copy
 
-def collect_anchor_geoms_lods(mesh_obj):
-    # find anchor
-    anchor_obj = None
-    for child in mesh_obj.children:
-        if child.name.startswith(ANCHOR_PREFIX):
-            anchor_obj = child
-            break
+class OrphanedAnchorObject:
+    def __init__(self, mesh_obj):
+        # find anchor
+        self.mesh_obj = mesh_obj
+        self.anchor_obj = None
+        for child in self.mesh_obj.children:
+            if child.name.startswith(ANCHOR_PREFIX):
+                self.anchor_obj = child
+                break
 
-    # temporarily remove parent to not be taken as geom
-    if anchor_obj:
-        anchor_obj.parent = None
+    def __enter__(self):
+        if self.anchor_obj:
+            self.anchor_obj.parent = None
+        return self.anchor_obj
 
-    try:
-        mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
-    except Exception:
-        raise
-    finally:
-        if anchor_obj:
-            anchor_obj.parent = mesh_obj
-    
-    return anchor_obj, mesh_geoms
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        if self.anchor_obj:
+            self.anchor_obj.parent = self.mesh_obj
+
+class MeshGeomsCopy:
+    def __init__(self, mesh_geoms):
+        self.mesh_geoms = mesh_geoms
+
+    def __enter__(self):
+        self.temp_mesh_geoms = _duplicate_lods(self.mesh_geoms)
+        return self.temp_mesh_geoms
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        _delete_lods(self.temp_mesh_geoms)
+
+class CollMeshPartsCopy:
+    def __init__(self, collmesh_parts):
+        self.collmesh_parts = collmesh_parts
+
+    def __enter__(self):
+        self.temp_collmesh_parts = _duplicate_cols(self.collmesh_parts)
+        return self.temp_collmesh_parts
+
+    def __exit__(self, exception_type, exception_value, exception_traceback):
+        _delete_cols(self.temp_collmesh_parts)
 
 def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                            apply_modifiers=False, samples_size=None, sample_padding=6,
                            use_edge_margin=True, save_backfaces=True, reporter=DEFAULT_REPORTER, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
-    anchor_obj, mesh_geoms = collect_anchor_geoms_lods(mesh_obj)
+
+    with OrphanedAnchorObject(mesh_obj) as anchor_obj:
+        mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
+
     obj_to_geom_part = _find_geom_parts(mesh_geoms)
 
     for obj_name, geom_part in obj_to_geom_part.items():
@@ -550,16 +570,18 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     if root_obj_template.has_collision_physics:
         root_obj_template.collmesh = CollisionMeshTemplate(obj_name)
 
-    con_dir = os.path.dirname(con_file)
-    if geom_export or colmesh_export:
-        os.makedirs(os.path.join(con_dir, 'Meshes'), exist_ok=True)
+    if anchor_obj:
+        root_obj_template.anchor_point = swap_zy(anchor_obj.location)
 
-    geometry_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.geom.name}.{geometry_type.lower()}')
+    con_dir = os.path.dirname(con_file)
+    meshes_dir = os.path.join(con_dir, 'Meshes')
+    if geom_export or colmesh_export:
+        os.makedirs(meshes_dir, exist_ok=True)
 
     # create temporary meshes for export, that we can modify e.g trigangulate
-    print(f"duplicating LODs...")
-    temp_mesh_geoms = _duplicate_lods(mesh_geoms)
-    try:
+    # XXX: other export tools like fbx avoid copying by using depsgraph eval for modifiers
+    # and loop_triangles for triangulation, but this only works for quads
+    with MeshGeomsCopy(mesh_geoms) as temp_mesh_geoms:
         if apply_modifiers:
             for geom_obj in temp_mesh_geoms:
                 for lod_obj in geom_obj:
@@ -581,6 +603,7 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
                 _triangulate(lod_obj)
 
         if geom_export:
+            geometry_filepath = os.path.join(meshes_dir, f'{root_obj_template.geom.name}.{geometry_type.lower()}')
             print(f"Exporting geometry to '{geometry_filepath}'")
             bf2_mesh = MeshExporter(mesh_obj, geometry_filepath,
                                     mesh_geoms=temp_mesh_geoms,
@@ -621,45 +644,32 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
                         print(f"Exporting samples to '{samples_filepath}'")
                         samples.export(samples_filepath)
 
-    except Exception:
-        raise
-    finally:
-        _delete_lods(temp_mesh_geoms)
+    # write material mapping to .con even if colmesh_export is disabled
+    col_mat_to_index = CollMeshExporter.collect_materials(collmesh_parts)
+    for mat, mat_idx in sorted(col_mat_to_index.items(), key=lambda item: item[1]):
+        if ' ' in mat:
+            # XXX: add quoting when dumping con to allow this
+            raise ExportException(f"CollisionMesh material: '{mat}' must not contain whitespaces!")
+        root_obj_template.col_material_map[mat_idx] = mat
 
     if root_obj_template.collmesh and colmesh_export:
-        collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{root_obj_template.collmesh.name}.collisionmesh')
+        with CollMeshPartsCopy(collmesh_parts) as temp_collmesh_parts:
+            for geoms in temp_collmesh_parts:
+                for cols in geoms:
+                    for _, col_obj in cols.items():
+                        if apply_modifiers:
+                            _apply_modifiers(col_obj)
+                        _triangulate(col_obj)
 
-        print(f"duplicating COLs...")
-        temp_collmesh_parts = _duplicate_cols(collmesh_parts)
-
-        for geoms in temp_collmesh_parts:
-            for cols in geoms:
-                for _, col_obj in cols.items():
-                    if apply_modifiers:
-                        _apply_modifiers(col_obj)
-                    _triangulate(col_obj)
-        try:
+            collmesh_filepath = os.path.join(meshes_dir, f'{root_obj_template.collmesh.name}.collisionmesh')
             print(f"Exporting collision to '{collmesh_filepath}'")
-            collmesh_exporter = CollMeshExporter(mesh_obj, collmesh_filepath, geom_parts=temp_collmesh_parts)
+            collmesh_exporter = CollMeshExporter(mesh_obj, collmesh_filepath,
+                                                 geom_parts=temp_collmesh_parts,
+                                                 material_to_index=col_mat_to_index)
             collmesh_exporter.export_collmesh()
-            material_to_index = collmesh_exporter.material_to_index
-        except Exception:
-            raise
-        finally:
-            _delete_cols(temp_collmesh_parts)
-
-        for mat, mat_idx in sorted(material_to_index.items(), key=lambda item: item[1]):
-            if ' ' in mat:
-                # XXX: add quoting when dumping con to allow this
-                raise ExportException(f"CollisionMesh material: '{mat}' must not contain whitespaces!")
-            root_obj_template.col_material_map[mat_idx] = mat
-
-    if anchor_obj:
-        root_obj_template.anchor_point = swap_zy(anchor_obj.location)
 
     print(f"Writing con file to '{con_file}'")
     _dump_con_file(root_obj_template, con_file)
-
 
 def _find_geom_parts(mesh_geoms):
     obj_to_part = dict()
@@ -725,21 +735,24 @@ def _find_collmeshes(mesh_geoms):
 
 def _collect_collmesh_parts(obj, collmesh_parts, obj_to_part_id):
     # find and add collmeshes first
-    for child_obj in obj.children:
-        if _is_colmesh_dummy(child_obj):
-            # map object template name to collistion part
-            part_id = len(collmesh_parts)
-            object_name = strip_prefix(obj.name)
-            obj_to_part_id[object_name] = part_id
-            # map collision part to collision meshes
-            cols = dict()
-            collmesh_parts.append(cols)
-            for col_obj in child_obj.children:
-                col_idx = check_suffix(col_obj.name, COL_SUFFIX)
-                cols[col_idx] = col_obj
-            break
+    for col_dummy in obj.children:
+        if not _is_colmesh_dummy(col_dummy):
+            continue
+        check_transform(col_dummy)
+        # map object template name to collistion part
+        part_id = len(collmesh_parts)
+        object_name = strip_prefix(obj.name)
+        obj_to_part_id[object_name] = part_id
+        # map collision part to collision meshes
+        cols = dict()
+        collmesh_parts.append(cols)
+        for col_obj in col_dummy.children:
+            col_idx = check_suffix(col_obj.name, COL_SUFFIX)
+            check_transform(col_obj)
+            cols[col_idx] = col_obj
+        break
 
-    # process childs
+    # process children in second pass
     for child_obj in obj.children:
         if not _is_colmesh_dummy(child_obj):
             _collect_collmesh_parts(child_obj, collmesh_parts, obj_to_part_id)
@@ -754,23 +767,25 @@ def _verify_lods_consistency(root_geom_part, lod_obj):
     if any([c.isspace() for c in lod_obj.name]):
         raise ExportException(f"'{lod_obj.name}' name contain spaces!")
 
-    if not compare_val(lod_obj.scale, (1, 1, 1)):
-        raise ExportException(f"'{lod_obj.name}' has non uniform scale: {lod_obj.scale}")
+    check_scale(lod_obj)
 
     if lod_obj.data and not isinstance(lod_obj.data, bpy.types.Mesh) :
         raise ExportException(f"'{lod_obj.name}' does not contain mesh data!")
 
     def _inconsistency(item, val, exp_val):
         raise ExportException(f"{lod_obj.name}: Inconsistent {item} for different Geoms/LODs, got '{val}' but other Geom/LOD has '{exp_val}'")
-
+    
     if lod_name != root_geom_part.name:
         _inconsistency('object names', lod_obj.name, root_geom_part.name)
     if lod_obj.bf2_object_type != root_geom_part.bf2_object_type:
         _inconsistency('BF2 Object Types', lod_obj.bf2_object_type, root_geom_part.bf2_object_type)
-    if (root_geom_part.location - lod_obj.location).length > 0.0001:
-        _inconsistency('object locations', lod_obj.location, root_geom_part.location)
-    if root_geom_part.rotation_quaternion.rotation_difference(lod_obj.rotation_quaternion).angle > 0.0001:
-        _inconsistency('object rotations', lod_obj.rotation_quaternion, root_geom_part.rotation_quaternion)
+
+    exp_pos, exp_rot, _ = root_geom_part.matrix_local.decompose()
+    pos, rot, _ = lod_obj.matrix_local.decompose()
+    if (exp_pos - pos).length > 0.0001:
+        _inconsistency('object locations', pos, exp_pos)
+    if exp_rot.rotation_difference(rot).angle > 0.0001:
+        _inconsistency('object rotations', rot, exp_rot)
 
     root_geom_children = dict()
     for child_geom_part in root_geom_part.children:
@@ -815,7 +830,7 @@ def _create_object_template(geom_part : GeomPartInfo, obj_to_col_part_id, is_veh
             continue
         child_object = ObjectTemplate.ChildObject(child_template.name)
         child_object.template = child_template
-        child_object.position = swap_zy(child_obj.location)
+        child_object.position = swap_zy(child_obj.matrix_local.translation)
         child_object.rotation = matrix_to_yaw_pitch_roll(child_obj.matrix_local)
         obj_template.children.append(child_object)
 

@@ -6,7 +6,7 @@ import os
 import math
 from ... import rectpack
 
-from ..object_template import collect_anchor_geoms_lods, parse_geom_type
+from ..object_template import OrphanedAnchorObject, MeshExporter, parse_geom_type
 from ..utils import next_power_of_2, obj_bounds
 
 class PlaneConfig:
@@ -280,7 +280,8 @@ def project_to_plane(obj, plane_name, texture_size):
 
 def generate_og_lod(root, projections):
     _, obj_name = parse_geom_type(root)
-    _, mesh_geoms = collect_anchor_geoms_lods(root)
+    with OrphanedAnchorObject(root):
+        mesh_geoms = MeshExporter.collect_geoms_lods(root)
     obj = mesh_geoms[0][0]
 
     planes = list()

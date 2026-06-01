@@ -4,7 +4,7 @@ import bmesh # type: ignore
 from os import path
 from itertools import cycle
 from .bf2.bf2_collmesh import BF2CollMesh, BF2CollMeshException, GeomPart, Geom, Col, Face, Vec3
-from .utils import (delete_object,
+from .utils import (check_transform, check_scale, delete_object,
                     delete_object_if_exists,
                     delete_material_if_exists,
                     delete_mesh_if_exists,
@@ -197,8 +197,8 @@ class CollMeshImporter:
 
         # mark faces with backfaces
         if double_sided_faces:
-            animuv_matrix_index = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
-            animuv_matrix_index.data.foreach_set('value', [poly.index in double_sided_faces for poly in mesh.polygons])
+            backface = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
+            backface.data.foreach_set('value', [poly.index in double_sided_faces for poly in mesh.polygons])
 
         # add materials to mesh
         for bf2_index in material_indexes:
@@ -216,6 +216,7 @@ TMP_PREFIX = "TMP__"
 class CollMeshExporter:
     def __init__(self, root_obj, mesh_file,
                  geom_parts=None,
+                 material_to_index=None,
                  save_backfaces=True,
                  apply_modifiers=False,
                  triangulate=False,
@@ -223,6 +224,7 @@ class CollMeshExporter:
         self.root_obj = root_obj
         self.mesh_file = mesh_file
         self.geom_parts = geom_parts
+        self.material_to_index = material_to_index
         self.save_backfaces = save_backfaces
         self.apply_modifiers = apply_modifiers
         self.triangulate = triangulate
@@ -269,17 +271,21 @@ class CollMeshExporter:
         return new_geom_parts
 
     @staticmethod
-    def _collect_nodes_geoms_lods(collmesh_obj):
-        if not collmesh_obj.children:
-            raise ExportException(f"collisionMesh '{collmesh_obj.name}' has no children (nodes)!")
-
+    def _collect_nodes_geoms_lods(root_obj, skip_checks=False):
+        if not root_obj.children:
+            raise ExportException(f"root object '{root_obj.name}' has no children (nodes)!")
+        if not skip_checks:
+            check_scale(root_obj)
         geom_parts = list()
 
         mesh_geomparts = dict()
-        for geompart_obj in collmesh_obj.children:
+        for geompart_obj in root_obj.children:
             geompart_idx = check_prefix(geompart_obj.name, ('N',))
             if geompart_idx in mesh_geomparts:
-                raise ExportException(f"collisionMesh '{collmesh_obj.name}' has duplicated N{geompart_idx}")
+                raise ExportException(f"root object '{root_obj.name}' has duplicated N{geompart_idx}")
+            if not skip_checks:
+                check_transform(geompart_obj)
+
             mesh_geomparts[geompart_idx] = geompart_obj
         for _, geompart_obj in sorted(mesh_geomparts.items()):
             geoms = list()
@@ -293,6 +299,9 @@ class CollMeshExporter:
                 _, geom_idx = check_prefix(geom_obj.name, ('N', 'G'))
                 if geom_idx in mesh_geoms:
                     raise ExportException(f"geom '{geom_obj.name}' has duplicated G{geom_idx}")
+                if not skip_checks:
+                    check_transform(geom_obj)
+
                 mesh_geoms[geom_idx] = geom_obj
             for _, geom_obj in sorted(mesh_geoms.items()):
                 cols = dict()
@@ -305,6 +314,9 @@ class CollMeshExporter:
                         raise ExportException(f"col '{col_obj.name}' has duplicated C{col_idx}")
                     if col_obj.data is None:
                         raise ExportException(f"col '{col_obj.name}' has no mesh data!")
+                    if not skip_checks:
+                        check_transform(col_obj)
+
                     mesh_cols[col_idx] = col_obj
                 for col_idx, col_obj in sorted(mesh_cols.items()):
                     cols[col_idx] = col_obj
@@ -323,11 +335,12 @@ class CollMeshExporter:
             finally:
                 self._revert_temp_geom_lods()
 
-    def _collect_materials(self):
+    @staticmethod
+    def collect_materials(geom_parts):
         # important to preserve material order as they appear in cols
         # for compatibility with 3ds max!
         material_to_index = dict()
-        for geompart in self.geom_parts:
+        for geompart in geom_parts:
             for geom in geompart:
                 for _, col_obj in sorted(geom.items()):
                     mesh = col_obj.data
@@ -340,7 +353,8 @@ class CollMeshExporter:
 
     def _export_collmesh(self):
         bf2_collmesh = BF2CollMesh(name=self.root_obj.name)
-        self.material_to_index = self._collect_materials()
+        if self.material_to_index is None:
+            self.material_to_index = self.collect_materials(self.geom_parts)
 
         for geoms in self.geom_parts:
             geompart = GeomPart()

@@ -12,7 +12,7 @@ from .bf2.bf2_mesh.bf2_visiblemesh import Material, MaterialWithTransparency, Ve
 from .bf2.fileutils import FileUtils
 
 from .exceptions import ImportException, ExportException
-from .utils import (conv_bf2_to_blender,
+from .utils import (check_transform, conv_bf2_to_blender,
                     conv_blender_to_bf2,
                     delete_object,
                     delete_object_if_exists,
@@ -23,7 +23,7 @@ from .utils import (conv_bf2_to_blender,
                     are_backfaces,
                     apply_modifiers,
                     triangulate,
-                    compare_val,
+                    check_scale,
                     file_name,
                     DEFAULT_REPORTER)
 from .skeleton import (ske_get_bone_rot,
@@ -332,8 +332,8 @@ class MeshImporter:
 
         # mark faces with backfaces
         if double_sided_faces:
-            animuv_matrix_index = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
-            animuv_matrix_index.data.foreach_set('value', [poly.index in double_sided_faces for poly in mesh.polygons])
+            backface = mesh.attributes.new('backface', 'BOOLEAN', 'FACE')
+            backface.data.foreach_set('value', [poly.index in double_sided_faces for poly in mesh.polygons])
 
         # apply materials
         for material in mesh_materials:
@@ -687,20 +687,11 @@ class MeshExporter:
         return new_mesh_geoms
 
     @staticmethod
-    def _check_obj_transform(obj):
-        if not compare_val(obj.scale, (1, 1, 1)):
-            raise ExportException(f"'{obj.name}' has non-uniform scale: {tuple(obj.scale)}")
-        if not compare_val(obj.location, (0, 0, 0)):
-            raise ExportException(f"'{obj.name}' has non-zero location: {tuple(obj.location)})")
-        if not compare_val(obj.rotation_quaternion, (1, 0, 0, 0)):
-            raise ExportException(f"'{obj.name}' has non-zero rotation (quat): {tuple(obj.rotation_quaternion)}")
-
-    @staticmethod
     def collect_geoms_lods(root_obj, skip_checks=False):
         if not root_obj.children:
             raise ExportException(f"root object '{root_obj.name}' has no children (geoms)!")
-        if not skip_checks and not compare_val(root_obj.scale, (1, 1, 1)):
-            raise ExportException(f"'{root_obj.name}' has non-uniform scale: {tuple(root_obj.scale)}")
+        if not skip_checks:
+            check_scale(root_obj)
         geoms = list()
 
         mesh_geoms = dict()
@@ -709,7 +700,7 @@ class MeshExporter:
             if geom_idx in mesh_geoms:
                 raise ExportException(f"root object '{root_obj.name}' has duplicated G{geom_idx}")
             if not skip_checks:
-                MeshExporter._check_obj_transform(geom_obj)
+                check_transform(geom_obj)
 
             mesh_geoms[geom_idx] = geom_obj
         for _, geom_obj in sorted(mesh_geoms.items()):
@@ -725,7 +716,7 @@ class MeshExporter:
                 if lod_idx in mesh_lods:
                     raise ExportException(f"geom '{geom_obj.name}' has duplicated L{lod_idx}")
                 if not skip_checks:
-                    MeshExporter._check_obj_transform(lod_obj)
+                    check_transform(lod_obj)
                 mesh_lods[lod_idx] = lod_obj
             for _, lod_obj in sorted(mesh_lods.items()):
                 if lod_obj.data is None:

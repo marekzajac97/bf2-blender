@@ -8,7 +8,6 @@ import os
 import math
 
 from ..directx.texconv import Texconv
-from ..directx.dxgi_format import DXGI_FORMAT
 
 class Reporter:
     def __init__(self, report_func, report_once=True) -> None:
@@ -207,21 +206,26 @@ def find_root(obj):
         return obj
     return find_root(obj.parent)
 
-def apply_modifiers(obj, context=None, recursive=False):
+def _call_object_op(obj, op, context, recursive):
     if context is None:
         context = bpy.context
 
     bpy.ops.object.select_all(action='DESELECT')
     hide = obj.hide_get()
+    select = obj.select_get()
     obj.hide_set(False)
     obj.select_set(True)
     context.view_layer.objects.active = obj
-    bpy.ops.object.convert()
+    op()
     obj.hide_set(hide)
+    obj.select_set(select)
 
     if recursive:
         for child in obj.children:
-            apply_modifiers(child, recursive=True)
+            _call_object_op(child, op, context, recursive)
+
+def apply_modifiers(obj, context=None, recursive=False):
+    _call_object_op(obj, bpy.ops.object.convert, context, recursive)
 
 def triangulate(obj, context=None):
     if context is None:
@@ -351,16 +355,31 @@ def save_img_as_dds(img, outfile, compression='DXT5', reload=False):
 def file_name(fname):
     return os.path.splitext(os.path.basename(fname))[0]
 
-def compare_seq(a_seq, b_seq):
+def _compare_seq(a_seq, b_seq):
     return all([math.isclose(a,b) for a, b in zip(a_seq, b_seq)])
 
-def compare_val(a, b):
+def _compare_val(a, b):
     try:
         iter(a)
         iter(b)
     except TypeError:
         return math.isclose(a, b)
-    return compare_seq(a, b)
+    return _compare_seq(a, b)
+
+def check_transform(obj):
+    tip = ". This could be a mistake, use `Object -> Apply -> All transforms` if you think it is valid."
+    location, rotation_quat, scale = obj.matrix_local.decompose()
+    if not _compare_val(scale, (1, 1, 1)):
+        raise ExportException(f"'{obj.name}' has non-uniform scale: {tuple(scale)}" + tip)
+    if not _compare_val(location, (0, 0, 0)):
+        raise ExportException(f"'{obj.name}' has non-zero location: {tuple(location)}" + tip)
+    if not _compare_val(rotation_quat, (1, 0, 0, 0)):
+        raise ExportException(f"'{obj.name}' has non-zero rotation: {tuple(rotation_quat)}" + tip)
+
+def check_scale(obj):
+    tip = ". This could be a mistake, use `Object -> Apply -> Scale` if you think it is valid."
+    if not _compare_val(obj.scale, (1, 1, 1)):
+        raise ExportException(f"'{obj.name}' has non-uniform scale: {obj.scale}" + tip)
 
 class AxisBound:
     def __init__(self):
