@@ -224,9 +224,10 @@ class VIEW3D_OT_bf2_load_level(bpy.types.Operator, ImportHelper):
 
         level_path = None # relative path!
         mod_dirs = get_mod_dirs(context)
+        test_path = Path(self.filepath)
         for mod_path in mod_dirs:
             try:
-                level_path = Path(self.filepath).relative_to(mod_path).as_posix().lower()
+                level_path = test_path.relative_to(mod_path).as_posix().lower()
                 break
             except ValueError:
                 mod_path = ''

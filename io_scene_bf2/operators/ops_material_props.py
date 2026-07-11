@@ -219,12 +219,14 @@ def on_texture_map_update(self, context, index):
                        text='To set texture paths, MOD path must be defined in add-on\'s preferences! Read the manual')
             prop_val = ''
         else:
+            test_path = Path(prop_val)
             for mod_path in mod_paths:
                 try:
-                    prop_val = Path(prop_val).relative_to(mod_path).as_posix().lower()
+                    prop_val = test_path.relative_to(mod_path).as_posix().lower()
                     break
                 except ValueError:
                     prop_val = ''
+
             if not prop_val:
                 show_error(context,
                         title='Invalid texture path!',

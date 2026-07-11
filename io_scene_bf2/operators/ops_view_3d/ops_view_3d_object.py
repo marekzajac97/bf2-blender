@@ -156,9 +156,10 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
             self.report({"ERROR"}, f'MOD Path must be defined in add-on preferences')
             return {'CANCELLED'}
 
+        test_path = Path(out_path)
         for mod_path in mod_paths:
             try:
-                Path(out_path).relative_to(mod_path).as_posix().lower()
+                test_path.relative_to(mod_path).as_posix().lower()
                 break
             except ValueError:
                 mod_path = ''
