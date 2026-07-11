@@ -977,7 +977,7 @@ class MeshExporter:
                                     bf2_bone.id = bone_to_id[_bone_name]
                                     bf2_bone.matrix = bone_to_matrix[_bone_name]
 
-                            if abs(sum(_bone_weights) - 1.0) > 0.001:
+                            if abs(sum(_bone_weights) - 1.0) > 0.0001:
                                 raise ExportException(f"{lod_obj.name}: Found vertex with weights that are not normalized, all weights must add up to 1!")
                             vert.blendweight = (_bone_weights[0],)
 

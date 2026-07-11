@@ -1,7 +1,8 @@
 import bpy # type: ignore
 import bmesh # type: ignore
+import math
 
-from bpy.props import IntProperty # type: ignore
+from bpy.props import IntProperty, BoolProperty # type: ignore
 
 from ..utils import RegisterFactory
 
@@ -45,11 +46,62 @@ class EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix(bpy.types.Operator):
 
         return {'FINISHED'}
 
+
+class EDIT_MESH_SELECT_OT_bf2_select_bad_weights(bpy.types.Operator):
+    bl_idname = "bf2.mesh_select_bad_weights"
+    bl_label = "Select Invalid Skin Weights"
+    bl_description = "Selects all elements with BF2 incompatible weights"
+
+    select_unnormalized: BoolProperty(
+        name="Select Unnormalized Weights",
+        description="Select elements whose weights don't add-up to 1",
+        default=True
+    ) # type: ignore
+
+    select_too_many: BoolProperty(
+        name="Select Too Many Weights",
+        description="Select elements with weight count over the BF2 limit (two weights per vertex)",
+        default=True
+    ) # type: ignore
+
+    def execute(self, context):
+        obj = context.view_layer.objects.active
+        mesh = obj.data
+
+        bm = bmesh.from_edit_mesh(mesh)
+
+        deform_layer = bm.verts.layers.deform.active
+        if deform_layer is None:
+            self.report({'INFO'}, "No vertex groups found")
+            return {'CANCELLED'}
+
+        # Iterate over all vertices
+        for vert in bm.verts:
+            group_weights = vert[deform_layer].values()
+            select = False
+            if self.select_too_many:
+                select |= len(group_weights) > 2
+            if self.select_unnormalized:
+                select |= abs(sum(group_weights) - 1.0) > 0.0001
+
+            vert.select_set(select)
+
+        bm.select_mode |= {'VERT'}
+        bm.select_flush_mode()
+        bmesh.update_edit_mesh(mesh)
+
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
 class EDIT_MESH_SELECT_MT_bf2_submenu(bpy.types.Menu):
     bl_idname = "EDIT_MESH_SELECT_MT_bf2_submenu"
     bl_label = "Battlefield 2"
 
     def draw(self, context):
+        self.layout.operator(EDIT_MESH_SELECT_OT_bf2_select_bad_weights.bl_idname)
+
         op_name = EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix.bl_idname
         self.layout.operator(op_name, text="Select Left Wheel Rotation").uv_matrix_index = AnimUv.L_WHEEL_ROTATION
         self.layout.operator(op_name, text="Select Left Wheel Translation").uv_matrix_index = AnimUv.L_WHEEL_TRANSLATION
@@ -128,6 +180,7 @@ def init(rc : RegisterFactory):
     rc.reg_class(EDIT_MESH_MT_bf2_submenu)
     rc.add_menu(bpy.types.VIEW3D_MT_edit_mesh, menu_func_edit_mesh)
 
+    rc.reg_class(EDIT_MESH_SELECT_OT_bf2_select_bad_weights)
     rc.reg_class(EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix)
     rc.reg_class(EDIT_MESH_SELECT_MT_bf2_submenu)
     rc.add_menu(bpy.types.VIEW3D_MT_select_edit_mesh, menu_func_edit_mesh_select)
