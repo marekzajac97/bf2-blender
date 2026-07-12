@@ -174,10 +174,20 @@ def _set_weapon_mesh(self, anim_filepath):
     s = anim_fname.split('_')
     if len(s) < 3:
         return
-    weapon_name = s[1]
+
+    def _matcher(f):
+        weapon_name = ''
+        for name_part in s[1:]:
+            if weapon_name:
+                weapon_name += '_'
+            weapon_name += name_part
+            if f'{weapon_name}.bundledmesh' == f:
+                return True
+        return False
+
     meshes_dir = os.path.join(anim_dirname, '..', '..', 'Meshes')
     meshes_dir = os.path.normpath(meshes_dir)
-    if mesh_file := _find_file(meshes_dir, lambda f: f == f'{weapon_name}.bundledmesh'):
+    if mesh_file := _find_file(meshes_dir, _matcher):
         self.weapon_mesh_file = mesh_file
 
 def _find_meshes_dir_recursive(self, dir):

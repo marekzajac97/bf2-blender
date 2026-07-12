@@ -528,8 +528,8 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
             node_tree.links.new(normal.outputs['Color'], normal_node.inputs['Color'])
             normal_out = normal_node.outputs['Normal']
 
-            is_os = normal.image and file_name(normal.image.name).endswith('_b_os')
-            if material.bf2_shader == 'SKINNEDMESH' and is_os:
+            if material.bf2_shader == 'SKINNEDMESH' and not material.bf2_use_tangent:
+                # uses OS normal map
                 if hasattr(bpy.types,'GeometryNodeUVTangent'):
                     # dynamically convert object space normals to tangent space normals
                     # fixes bad shading when mesh is deformed
@@ -540,7 +540,8 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
                     node_tree.links.new(normal.outputs['Color'], os_to_b.inputs['Color'])
                     node_tree.links.new(os_to_b.outputs['Color'], normal_node.inputs['Color'])
                 else:
-                    # not Blender 5.0, use normal Object Space normal mapping
+                    # not Blender 5.0, use standard Object Space normal mapping
+                    # (will produce shading issues when deformed)
                     normal_node.space = 'OBJECT'
                     axes_swap = node_tree.nodes.new('ShaderNodeGroup')
                     axes_swap.node_tree = _create_bf2_axes_swap()

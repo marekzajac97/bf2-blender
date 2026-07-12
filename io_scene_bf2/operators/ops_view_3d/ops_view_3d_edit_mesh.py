@@ -23,6 +23,11 @@ class EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix(bpy.types.Operator):
         max=6
     ) # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        cls.poll_message_set("Mesh has no Animated UV matrix index attribute")
+        return context.object and 'animuv_matrix_index' in context.object.data.attributes
+
     def execute(self, context):
         obj = context.view_layer.objects.active
         mesh = obj.data
@@ -64,6 +69,11 @@ class EDIT_MESH_SELECT_OT_bf2_select_bad_weights(bpy.types.Operator):
         default=True
     ) # type: ignore
 
+    @classmethod
+    def poll(cls, context):
+        cls.poll_message_set("Object has no vertex groups")
+        return context.object and len(context.object.vertex_groups)
+
     def execute(self, context):
         obj = context.view_layer.objects.active
         mesh = obj.data
@@ -101,7 +111,7 @@ class EDIT_MESH_SELECT_MT_bf2_submenu(bpy.types.Menu):
 
     def draw(self, context):
         self.layout.operator(EDIT_MESH_SELECT_OT_bf2_select_bad_weights.bl_idname)
-
+        self.layout.separator(factor=1.0, type='LINE')
         op_name = EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix.bl_idname
         self.layout.operator(op_name, text="Select Left Wheel Rotation").uv_matrix_index = AnimUv.L_WHEEL_ROTATION
         self.layout.operator(op_name, text="Select Left Wheel Translation").uv_matrix_index = AnimUv.L_WHEEL_TRANSLATION
