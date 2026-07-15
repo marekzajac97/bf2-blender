@@ -15,7 +15,7 @@ class StaticMeshMaterial(MaterialWithTransparency):
 
     def save(self, f : FileUtils):
         super().save(f)
-        # precalculated already when Lod.save_parts_rigs is called
+        # precalculated already when Lod.save_bounds is called
         self._min.save(f)
         self._max.save(f)
 
@@ -24,16 +24,15 @@ class StaticMeshLod(Lod):
     _MATERIAL_TYPE = StaticMeshMaterial
 
     def __init__(self) -> None:
-        # matrix only present StaticMeshes, dunno what is it used for yet (base pivot/rotation?)
+        # matrix list, only present for StaticMeshes
+        # it seems to be completely unused by the engine
         self.parts : List[Mat4] = []
         super().__init__()
 
-    def load_parts_rigs(self, f : FileUtils, version):
-        super().load_parts_rigs(f, version=version)
+    def load_other_data(self, f : FileUtils):
         self.parts = load_n_elems(f, Mat4, count=f.read_dword())
 
-    def save_parts_rigs(self, f : FileUtils):
-        super().save_parts_rigs(f)
+    def save_other_data(self, f : FileUtils):
         f.write_dword(len(self.parts))
         for part in self.parts:
             part.save(f)

@@ -50,12 +50,10 @@ class SkinnedMeshLod(Lod):
         self.rigs : List[Rig] = []
         super().__init__()
 
-    def load_parts_rigs(self, f : FileUtils, version):
-        super().load_parts_rigs(f, version=version)
+    def load_other_data(self, f : FileUtils):
         self.rigs = load_n_elems(f, Rig, count=f.read_dword())
 
-    def save_parts_rigs(self, f : FileUtils):
-        super().save_parts_rigs(f)
+    def save_other_data(self, f : FileUtils):
         f.write_dword(len(self.rigs))
         for rig in self.rigs:
             rig.save(f)

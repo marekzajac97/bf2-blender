@@ -325,13 +325,11 @@ class Lod:
     def save(self, f : FileUtils):
         pass # nothing to do
 
-    def load_parts_rigs(self, f : FileUtils, version):
+    def load_bounds(self, f : FileUtils):
         self._min = Vec3.load(f)
         self._max = Vec3.load(f)
-        if version <= 6: # some old meshes, version 4, 6
-            Vec3.load(f)
 
-    def save_parts_rigs(self, f : FileUtils):
+    def save_bounds(self, f : FileUtils):
         inf = float("inf")
         self._min = Vec3(inf, inf, inf)
         self._max = Vec3(0.0, 0.0, 0.0)
@@ -344,6 +342,12 @@ class Lod:
                     self._max[i] = mat_max[i]
         self._min.save(f)
         self._max.save(f)
+
+    def load_other_data(self, f : FileUtils):
+        raise NotImplementedError() # this part has to be implemented by mesh sub-types
+
+    def save_other_data(self, f : FileUtils):
+        raise NotImplementedError() # this part has to be implemented by mesh sub-types
 
     def load_materials(self, f : FileUtils, **kwargs):
         self.materials = load_n_elems(f, self._MATERIAL_TYPE, count=f.read_dword(), **kwargs)
@@ -490,7 +494,10 @@ class BF2VisibleMesh():
 
         for geom in self.geoms:
             for lod in geom.lods:
-                lod.load_parts_rigs(f, version=version)
+                lod.load_bounds(f)
+                if version <= 6: # some old meshes, version 4, 6
+                    Vec3.load(f) # load and discard
+                lod.load_other_data(f)
 
         for geom in self.geoms:
             for lod in geom.lods:
@@ -557,8 +564,9 @@ class BF2VisibleMesh():
 
             for geom in self.geoms:
                 for lod in geom.lods:
-                    lod.save_parts_rigs(f)
-            
+                    lod.save_bounds(f)
+                    lod.save_other_data(f)
+
             for geom in self.geoms:
                 for lod in geom.lods:
                     lod.save_materials(f)

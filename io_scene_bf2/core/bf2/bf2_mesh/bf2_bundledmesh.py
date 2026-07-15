@@ -10,16 +10,13 @@ class BundledMeshLod(Lod):
     _MATERIAL_TYPE = BundledMeshMaterial
 
     def __init__(self) -> None:
-        # BundledMesh geometry parts objects for animated springs\rotbundles\weapons
         self.parts_num = None
         super().__init__()
 
-    def load_parts_rigs(self, f : FileUtils, version):
-        super().load_parts_rigs(f, version=version)
+    def load_other_data(self, f : FileUtils):
         self.parts_num = f.read_dword()
 
-    def save_parts_rigs(self, f : FileUtils):
-        super().save_parts_rigs(f)
+    def save_other_data(self, f : FileUtils):
         f.write_dword(self.parts_num)
 
 class BundledMeshGeom(Geom):
