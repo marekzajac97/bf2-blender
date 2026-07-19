@@ -39,7 +39,7 @@ NOTE: Only some combinations of the above texture layers are valid.
 
 The `Base`, `Detail` and `Dirt` layers are multiplied with each other, whereas the `Crack` layer is overlayed on top; all of them combined produce the final diffuse color. Similarly, The `NDetail` and `NCrack` normal maps are mixed together based on the `Crack` layer's alpha channel.
 
-StaticMesh only supports `Alpha Testing` render state for transparency with opacity map stored either in `Base` or `Detail` map's alpha channel. If `Alpha Testing` is not used, the `Detail` map's alpha channel is used for gloss map. As far as I'm aware, it's not possible to use gloss map with `Alpha Testing` enabled.
+StaticMesh only supports `Alpha Testing` render state for transparency with opacity map stored either in `Base` or `Detail` map's alpha channel. If `Alpha Testing` is not used, the `Detail` map's alpha channel is used for the gloss map. It is not possible to use gloss map with `Alpha Testing` enabled.
 
 ### BundledMesh
 BundledMesh materials may use up to three texture maps: `Color`, `Normal` and `Wreck`. The `Wreck` map (if present) gets multiplied with the `Color` and it's mostly used in Geom2 materials on vehicles. BundledMesh supports both `Alpha Testing` and `Alpha Blending` render states for transparency. The opacity map is always stored in the alpha channel of the `Color`, the location of the gloss map however varies based on the technique used.
@@ -56,7 +56,7 @@ The following techniques are known to be supported by BundledMesh shader:
 NOTE: A common misconception with BundledMesh materials is that you are required to have `Alpha` or `Alpha_Test` in your technique in order for `Alpha Blending` or `Alpha Testing` render states to work, but this is not true (it's just a quirk specific to the 3ds max mesh exporter).
 
 ### SkinnedMesh
-SkinnedMesh materials may use up to two texture maps: `Color` and `Normal`. The material may use either tangent space or object space normal maps with the latter one being more common (the engine differentiates them by `_b` or `_b_os` suffix). The gloss map is always embedded in the alpha channel of the `Normal` map.
+SkinnedMesh materials may use up to two texture maps: `Color` and `Normal`. The material may use either tangent space or object space normal maps with the latter one being more common. The gloss map is always embedded in the alpha channel of the `Normal` map.
 
 The following techniques are known to be supported by SkinnedMesh shader:
 - `Tangent` - must be defined if the material uses tangent space normal maps
