@@ -668,7 +668,8 @@ def init(rc : RegisterFactory):
 
     rc.reg_prop(Scene, 'bf2_lm_post_process_outdir',
         StringProperty (
-            name="Output directory for lightmap post-processing. If not set, bake results will be overwritten",
+            name="Output directory",
+            description="Output directory for lightmap post-processing. If not set, bake results will be overwritten",
             subtype="DIR_PATH"
         ) # type: ignore
     )
