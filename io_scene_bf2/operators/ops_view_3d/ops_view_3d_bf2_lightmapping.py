@@ -20,9 +20,10 @@ from ...core.tools.lightmapping.baking import (
 from ...core.tools.lightmapping.packing import pack_lightmaps
 
 def objects_subdir(directory, mkdir=True):
+    sdir = os.path.join(directory, 'objects')
     if mkdir:
-        os.makedirs(objects_subdir, exist_ok=True)
-    return os.path.join(directory, 'objects')
+        os.makedirs(sdir, exist_ok=True)
+    return sdir
 
 class VIEW3D_OT_bf2_lm_post_process(bpy.types.Operator):
     bl_idname = "bf2.lm_post_process"
