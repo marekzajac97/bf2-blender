@@ -112,7 +112,7 @@ def import_object_template(context, con_filepath, import_collmesh=True,
 
             new_lod = _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_parts, geom_idx, lod_idx)
             new_lod.parent = geom_obj
-            _fix_unassigned_parts(geom_obj, new_lod)
+            _fix_unassigned_parts(geom_obj, new_lod, geom_parts)
             _delete_hierarchy_if_has_no_meshes(new_lod)
             _cleanup_unused_materials(new_lod)
             if weld_verts:
@@ -152,19 +152,26 @@ def _delete_hierarchy_if_has_no_meshes(obj, parent_bones=None):
         for child_obj in obj.children:
             _delete_hierarchy_if_has_no_meshes(child_obj, parent_bones)
 
-def _fix_unassigned_parts(geom_obj, lod_obj):
+def _fix_unassigned_parts(geom_obj, lod_obj, geom_parts):
     # parts unassigned to any object template (e.g. GenericFirearm) 
-    # will be parented to geom, so just add numeric suffix
-    # and reparent them to LOD
-    i = 1
+    # will be left with geom as parent
+    uassigned = list()
     for child in geom_obj.children:
         if child.name.startswith(lod_obj.name) and child.name != lod_obj.name:
-            child.parent = lod_obj
-            n = lod_obj.name + f'_{i}'
-            child.name = n
-            child.data.name = n
-            child.bf2_object_type = ''
-            i += 1
+            uassigned.append(child)
+
+    # sort by the order of geometry part indexes
+    sort_key = {obj.name: int(vg.removeprefix('mesh')) for vg, obj in geom_parts.items()}
+    uassigned.sort(key=lambda o: sort_key[o.name])
+
+    # add numeric suffix and reparent them to LOD
+    padding = len(str(len(uassigned)))
+    for i, child in enumerate(uassigned, start=1):
+        child.parent = lod_obj
+        n = "{}_{:0{width}d}".format(lod_obj.name, i, width=padding)
+        child.name = n
+        child.data.name = n
+        child.bf2_object_type = ''
 
 def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_parts, geom, lod):
     prfx = MeshImporter.build_mesh_prefix(geom, lod)
