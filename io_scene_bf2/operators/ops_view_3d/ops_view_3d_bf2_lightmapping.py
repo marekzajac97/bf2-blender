@@ -790,7 +790,7 @@ def init(rc : RegisterFactory):
         BoolProperty(
             name="Use Atlas",
             description="Bake objects in batches on a texture atlas. This should better utilize GPU when baking a lot of small objects thus cutting down the rendering time (use only if you have a capable hardware)\n\n"
-                        "NOTE: The margin (from the Bake settings) will be used to prevent bleeding from one object to another, keep this in mind when choosing the atlas size",
+                        "NOTE: The margin (from the Render -> Bake settings) will be used to prevent bleeding from one object to another, keep this in mind when choosing the atlas size",
             default=False,
             options=set()  # Remove ANIMATABLE default option.
         ) # type: ignore

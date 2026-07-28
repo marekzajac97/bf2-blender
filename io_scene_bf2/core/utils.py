@@ -451,3 +451,11 @@ def remove_double_verts(obj, recursive=False):
     if recursive:
         for child in obj.children:
             remove_double_verts(child, recursive=recursive)
+
+
+def set_gn_modifier_input(modifier, identifier, value):
+    if hasattr(modifier, 'properties'):
+        # Blender 5.2
+        getattr(modifier.properties.inputs, identifier).value = value
+    else:
+        modifier[identifier] = value

@@ -14,6 +14,7 @@ from ...bf2.bf2_engine import (BF2Engine,
                             Object)
 from ...bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh, BF2Samples
 from ...mod_loader import ModLoader
+from ...utils import set_gn_modifier_input
 from ...material import (setup_material,
                         get_material_maps,
                         get_staticmesh_uv_channel_mapping,
@@ -451,7 +452,7 @@ def _load_heightmap(context, level_dir):
     modifier = terrain.modifiers.new(type='NODES', name="FlattenAtWaterLevel")
     modifier.node_group = _make_flatten_at_water_level()
     input_id = modifier.node_group.interface.items_tree["Water Level"].identifier
-    modifier[input_id] = hm_cluster.water_level
+    set_gn_modifier_input(modifier, input_id, hm_cluster.water_level)
 
 def _match_config_pattern(value, config, prop, get_pattern=None):
     for prop_val in getattr(config, prop, []):

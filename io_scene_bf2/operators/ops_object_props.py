@@ -6,7 +6,7 @@ from bpy.props import (StringProperty, EnumProperty, BoolProperty, # type: ignor
                        IntProperty, IntVectorProperty, CollectionProperty,
                        PointerProperty, FloatProperty, FloatVectorProperty)
 from ..core.bf2.bf2_engine import BF2_OBJECT_TEMPLATE_TYPES
-from ..core.utils import set_power_of_two_int_array, get_power_of_two_int_array, find_root, show_error
+from ..core.utils import set_power_of_two_int_array, get_power_of_two_int_array, find_root, show_error, set_gn_modifier_input
 from ..core.object_template import parse_geom_type_safe
 from .utils import RegisterFactory
 
@@ -126,7 +126,7 @@ def on_curve_update(self, context):
     modifier = context.object.modifiers["GenerateFence"]
     input_id = modifier.node_group.interface.items_tree["Curve"].identifier
     if isinstance(self.bf2_fence_curve.data, bpy.types.Curve):
-        modifier[input_id] = self.bf2_fence_curve
+        set_gn_modifier_input(modifier, input_id, self.bf2_fence_curve)
     else:
         show_error(context, "Object is not a Curve")
         self.bf2_fence_curve = None
@@ -134,7 +134,7 @@ def on_curve_update(self, context):
 def on_collection_update(self, context):
     modifier = context.object.modifiers["GenerateFence"]
     input_id = modifier.node_group.interface.items_tree["Elements"].identifier
-    modifier[input_id] = self.bf2_fence_collection
+    set_gn_modifier_input(modifier, input_id, self.bf2_fence_collection)
 
 def on_attr_update(self, context, attr):
     context.object.data.attributes[attr].data[self.vertex_index].value = getattr(self, attr)
