@@ -862,8 +862,7 @@ def _create_mesh_vertex_group(obj, obj_to_vertex_group):
 
         child_groups = set()
         for group in obj.vertex_groups:
-            if group_name == group.name:
-                raise ExportException(f"{org_obj_name}: '{group_name}' vertex group should not exist")
+            assert group_name != group.name
             # check if vertex group links to a child object
             child_obj = _find_child(obj, group.name)
             if not child_obj:
@@ -885,6 +884,9 @@ def _create_mesh_vertex_group(obj, obj_to_vertex_group):
             child_groups.add(group.index)
             child_name = strip_prefix(group.name)
             child_group_name = obj_to_vertex_group[child_name]
+            if child_group_name is None:
+                raise ExportException(f"{org_obj_name}: Cannot use '{group.name}' as skinning target, it must be an object of type `Mesh` but is `Empty`")
+
             # rename this group to child group
             # after joining objects both groups will be merged into one
             # this is exactly what we want
