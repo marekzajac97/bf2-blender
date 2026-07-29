@@ -160,4 +160,39 @@ def import_animation(context, rig, baf_file, insert_at_frame=0, to_new_action=Tr
 
     bpy.ops.object.mode_set(mode='OBJECT')
 
+    # by default keyframe_insert makes the frame selected
+    _deselect_all_keyframes(rig.animation_data)
+
     return rig.animation_data.action
+
+def _get_fcurves_from_anim_data(animation_data):
+    action = animation_data.action
+    if not hasattr(bpy.types, "ActionSlot"): # < Blender 4.4, use legacy API
+        return action.fcurves
+    else:
+        slot = animation_data.action_slot
+        if slot is None:
+            return
+        channelbag = action.layers[0].strips[0].channelbag(slot)
+        if channelbag is None:
+            return
+        return channelbag.fcurves
+
+def _deselect_all_keyframes(animation_data):
+    fcurves = _get_fcurves_from_anim_data(animation_data)
+    if not fcurves:
+        return
+    for fcurve in fcurves:
+        if not fcurve.keyframe_points:
+            continue
+
+        count = len(fcurve.keyframe_points)
+        if count == 0:
+            continue
+
+        fcurve.select = False
+
+        selection_array = [0] * count
+        fcurve.keyframe_points.foreach_set("select_control_point", selection_array)
+        fcurve.keyframe_points.foreach_set("select_left_handle", selection_array)
+        fcurve.keyframe_points.foreach_set("select_right_handle", selection_array)
