@@ -34,15 +34,17 @@ Download the latest `io_scene_bf2` package from [Releases](https://github.com/ma
 Head over to the [Documentation](docs/README.md) for details on how to use this add-on
 
 ## License
-This repository includes the source code  of the following third-party projects:
+This repository includes the source code of the following third-party projects:
 - [rectpack](https://github.com/secnot/rectpack) licensed under Apache License Version 2.0
 - [Texconv Custom DLL](https://github.com/matyalatte/Texconv-Custom-DLL) including python bindings from [Blender-DDS-Addon](https://github.com/matyalatte/Blender-DDS-Addon) licensed under MIT License
-- [bf2mesh](https://github.com/rpoxo/bf2mesh) licensed under MIT License
+
+The distributed `Texconv Custom DLL` binaries include third-party libraries (libjpeg-turbo, libpng, zlib, libdeflate, OpenEXR, and others). This software is based in part on the work of the Independent JPEG Group. See [`THIRD_PARTY_LICENSES.txt`](io_scene_bf2/directx/THIRD_PARTY_LICENSES.txt) for full third-party license details.
 
 Unless stated otherwise, all of the remaining source files in this repository are licensed under MIT License.
 
 ## Credits
-- [secnot](https://github.com/secnot), [matyalatte](https://github.com/matyalatte) and [rpoxo](https://github.com/rpoxo) as the respective owners of the repositories listed above
+- [secnot](https://github.com/secnot) and [matyalatte](https://github.com/matyalatte) as the respective maintainers of the repositories listed above
+- [rpoxo](https://github.com/rpoxo) for [bf2mesh](https://github.com/rpoxo/bf2mesh) (used for the initial version of the mesh importer)
 - Harmonikater for [BF2-3dsMax-Tools](https://git.cmp-gaming.com/Harmonikater/BF2-3dsMax-Tools) (served as "inspiration" for some of the tools)
 - Remdul for guidance and [bfmeshview](http://www.bytehazard.com/bfstuff/bfmeshview/) (a lot of the stuff is ported over from there)
 - Ason and DeWolfe for testing and feedback

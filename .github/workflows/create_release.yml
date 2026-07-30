@@ -9,7 +9,7 @@ on:
       texconv_version:
         description: 'Texconv Version (e.g., v0.5.0)'
         required: true
-        default: 'v0.5.0'
+        default: 'v0.6.0'
 
 jobs:
   package:
@@ -19,7 +19,7 @@ jobs:
       matrix:
         include:
           - platform_suffix: linux-x64
-            texconv_file_suffix: Linux-x64.tar.bz2
+            texconv_file_suffix: Linux-x64.tar.xz
             texconv_bin: libtexconv.so
           - platform_suffix: windows-x64
             texconv_file_suffix: Windows-x64.zip
@@ -28,7 +28,7 @@ jobs:
             texconv_file_suffix: Windows-arm64.zip
             texconv_bin: texconv.dll
           - platform_suffix: macos-arm64
-            texconv_file_suffix: macOS-arm64.tar.bz2
+            texconv_file_suffix: macOS-arm64.tar.xz
             texconv_bin: libtexconv.dylib
 
     steps:
@@ -48,7 +48,7 @@ jobs:
           if [[ "$FILE" == *.zip ]]; then
             unzip "$FILE" -d texconv_out
           else
-            tar -xjf "$FILE" -C texconv_out
+            tar -xJf "$FILE" -C texconv_out
           fi
 
       - name: Prepare Addon Structure
@@ -56,6 +56,11 @@ jobs:
           # Add Texconv
           mkdir -p io_scene_bf2/directx/
           find texconv_out -name "${{ matrix.texconv_bin }}" -exec cp {} io_scene_bf2/directx/ \;
+
+          # Add Texconv third-party licenses
+          VERSION="${{ github.event.inputs.texconv_version }}"
+          LICENSES_URL="https://raw.githubusercontent.com/matyalatte/Texconv-Custom-DLL/${VERSION}/THIRD_PARTY_LICENSES.txt"
+          curl -L -o io_scene_bf2/directx/THIRD_PARTY_LICENSES.txt "$LICENSES_URL"
 
       - name: Create Zip Archive (Contents Only)
         id: create_zip
