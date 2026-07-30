@@ -787,6 +787,7 @@ class ObjectParallelBaker(BakerBase):
         atlas_index = self.completed_items()
         atlas_name = f'LightmapAtlas{atlas_index}'
         atlas = self._atlases[0]
+        assert len(atlas) > 0
 
         print(f"Preparing atlas {atlas_name} {self.completed_items() + 1}/{self.total_items()}")
 
@@ -796,8 +797,9 @@ class ObjectParallelBaker(BakerBase):
             obj = rect.rid.copy()
             context.scene.collection.objects.link(obj)
             obj.hide_set(False)
-            obj.select_set(True)
             obj.hide_render = False
+            obj.hide_viewport = False
+            obj.select_set(True)
             obj.data = obj.data.copy()
 
             mesh = obj.data
