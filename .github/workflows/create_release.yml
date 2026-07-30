@@ -10,9 +10,6 @@ on:
         description: 'Texconv Version (e.g., v0.5.0)'
         required: true
         default: 'v0.5.0'
-      build_run_id:
-        description: 'The Run ID of the job that built the bsp_builder'
-        required: true
 
 jobs:
   package:
@@ -21,34 +18,22 @@ jobs:
     strategy:
       matrix:
         include:
-          - artifact: bsp_builder-linux-x64
-            platform_suffix: linux-x64
+          - platform_suffix: linux-x64
             texconv_file_suffix: Linux-x64.tar.bz2
             texconv_bin: libtexconv.so
-          - artifact: bsp_builder-windows-x64
-            platform_suffix: windows-x64
+          - platform_suffix: windows-x64
             texconv_file_suffix: Windows-x64.zip
             texconv_bin: texconv.dll
-          - artifact: bsp_builder-windows-arm64
-            platform_suffix: windows-arm64
+          - platform_suffix: windows-arm64
             texconv_file_suffix: Windows-arm64.zip
             texconv_bin: texconv.dll
-          - artifact: bsp_builder-macos-universal
-            platform_suffix: macos-arm64
+          - platform_suffix: macos-arm64
             texconv_file_suffix: macOS-arm64.tar.bz2
             texconv_bin: libtexconv.dylib
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Download bsp_builder Binary
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          run-id: ${{ github.event.inputs.build_run_id }}
-          path: ./bsp_builder_binaries
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fetch and Unpack Texconv
         run: |
@@ -68,15 +53,12 @@ jobs:
 
       - name: Prepare Addon Structure
         run: |
-          # 1. Add bsp_builder
-          find ./bsp_builder_binaries -name "bsp_builder*" -exec cp {} io_scene_bf2/core/bf2/ \;
-
-          # 2. Add Texconv
+          # Add Texconv
           mkdir -p io_scene_bf2/directx/
           find texconv_out -name "${{ matrix.texconv_bin }}" -exec cp {} io_scene_bf2/directx/ \;
 
       - name: Create Zip Archive (Contents Only)
-        id: create_zip # ID added to reference outputs
+        id: create_zip
         run: |
           ZIP_NAME="io_scene_bf2-${{ github.event.inputs.version }}-${{ matrix.platform_suffix }}.zip"
 
@@ -84,13 +66,11 @@ jobs:
           zip -r "../$ZIP_NAME" . -x "*.git*" "*__pycache__*"
           cd ..
 
-          # Set output for the artifact name and path
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload Packaged Zip as Artifact
         uses: actions/upload-artifact@v4
         with:
-          # This now uses the exact .zip filename as the artifact name
           name: ${{ steps.create_zip.outputs.zip_name }}
           path: ${{ steps.create_zip.outputs.zip_name }}
 

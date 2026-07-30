@@ -9,7 +9,7 @@ from bpy.types import Mesh, Armature # type: ignore
 
 from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
                              GeometryTemplate, CollisionMeshTemplate)
-from .bf2.bf2_collmesh import NATIVE_BSP_EXPORT
+
 from .bf2.bf2_mesh import BF2Samples
 from .mesh import MeshImporter, MeshExporter
 from .collision_mesh import CollMeshImporter, CollMeshExporter

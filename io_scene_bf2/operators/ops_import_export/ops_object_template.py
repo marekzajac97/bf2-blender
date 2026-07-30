@@ -6,7 +6,7 @@ from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 from ..utils import RegisterFactory
 from .ops_common import ImporterBase, ExporterBase
 from ...core.object_template import (import_object_template, export_object_template,
-                                     parse_geom_type, NATIVE_BSP_EXPORT)
+                                     parse_geom_type)
 from ...core.skeleton import find_all_skeletons
 from ...core.utils import Reporter, find_root, next_power_of_2, prev_power_of_2
 
@@ -280,7 +280,7 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase, ConMeta):
     export_collmesh: BoolProperty(
         name="Export CollisionMesh",
         description="Export collision mesh geometry to a file",
-        default=NATIVE_BSP_EXPORT
+        default=True
     ) # type: ignore
 
     apply_modifiers: BoolProperty(
@@ -341,10 +341,6 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase, ConMeta):
             body.prop(self, "sample_padding")
 
         layout.prop(self, "export_collmesh")
-        if not NATIVE_BSP_EXPORT and self.export_collmesh:
-            layout.label(text='WARNING: Native BSP export module could not be loaded!', icon='ERROR')
-            layout.label(text='The add-on might be incompatible with this Blender version or platform')
-            layout.label(text='CollisionMesh export may take a while to complete for complex meshes')
         layout.prop(self, "apply_modifiers")
 
     @classmethod

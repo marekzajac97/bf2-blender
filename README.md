@@ -38,7 +38,6 @@ This repository includes the source code  of the following third-party projects:
 - [rectpack](https://github.com/secnot/rectpack) licensed under Apache License Version 2.0
 - [Texconv Custom DLL](https://github.com/matyalatte/Texconv-Custom-DLL) including python bindings from [Blender-DDS-Addon](https://github.com/matyalatte/Blender-DDS-Addon) licensed under MIT License
 - [bf2mesh](https://github.com/rpoxo/bf2mesh) licensed under MIT License
-- [pybind11](https://github.com/pybind/pybind11) licensed under BSD-style license.
 
 Unless stated otherwise, all of the remaining source files in this repository are licensed under MIT License.
 
