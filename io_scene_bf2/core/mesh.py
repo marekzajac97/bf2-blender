@@ -99,7 +99,7 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
                  texture_paths=[], geom_to_ske=None, merge_materials=True, free_normals=False,
-                 load_backfaces=True, loader=None, silent=False, reporter=DEFAULT_REPORTER):
+                 load_backfaces=True, remove_loose_verts=True, loader=None, silent=False, reporter=DEFAULT_REPORTER):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
 
@@ -119,6 +119,7 @@ class MeshImporter:
         self.merge_materials = merge_materials
         self.free_normals = free_normals
         self.load_backfaces = load_backfaces
+        self.remove_loose_verts = remove_loose_verts
         self.silent = silent
 
     def import_mesh(self, name='', geom=None, lod=None):
@@ -382,6 +383,15 @@ class MeshImporter:
             self._import_rig_skinned_mesh(mesh_obj, bf2_lod)
         elif isinstance(bf2_mesh, BF2BundledMesh):
             self._import_parts_bundled_mesh(mesh_obj, bf2_lod)
+
+        if self.remove_loose_verts:
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            loose_verts = [v for v in bm.verts if not v.link_faces]
+            if loose_verts:
+                bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
+                bm.to_mesh(mesh)
+            bm.free()
 
         return mesh_obj
 

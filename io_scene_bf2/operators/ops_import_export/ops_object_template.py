@@ -73,8 +73,14 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
     ) # type: ignore
 
     load_backfaces: BoolProperty(
-        name="Backfaces",
-        description="Adds 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        name="Use Backfaces",
+        description="Add 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        default=True
+    ) # type: ignore
+
+    remove_loose_verts: BoolProperty(
+        name="Remove Loose Vertices",
+        description="Ignore vertices that are not part of any face",
         default=True
     ) # type: ignore
 
@@ -120,6 +126,9 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
         col.prop(self, "load_backfaces")
 
         col = layout.column()
+        col.prop(self, "remove_loose_verts")
+
+        col = layout.column()
         col.prop(self, "use_free_normals")
 
     def _execute(self, context):
@@ -140,6 +149,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
                 merge_materials=self.merge_materials,
                 weld_verts=self.weld_verts,
                 load_backfaces=self.load_backfaces,
+                remove_loose_verts=self.remove_loose_verts,
                 free_normals=self.use_free_normals,
                 reporter=Reporter(self.report))
 
@@ -308,8 +318,8 @@ class EXPORT_OT_bf2_object(bpy.types.Operator, ExporterBase, ConMeta):
     ) # type: ignore
 
     save_backfaces: BoolProperty(
-        name="Backfaces",
-        description="Exports faces with 'backface' attribute as double-sided",
+        name="Use Backfaces",
+        description="Export faces with 'backface' attribute as double-sided",
         default=True
     ) # type: ignore
 

@@ -18,8 +18,14 @@ class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImporterBase, CollisionMes
     filter_glob: StringProperty(default="*.collisionmesh", options={'HIDDEN'}) # type: ignore
 
     load_backfaces: BoolProperty(
-        name="Backfaces",
-        description="Adds 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        name="Use Backfaces",
+        description="Add 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        default=True
+    ) # type: ignore
+
+    remove_loose_verts: BoolProperty(
+        name="Remove Loose Vertices",
+        description="Ignore vertices that are not part of any face",
         default=True
     ) # type: ignore
 
@@ -28,6 +34,7 @@ class IMPORT_OT_bf2_collisionmesh(bpy.types.Operator, ImporterBase, CollisionMes
             import_collisionmesh(context,
                 self.filepath,
                 load_backfaces=self.load_backfaces,
+                remove_loose_verts=self.remove_loose_verts,
                 reporter=Reporter(self.report))
 
 
@@ -40,8 +47,8 @@ class EXPORT_OT_bf2_collisionmesh(bpy.types.Operator, ExporterBase, CollisionMes
     filter_glob: StringProperty(default="*.collisionmesh", options={'HIDDEN'}) # type: ignore
 
     save_backfaces: BoolProperty(
-        name="Backfaces",
-        description="Exports faces with 'backface' attribute as double-sided",
+        name="Use Backfaces",
+        description="Export faces with 'backface' attribute as double-sided",
         default=True
     ) # type: ignore
 

@@ -59,8 +59,14 @@ class MeshImportBase(ImporterBase):
     ) # type: ignore
 
     load_backfaces: BoolProperty(
-        name="Backfaces",
-        description="Adds 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        name="Use Backfaces",
+        description="Add 'backface' attribute to double-sided faces. Disabling this will ignore any duplicated faces",
+        default=True
+    ) # type: ignore
+
+    remove_loose_verts: BoolProperty(
+        name="Remove Loose Vertices",
+        description="Ignore vertices that are not part of any face",
         default=True
     ) # type: ignore
 
@@ -87,6 +93,9 @@ class MeshImportBase(ImporterBase):
 
         col = layout.column()
         col.prop(self, "load_backfaces")
+
+        col = layout.column()
+        col.prop(self, "remove_loose_verts")
 
         col = layout.column()
         col.prop(self, "use_free_normals")
@@ -124,6 +133,7 @@ class MeshImportBase(ImporterBase):
                         texture_paths=mod_paths,
                         merge_materials=self.merge_materials,
                         load_backfaces=self.load_backfaces,
+                        remove_loose_verts=self.remove_loose_verts,
                         free_normals=self.use_free_normals,
                         reporter=Reporter(self.report),
                         **kwargs)
@@ -168,8 +178,8 @@ class MeshExportBase(ExporterBase):
     bl_label = "Export Mesh"
 
     save_backfaces: BoolProperty(
-        name="Backfaces",
-        description="Exports faces with 'backface' attribute as double-sided",
+        name="Use Backfaces",
+        description="Export faces with 'backface' attribute as double-sided",
         default=True
     ) # type: ignore
 

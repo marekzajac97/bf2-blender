@@ -37,7 +37,7 @@ ANCHOR_PREFIX = 'ANCHOR__'
 
 def import_object_template(context, con_filepath, import_collmesh=True,
                            import_rig_mode='AUTO', geom_to_ske_name=None, reload=False,
-                           weld_verts=False, load_backfaces=True, reporter=DEFAULT_REPORTER, **kwargs):
+                           weld_verts=False, load_backfaces=True, remove_loose_verts=True, reporter=DEFAULT_REPORTER, **kwargs):
     BF2Engine().shutdown() # clear previous state
     obj_template_manager = BF2Engine().get_manager(ObjectTemplate)
     geom_template_manager = BF2Engine().get_manager(GeometryTemplate)
@@ -87,6 +87,7 @@ def import_object_template(context, con_filepath, import_collmesh=True,
                             geom_to_ske=geom_to_ske,
                             reporter=reporter,
                             load_backfaces=load_backfaces,
+                            remove_loose_verts=remove_loose_verts,
                             **kwargs)
 
     root_geometry_obj = importer.import_mesh(name=root_template.name)
@@ -96,7 +97,8 @@ def import_object_template(context, con_filepath, import_collmesh=True,
     if collmesh_template:
         collmesh_filepath = os.path.join(con_dir, 'Meshes', f'{collmesh_template.name}.collisionmesh')
 
-        collmesh_importer = CollMeshImporter(collmesh_filepath, name=root_template.name, reload=reload)
+        collmesh_importer = CollMeshImporter(collmesh_filepath, name=root_template.name, reload=reload,
+                                             remove_loose_verts=remove_loose_verts)
         coll_parts, col_materials = collmesh_importer.import_collmesh()
         # name materials
         for col_material_idx, col_material_name in root_template.col_material_map.items():

@@ -48,11 +48,13 @@ class CollMeshImporter:
     def __init__(self, mesh_file, name='',
                  reload=False,
                  load_backfaces=True,
+                 remove_loose_verts=True,
                  reporter=DEFAULT_REPORTER):
         self.mesh_file = mesh_file
         self.name = name
         self.reload = reload
         self.load_backfaces = load_backfaces
+        self.remove_loose_verts = remove_loose_verts
         self.bf2_mesh = None
         self.materials = None
         self.geom_parts = None
@@ -191,6 +193,11 @@ class CollMeshImporter:
 
         if fucked_up_faces:
             self.reporter.warning(f"'{name}': Skipped {fucked_up_faces} invalid faces")
+
+        if self.remove_loose_verts:
+            loose_verts = [v for v in bm.verts if not v.link_faces]
+            if loose_verts:
+                bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
 
         mesh = bpy.data.meshes.new(name)
         bm.to_mesh(mesh)
