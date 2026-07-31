@@ -19,13 +19,12 @@ As well as many other utilities for:
 
 ## Compatibility
 
-For best experiance always use the recommended Blender version with the latest add-on version. Newer versions of Blender that are not listed below might still work but have not been tested.
+|                           |             |
+| ------------------------- | ----------- |
+| Minimum required          | Blender 4.2 |
+| Recommended <sup>1</sup>  | Blender 5.2 |
 
-| Blender Version         |                                                            Add-on Version |
-| ----------------------- | ------------------------------------------------------------------------- |
-| 5.1 - 5.2 (recommended) | [latest](https://github.com/marekzajac97/bf2-blender/releases/latest)     |
-| 4.2 - 5.0               | [0.11.7](https://github.com/marekzajac97/bf2-blender/releases/tag/0.11.7) |
-| 4.0 - 4.1               | [0.7.7](https://github.com/marekzajac97/bf2-blender/releases/tag/0.7.7)   |
+<sup>1</sup>For best experiance always use the recommended Blender version. Newer versions of Blender might still work but have not been verified!
 
 ## Installation
 Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) compatible with your system and follow the steps at [Installing Add-ons](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
