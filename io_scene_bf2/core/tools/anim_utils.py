@@ -287,6 +287,56 @@ def _rollback_controllers(context, rig):
     bpy.ops.object.mode_set(mode='OBJECT')
     context.view_layer.update()
 
+def _calc_ik_pole_angle(context, rig, pose_bone):
+    """Compute and set the IK pole angle that preserves the chain's current bend.
+
+    Blender's IK solver derives the bend plane from the chain root bone's
+    local X/Z axes rotated by pole_angle (see ConstrainPoleVector in the
+    iksolver), so the correct angle depends on the skeleton's geometry and
+    cannot be hardcoded. Requires the chain to be already posed so that it
+    bends towards the pole target (e.g. by the loaded animation).
+    """
+    ik = None
+    for c in pose_bone.constraints:
+        if c.type == 'IK':
+            ik = c
+            break
+    if ik is None or ik.pole_target is None or not ik.pole_subtarget:
+        return
+
+    # top bone of the IK chain
+    chain_root = pose_bone
+    for _ in range(ik.chain_count - 1):
+        if chain_root.parent is None:
+            break
+        chain_root = chain_root.parent
+
+    pole_bone = rig.pose.bones[ik.pole_subtarget]
+
+    # measure with the pole disabled so the chain keeps its natural bend
+    pole_target = ik.pole_target
+    ik.pole_target = None
+    context.view_layer.update()
+
+    mw = rig.matrix_world
+    root_mat = (mw @ chain_root.matrix).to_3x3()
+    root_pos = mw @ chain_root.head
+    tip_pos = mw @ (pose_bone.tail if ik.use_tail else pose_bone.head)
+    direction = (tip_pos - root_pos).normalized()
+    root_x = root_mat.col[0].normalized()
+    root_z = root_mat.col[2].normalized()
+
+    # solve (direction x up) parallel to (direction x pole) for
+    # up = root_x * cos(angle) + root_z * sin(angle)
+    t = direction.cross((mw @ pole_bone.head) - root_pos)
+    a = direction.cross(root_x)
+    b = direction.cross(root_z)
+    ik.pole_angle = math.atan2(-(a.cross(t)).dot(direction), (b.cross(t)).dot(direction))
+
+    # restore the pole target
+    ik.pole_target = pole_target
+    context.view_layer.update()
+
 def setup_controllers(context, rig, step=Mode.ALL):
     # cleanup previuous
     if step != Mode.APPLY_ANIMATION_ONLY:
@@ -469,10 +519,10 @@ def _setup_3p_controllers(context, rig, step):
     ik.subtarget = L_wrist_CTRL.name
     ik.pole_target = rig
     ik.pole_subtarget = left_elbow_CTRL.name
-    ik.pole_angle = 0
     ik.chain_count = 4
     ik.name = AUTO_SETUP_ID + '_IK_left_wrist1'
     ik.use_tail = False
+    _calc_ik_pole_angle(context, rig, rig.pose.bones['left_wrist1'])
 
     ik = rig.pose.bones['right_collar'].constraints.new(type='IK')
     ik.target = rig
@@ -485,10 +535,10 @@ def _setup_3p_controllers(context, rig, step):
     ik.subtarget = R_wrist_CTRL.name
     ik.pole_target = rig
     ik.pole_subtarget = right_elbow_CTRL.name
-    ik.pole_angle = math.radians(180)
     ik.chain_count = 3
     ik.name = AUTO_SETUP_ID + '_IK_right_ullna'
     ik.use_tail = False
+    _calc_ik_pole_angle(context, rig, rig.pose.bones['right_ullna'])
 
     # legs
     cp_rot = rig.pose.bones['left_foot'].constraints.new(type='COPY_ROTATION')
@@ -506,18 +556,18 @@ def _setup_3p_controllers(context, rig, step):
     ik.subtarget = left_foot_CTRL.name
     ik.pole_target = rig
     ik.pole_subtarget = left_knee_CTRL.name
-    ik.pole_angle = math.radians(-90)
     ik.chain_count = 3
     ik.name = AUTO_SETUP_ID + '_IK_left_lowerleg'
+    _calc_ik_pole_angle(context, rig, rig.pose.bones['left_lowerleg'])
 
     ik = rig.pose.bones['right_lowerleg'].constraints.new(type='IK')
     ik.target = rig
     ik.subtarget = right_foot_CTRL.name
     ik.pole_target = rig
     ik.pole_subtarget = right_knee_CTRL.name
-    ik.pole_angle = math.radians(-90)
     ik.chain_count = 3
     ik.name = AUTO_SETUP_ID + '_IK_right_lowerleg'
+    _calc_ik_pole_angle(context, rig, rig.pose.bones['right_lowerleg'])
 
     # declutter viewport by changing bone display mode
     # and hiding all bones except controllers and finger bones
@@ -655,9 +705,9 @@ def _setup_1p_controllers(context, rig, step):
     ik.subtarget = L_wrist_CTRL.name
     ik.pole_target = rig
     ik.pole_subtarget = L_elbow_CTRL.name
-    ik.pole_angle = 0
     ik.chain_count = 4
     ik.name = AUTO_SETUP_ID + '_IK_L_ullna'
+    _calc_ik_pole_angle(context, rig, rig.pose.bones['L_ullna'])
 
     ik = rig.pose.bones['R_collar'].constraints.new(type='IK')
     ik.target = rig
@@ -670,9 +720,9 @@ def _setup_1p_controllers(context, rig, step):
     ik.subtarget = R_wrist_CTRL.name
     ik.pole_target = rig
     ik.pole_subtarget = R_elbow_CTRL.name
-    ik.pole_angle = math.radians(180)
     ik.chain_count = 4
     ik.name = AUTO_SETUP_ID + '_IK_R_ullna'
+    _calc_ik_pole_angle(context, rig, rig.pose.bones['R_ullna'])
 
     # declutter viewport by changing bone display mode
     # and hiding all bones except controllers and finger bones
