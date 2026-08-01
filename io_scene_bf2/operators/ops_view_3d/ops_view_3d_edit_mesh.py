@@ -26,7 +26,8 @@ class EDIT_MESH_SELECT_OT_bf2_select_anim_uv_matrix(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         cls.poll_message_set("Mesh has no Animated UV matrix index attribute")
-        return context.object and 'animuv_matrix_index' in context.object.data.attributes
+        return (context.object and context.object.type == 'MESH' and
+                'animuv_matrix_index' in context.object.data.attributes)
 
     def execute(self, context):
         obj = context.view_layer.objects.active

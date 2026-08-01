@@ -189,6 +189,13 @@ def _set_weapon_mesh(self, anim_filepath):
     meshes_dir = os.path.normpath(meshes_dir)
     if mesh_file := _find_file(meshes_dir, _matcher):
         self.weapon_mesh_file = mesh_file
+    else:
+        # didn't match animation file exactly, take any .bundledmesh
+        for f in os.listdir(meshes_dir):
+            fullpath = os.path.join(meshes_dir, f)
+            if fullpath.lower().endswith('.bundledmesh') and os.path.isfile(fullpath):
+                self.weapon_mesh_file = fullpath
+                return
 
 def _find_meshes_dir_recursive(self, dir):
     if not os.path.isdir(dir):

@@ -19,9 +19,8 @@ As well as many other utilities for:
 
 ## Compatibility
 
-|                           |             |
-| ------------------------- | ----------- |
 | Minimum required          | Blender 4.2 |
+| ------------------------- | ----------- |
 | Recommended <sup>1</sup>  | Blender 5.2 |
 
 <sup>1</sup>For best experiance always use the recommended Blender version. Newer versions of Blender might still work but have not been verified!
