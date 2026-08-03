@@ -12,11 +12,75 @@ from .exceptions import ImportException, ExportException
 MAX_ITEMS_1P = 16
 MAX_ITEMS_3P = 8
 
-def ske_set_bone_rot(bone, deg, axis):
-    bone['bf2_rot_fix'] = list(Matrix.Rotation(math.radians(deg), 4, axis))
-
 def ske_get_bone_rot(bone):
     return Matrix(bone.get('bf2_rot_fix', Matrix.Identity(4)))
+
+# minimum consensus below which the children are considered to point in opposing directions
+# and the bone keeps its default orientation instead of being tilted toward one of them
+SKE_DIRECTION_MIN_CONSENSUS = 0.5
+
+def _ske_bone_direction(node, _dir_cache=None):
+    if _dir_cache is None:
+        _dir_cache = dict()
+    if node in _dir_cache:
+        return _dir_cache[node]
+
+    # direction the chain is coming from (the parent's bone direction), expressed
+    # in this node's local frame
+    if node.parent:
+        parent_dir = _ske_bone_direction(node.parent, _dir_cache)
+        incoming = node.rot.to_matrix().inverted() @ parent_dir
+    else:
+        incoming = None
+
+    # weapon part ('mesh') bones are not part of the chain, ignore them here
+    candidates = list()
+    for child in node.children:
+        if child.name.startswith('mesh'):
+            continue
+        pos = Vector(child.pos)
+        if pos.length > 1e-6:
+            candidates.append(pos.normalized())
+
+    if candidates:
+        # if the children point in opposing directions there is no single logical
+        # direction, keep the bone with its default orientation
+        total = Vector((0.0, 0.0, 0.0))
+        for direction in candidates:
+            total += direction
+        if total.length < SKE_DIRECTION_MIN_CONSENSUS * len(candidates):
+            direction = Vector((0.0, 0.0, 1.0))
+            _dir_cache[node] = direction
+            return direction
+
+        # the most logical direction continues the chain coming from the parent,
+        # with alignment with all the children as a tie-breaker
+        if incoming is None:
+            def _score(direction):
+                return (0.0,
+                        sum(max(0.0, direction.dot(other)) for other in candidates))
+        else:
+            def _score(direction):
+                return (direction.dot(incoming),
+                        sum(max(0.0, direction.dot(other)) for other in candidates))
+        direction = max(candidates, key=_score)
+        _dir_cache[node] = direction
+        return direction
+
+    if node.parent:
+        # no children: just copy the parent direction
+        direction = incoming.normalized()
+
+        # ... or keep the bone's own orientation, only correct the
+        # pointing axis (180 deg flips) so it faces along the chain coming from the parent
+
+        # axes = [Vector((0.0, 0.0, 1.0)), Vector((0.0, 0.0, -1.0))]
+        # direction = max(axes, key=lambda axis: axis.dot(incoming))
+    else:
+        # lone root bone, keep the default orientation
+        direction = Vector((0.0, 0.0, 1.0))
+    _dir_cache[node] = direction
+    return direction
 
 def ske_weapon_part_ids(rig):
     ske_bones = rig['bf2_bones']
@@ -98,7 +162,7 @@ def _create_camera(context, rig):
 
     return camera_object
 
-def import_skeleton(context, skeleton_file, reload=False):
+def import_skeleton(context, skeleton_file, fix_bone_dir=True, reload=False):
     try:
         skeleton = BF2Skeleton(skeleton_file)
     except BF2SkeletonException as e:
@@ -129,16 +193,22 @@ def import_skeleton(context, skeleton_file, reload=False):
         
         # transform is in armature space, so first need to move bone to origin
         bone.head = [0, 0, 0]
-        
-        # this is to unfuck (and refuck during export) rotation of bone in blender
-        # head/tail position is directly tied to bone rotation (exept bone roll)
-        # so if the bone points "up" (along Z axis) then it's the same as if it was rotated by 90 deg
-        ske_set_bone_rot(bone, 90, 'X')
 
-        if node.children and node.children[0].pos.z < 0.0:
-            # quck hack to fix some bone rotations
-            # right ones seem to point in the opposite direction in the BF2 skeleton export
-            ske_set_bone_rot(bone, -90, 'X')
+        if fix_bone_dir:
+            # BF2 bones have no 'tail', only a 'head', so their direction is ambiguous
+            # and often points away from their child. Calculate the proper orientation
+            # (pointing toward the most logical child) and store it, it is reversed on export
+            direction = _ske_bone_direction(node)
+            rot_fix = Vector((0.0, 0.0, 1.0)).rotation_difference(direction).to_matrix().to_4x4()
+        else:
+            rot_fix = Matrix.Identity(4)
+
+        # apply Blender correction matrix
+        # head/tail position is directly tied to bone rotation (except bone roll)
+        # so if the bone points "up" (along Z axis) then it's the same as if it was rotated by 90 deg
+        rot_fix @= Matrix.Rotation(math.radians(90), 4, 'X')
+
+        bone['bf2_rot_fix'] = list(rot_fix)
 
         # get the lenght, blender does not allow to create bones with length == 0 (or close to zero)
         if len(node.children) == 1:

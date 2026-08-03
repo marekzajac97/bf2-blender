@@ -1,6 +1,5 @@
 import bpy # type: ignore
-import traceback
-from bpy.props import StringProperty # type: ignore
+from bpy.props import StringProperty, BoolProperty # type: ignore
 from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
 from ..utils import RegisterFactory
@@ -17,9 +16,16 @@ class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImporterBase, SkeMeta):
 
     filter_glob: StringProperty(default="*.ske", options={'HIDDEN'}) # type: ignore
 
+    fix_bone_dir: BoolProperty(
+        name="Fix bone direction",
+        description="When enabled each bone gets re-oriented so that bone's tail points toward its children. "
+                    "Disabling this keeps the original messy bone transformations",
+        default=True
+    ) # type: ignore
+
     def _execute(self, context):
         context.view_layer.objects.active = \
-            import_skeleton(context, self.filepath)
+            import_skeleton(context, self.filepath, fix_bone_dir=self.fix_bone_dir)
 
 
 class EXPORT_OT_bf2_skeleton(bpy.types.Operator, ExporterBase, SkeMeta):
