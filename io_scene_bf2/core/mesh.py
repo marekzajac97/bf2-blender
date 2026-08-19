@@ -802,8 +802,8 @@ class MeshExporter:
                 vertex_group_to_part_id[vg.index] = part_id
 
             # NOTE: some geometry parts migh have no verts assigned at all
-            # that's why we gonna write all groups defined
-            bf2_lod.parts_num = len(vertex_group_to_part_id)
+            # that's why we have to write the highest geometry part index used
+            bf2_lod.parts_num = max(vertex_group_to_part_id.values()) + 1
             if bf2_lod.parts_num > MAX_GEOM_LIMIT:
                 self.reporter.warning(f"{lod_obj.name}: BF2 only supports a maximum of "
                                       f"{MAX_GEOM_LIMIT} geometry parts but got {bf2_lod.parts_num}")
