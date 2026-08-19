@@ -2,7 +2,7 @@ import bpy # type: ignore
 import traceback
 import os
 
-from bpy.props import StringProperty, EnumProperty, BoolProperty # type: ignore
+from bpy.props import StringProperty, IntProperty, BoolProperty # type: ignore
 
 from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
@@ -279,6 +279,14 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
             subtype="FILE_PATH"
         ) # type: ignore
 
+    weapon_lod_index: IntProperty(
+        name="Weapon LOD index",
+        description="Which weapon LOD should be imported",
+        default=0,
+        min=0,
+        max=6
+    ) # type: ignore
+
     weapon_anim_file: StringProperty (
             name="Weapon animation file",
             subtype="FILE_PATH",
@@ -335,8 +343,8 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
             # ------------
             weapon_to_soldier_binding = list()
             bpy.ops.bf2.ske_import(filepath=self.ske_file)
-            bpy.ops.bf2.mesh_import(filepath=self.soldier_mesh_file, only_selected_lod=True, geom=1 if is_3p else 0, lod=0)
-            bpy.ops.bf2.mesh_import(filepath=self.weapon_mesh_file, only_selected_lod=True, geom=1 if is_3p else 0, lod=0)
+            bpy.ops.bf2.mesh_import(filepath=self.soldier_mesh_file, only_selected_lod=True, geom=1 if is_3p else 0, lod=self.weapon_lod_index)
+            bpy.ops.bf2.mesh_import(filepath=self.weapon_mesh_file, only_selected_lod=True, geom=1 if is_3p else 0, lod=self.weapon_lod_index)
             if self.single_animation:
                 bpy.ops.bf2.baf_import(filepath=self.weapon_anim_file, to_new_action=True)
                 weapon_action = bpy.context.object.animation_data.action
@@ -376,6 +384,7 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
             layout.prop(self, 'weapon_anim_dir')
 
         layout.prop(self, 'weapon_mesh_file')
+        layout.prop(self, 'weapon_lod_index')
         layout.prop(self, 'ske_file')
         col = layout.column()
         if self.single_animation:
