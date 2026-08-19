@@ -1,6 +1,6 @@
 import bpy # type: ignore
 import bmesh # type: ignore
-import math
+from mathutils import Vector # type: ignore
 
 from bpy.props import IntProperty, BoolProperty # type: ignore
 
@@ -124,26 +124,92 @@ class EDIT_MESH_SELECT_MT_bf2_submenu(bpy.types.Menu):
 def menu_func_edit_mesh_select(self, context):
     self.layout.menu(EDIT_MESH_SELECT_MT_bf2_submenu.bl_idname, text="BF2")
 
-def _get_2d_cursor_location(context):
-    for area in context.screen.areas:
-        if area.type == 'IMAGE_EDITOR':
-            return area.spaces.active.cursor_location
-
 class EDIT_MESH_OT_bf2_set_anim_uv_rotation_center(bpy.types.Operator):
     bl_idname = "bf2.mesh_set_uv_rotation_center"
     bl_label = "Set Animated UV Roation Center"
-    bl_description = "Sets the center of UV rotation for the selected elements to the 2D cursor"
+    bl_description = "Sets the UV rotation center for the selected elements from either the 2D cursor location or the midpoint of all UV coordinates"
+
+    from_2d_cursor: BoolProperty(
+        default=False,
+        options={'HIDDEN'},
+    ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        cls.poll_message_set("No mesh object is active")
+        return context.object and context.object.type == 'MESH'
 
     def execute(self, context):
-        obj = context.view_layer.objects.active
+        obj = context.object
         mesh = obj.data
 
-        uv = flip_uv(_get_2d_cursor_location(context))
+        uv = None
+        if self.from_2d_cursor:
+            uv = self. _get_2d_cursor_location(context)
+        else:
+            uv = self._get_uv_midpoint(obj)
+
+        if uv is None:
+            return {'CANCELLED'}
+
+        uv = flip_uv(uv)
+
+        print(uv)
+
         if 'animuv_rot_center' not in mesh.attributes:
             mesh.attributes.new('animuv_rot_center', 'FLOAT2', 'POINT')
         mesh.attributes.active = mesh.attributes['animuv_rot_center']
         bpy.ops.mesh.attribute_set(value_float_vector_2d=uv)
         return {'FINISHED'}
+
+    def _get_2d_cursor_location(self, context):
+        for area in context.screen.areas:
+            if area.type == 'IMAGE_EDITOR':
+                return area.spaces.active.cursor_location
+
+        self.report({'ERROR'}, "No UV / Image Editor area found")
+        return None
+
+    def _get_uv_midpoint(self, obj):
+        current_mode = bpy.context.object.mode
+        if current_mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        bm = bmesh.new()
+        bm.from_mesh(obj.data)
+
+        uv_layer = bm.loops.layers.uv.verify()
+
+        uv_coords = []
+        selected_verts = [v for v in bm.verts if v.select]
+
+        if not selected_verts:
+            self.report({'ERROR'}, "No vertices selected")
+            bm.free()
+            return None
+
+        for vert in selected_verts:
+            for loop in vert.link_loops:
+                uv = loop[uv_layer].uv
+                uv_coords.append(Vector((uv.x, uv.y)))
+
+        if not uv_coords:
+            self.report({'ERROR'}, "No UV coordinates found for selected vertices")
+            bm.free()
+            return None
+
+        midpoint = Vector((0, 0))
+        for uv in uv_coords:
+            midpoint += uv
+        
+        midpoint /= len(uv_coords)
+
+        bm.free()
+
+        if current_mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode=current_mode)
+
+        return midpoint
 
 class EDIT_MESH_OT_bf2_set_anim_uv_matrix(bpy.types.Operator):
     bl_idname = "bf2.mesh_set_uv_matrix"
@@ -156,6 +222,11 @@ class EDIT_MESH_OT_bf2_set_anim_uv_matrix(bpy.types.Operator):
         min=0,
         max=6
     ) # type: ignore
+
+    @classmethod
+    def poll(cls, context):
+        cls.poll_message_set("No mesh object is active")
+        return context.object and context.object.type == 'MESH'
 
     def execute(self, context):
         obj = context.view_layer.objects.active
@@ -173,7 +244,8 @@ class EDIT_MESH_MT_bf2_submenu(bpy.types.Menu):
     def draw(self, context):
         op_matrix = EDIT_MESH_OT_bf2_set_anim_uv_matrix.bl_idname
         op_rot_center = EDIT_MESH_OT_bf2_set_anim_uv_rotation_center.bl_idname
-        self.layout.operator(op_rot_center, text="Set Animated UV Rotation Center")
+        self.layout.operator(op_rot_center, text="Set Animated UV Rotation Center (from 2D cursor)").from_2d_cursor = True
+        self.layout.operator(op_rot_center, text="Set Animated UV Rotation Center (from midpoint)").from_2d_cursor = False
         self.layout.operator(op_matrix, text="Clear Wheel/Track Rotation/Translation").uv_matrix_index = AnimUv.NONE
         self.layout.operator(op_matrix, text="Assign To Left Wheel Rotation").uv_matrix_index = AnimUv.L_WHEEL_ROTATION
         self.layout.operator(op_matrix, text="Assign To Left Wheel Translation").uv_matrix_index = AnimUv.L_WHEEL_TRANSLATION
