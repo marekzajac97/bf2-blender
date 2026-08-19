@@ -206,7 +206,6 @@ class MeshImporter:
                         if uv_ratio is None:
                             try:
                                 uv_ratio = _get_anim_uv_ratio(bf2_mat.maps[0], self.texture_paths)
-                                print(bf2_mat.maps[0], 'UV ratio:', uv_ratio)
                             except Exception as e:
                                 uv_ratio = (1.0, 1.0)
                                 self.reporter.warning(f"{e}\n UVs of rotating parts may be incorrect!")

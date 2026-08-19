@@ -154,8 +154,6 @@ class EDIT_MESH_OT_bf2_set_anim_uv_rotation_center(bpy.types.Operator):
 
         uv = flip_uv(uv)
 
-        print(uv)
-
         if 'animuv_rot_center' not in mesh.attributes:
             mesh.attributes.new('animuv_rot_center', 'FLOAT2', 'POINT')
         mesh.attributes.active = mesh.attributes['animuv_rot_center']
