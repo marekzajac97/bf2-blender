@@ -100,13 +100,17 @@ This section lists all the requirements needed for the finished model to become 
 - Each child of the root object must be an empty object corresponding to Geom (prefixed with `G<index>__`). Statics may also contain an empty child object which defines its anchor point (prefixed with `ANCHOR__`).
 - Each child of the Geom object must be an object corresponding to Lod (prefixed with `G<index>L<index>__`) containing mesh data. There must be at least one Lod.
 - Lods should have their [origin set at center of the geometry](https://docs.blender.org/manual/en/latest/scene_layout/object/origin.html#set-origin). This optimizes bounding spheres and avoids frustum culling related bugs (objects disappearing at certain viewing angles).
-- For BundledMeshes, each Lod may contain multiple child objects representing its child ObjectTemplates. Each Lod must contain the same hierarchy of those (their names and transformations must match between Lods). If the child object is an empty object, it will export with no geometry part index assigned, use it for exporting invisible logical gameplay elements such as the `Engine`.
-- Each object in the hierarchy should have its an ObjectTemplate type set. You will find this property in the `Object Properties` tab, `Battlefield 2` panel (it defaults to `SimpleObject`). This property can be left empty when an object is intended to be exported as a separate geometry part but at the same time doesn't represent any ObjectTemplate (this mostly applies to exporting animatable weapon parts such as mags, bolt handles etc).
+- For BundledMeshes, each Lod may contain multiple child objects representing its child ObjectTemplates. Each Lod must contain the same hierarchy of those (their names and transformations must match between Lods)<sup>1</sup>. If the child object is an empty object, it will export with no geometry part index assigned; this may be used for exporting invisible logical gameplay elements such as the `Engine`.
+- Each object in the hierarchy should have its an ObjectTemplate type set. You will find this property in the `Object Properties` tab, `Battlefield 2` panel (it defaults to `SimpleObject`)<sup>2</sup>. 
 
-#### Some examples of object hierarchies
+<sup>1</sup> A single object (geometry part) may be present in one LODs hierarchy but missing in another, e.g. in low detail LODs, some geometry parts can be merged with the parent (when the part movement wouldn't be seen anyway due to distance)
+
+<sup>2</sup> This property may be left empty when an object is intended to be exported as a separate geometry part but at the same time doesn't represent any child ObjectTemplate (this is common when exporting animatable weapon parts such as mags, bolt handles etc).
+
+Examples of object hierarchies (`[m]` tag indicates that the object contains mesh data):
 
 <details>
-  <summary>StaticMesh</summary>
+  <summary>StaticMesh (a simple house)</summary>
 
 ```
 StaticMesh_house
@@ -219,8 +223,6 @@ SkinnedMesh_soldier
 ```
 </details>
 
-`[m]` tag indicates that the object contains mesh data.
-
 ## Materials and UVs
 - Each material assigned to any visible mesh must be prepared for export. To set up BF2 material go to `Material Properties`, you should see the `BF2 Material` panel there. Enable `Is BF2 Material` and choose appropriate `Shader`, `Technique`, `Alpha Mode` as well as desired texture maps to load.
     - For StaticMesh: There will be 6 texture slots for Base, Detail, Dirt, Crack, Detail Normal, and Crack Normal. Only Base texture is mandatory, if others are not meant to be used, leave them empty.
@@ -242,7 +244,7 @@ BF2 BundledMeshes support a cheap skinning method, allowing one "bone" per verte
 - be of type `Mesh`, so in case you need to e.g. link vertices to springs which are dummy objects without geometry, prefer to use any `Mesh` type with all its vertices removed instead of `Empty`.
 
 ## Animated UVs (BundledMesh)
-To set up animated UVs go to `Edit Mode`, select specific parts (vertices/faces) of your mesh that should use UV animation and assign them to proper sets using the `Mesh -> BF2` menu, choosing Left/Right Tracks/Wheels Translation/Rotation. You can also select vertices/faces currently assigned to those sets using the `Select -> BF2` menu. Vertices assigned to the "wheel rotation" set will additionally require setting up the centre point of UV rotation for each road wheel individually. Select all vertices, position the 2D cursor to the wheel centre in the UV Editing view, then select `Mesh -> BF2 -> Set Animated UV Rotation Center`. Repeat the process for every road wheel. Remember to also include `AnimatedUV` component in your material's technique!
+To set up animated UVs go to `Edit Mode`, select specific parts (vertices/faces) of your mesh that should use UV animation and assign them to proper sets using the `Mesh -> BF2` menu. You can also select vertices/faces currently assigned to those sets using the `Select -> BF2` menu. Track parts should be assigned to *Track Translation* set. Road wheel parts that use triangle strips (the rim/barrel) should be assigned to *Wheel Translation* set. Road wheel parts that use triangle fans (the circular base) should be assigned to *Wheel Rotation* set. All of the sets mentioned have their *Left* and *Right* variants depending on which side of the vehicle they belong to. In addition, vertices assigned to the *Wheel Rotation* set require setting up the centre point of UV rotation for each road wheel via `Mesh -> BF2 -> Set Animated UV Rotation Center`. This can be taken either from the calculated midpoint of UV coordinates or from the 2D cursor location. When you are done, remember to also include `AnimatedUV` component in your material's technique!
 
 ## Skinning (SkinnedMesh)
 In order to skin your model, you must import the BF2 skeleton into your scene. When skinning soldiers you will need two skeletons `1p_setup.ske` for 1P (Geom 0) and `3p_setup.ske` 3P (Geom 1). The first step is to switch to `Pose Mode` and pose the armature(s) to align it with your mesh(es) as best as possible. When you are done, make sure you apply this pose as the rest pose [Pose -> Apply -> Apply Pose As Rest Pose](https://docs.blender.org/manual/en/latest/animation/armatures/posing/editing/apply.html), then switch to `Object Mode` and for each Lod object go to `Modifiers` tab and [Add Modifier -> Deform -> Armature](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/armature.html), in modifier settings select 'Object' to point to the name of the imported skeleton. Now the hard part, you have to set vertex weights for each Lod, meaning how much each bone affects each vertex of the mesh. You could use automatic weights (which should be a good starting point) as follows:
