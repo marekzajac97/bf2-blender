@@ -206,9 +206,10 @@ class MeshImporter:
                         if uv_ratio is None:
                             try:
                                 uv_ratio = _get_anim_uv_ratio(bf2_mat.maps[0], self.texture_paths)
-                            except Exception:
+                                print(bf2_mat.maps[0], 'UV ratio:', uv_ratio)
+                            except Exception as e:
                                 uv_ratio = (1.0, 1.0)
-                                self.reporter.warning(f"Could not read texture size: {bf2_mat.maps[0]}")
+                                self.reporter.warning(f"{e}\n UVs of rotating parts may be incorrect!")
                         # FIX UVs for animated parts
                         # UV1 is actual UV, UV0 is just center of UV rotation / shift
                         # and needs to be corected by texture size ratio as well
@@ -1096,7 +1097,7 @@ def _get_texture_size(texture_file):
         f = FileUtils(file)
         magic = f.read_dword()
         if magic != 0x20534444:
-            raise ValueError(f"{texture_file} not a DDS file!")
+            raise ValueError(f"{texture_file} is not a DDS file!")
         size = f.read_dword()
         flags = f.read_dword()
         height = f.read_dword()
@@ -1104,19 +1105,19 @@ def _get_texture_size(texture_file):
         return height, width
 
 def _get_anim_uv_ratio(texture_map_file, texture_paths):
-    u_ratio = 1.0
-    v_ratio = 1.0
     for texture_path in texture_paths:
-        texture_map_file = os.path.join(texture_path, texture_map_file)
-        if os.path.isfile(texture_map_file):
-            texture_size = _get_texture_size(texture_map_file)
+        full_path = os.path.join(texture_path, texture_map_file)
+        if os.path.isfile(full_path):
+            texture_size = _get_texture_size(full_path)
             tex_height, tex_width = texture_size
+            u_ratio = 1.0
+            v_ratio = 1.0
             if tex_width > tex_height:
                 u_ratio = tex_height / tex_width
             elif tex_height > tex_width:
                 v_ratio = tex_width / tex_height
-            break
-    return u_ratio, v_ratio
+            return u_ratio, v_ratio
+    raise ValueError(f"{texture_map_file} not found in any of the texture paths: {texture_paths}")
 
 def _make_rest_tangent_space_node(uv_map='UV0'):
     name = 'RestPoseTangentSpace_' + 'UV0'
