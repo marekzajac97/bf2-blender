@@ -1,103 +1,71 @@
-name: Package and Release Addon
+name: Create Release
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Addon Version'
+      tag:
+        description: 'Release Tag (e.g., v0.5.0)'
         required: true
-      texconv_version:
-        description: 'Texconv Version (e.g., v0.5.0)'
-        required: true
-        default: 'v0.6.0'
+      run_id:
+        description: 'Build run id to use if no build was found for the tag (optional)'
+        required: false
+
+permissions:
+  contents: write
+  actions: read
 
 jobs:
-  package:
-    name: Package for ${{ matrix.platform_suffix }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - platform_suffix: linux-x64
-            texconv_file_suffix: Linux-x64.tar.xz
-            texconv_bin: libtexconv.so
-          - platform_suffix: windows-x64
-            texconv_file_suffix: Windows-x64.zip
-            texconv_bin: texconv.dll
-          - platform_suffix: windows-arm64
-            texconv_file_suffix: Windows-arm64.zip
-            texconv_bin: texconv.dll
-          - platform_suffix: macos-arm64
-            texconv_file_suffix: macOS-arm64.tar.xz
-            texconv_bin: libtexconv.dylib
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Fetch and Unpack Texconv
-        run: |
-          VERSION="${{ github.event.inputs.texconv_version }}"
-          FILE="TexconvCustomDLL-${VERSION}-${{ matrix.texconv_file_suffix }}"
-          URL="https://github.com/matyalatte/Texconv-Custom-DLL/releases/download/${VERSION}/${FILE}"
-          
-          echo "Downloading $URL"
-          curl -L -O "$URL"
-          
-          mkdir -p texconv_out
-          if [[ "$FILE" == *.zip ]]; then
-            unzip "$FILE" -d texconv_out
-          else
-            tar -xJf "$FILE" -C texconv_out
-          fi
-
-      - name: Prepare Addon Structure
-        run: |
-          # Add Texconv
-          mkdir -p io_scene_bf2/directx/
-          find texconv_out -name "${{ matrix.texconv_bin }}" -exec cp {} io_scene_bf2/directx/ \;
-
-          # Add Texconv third-party licenses
-          VERSION="${{ github.event.inputs.texconv_version }}"
-          LICENSES_URL="https://raw.githubusercontent.com/matyalatte/Texconv-Custom-DLL/${VERSION}/THIRD_PARTY_LICENSES.txt"
-          curl -L -o io_scene_bf2/directx/THIRD_PARTY_LICENSES.txt "$LICENSES_URL"
-
-      - name: Create Zip Archive (Contents Only)
-        id: create_zip
-        run: |
-          ZIP_NAME="io_scene_bf2-${{ github.event.inputs.version }}-${{ matrix.platform_suffix }}.zip"
-
-          cd io_scene_bf2
-          zip -r "../$ZIP_NAME" . -x "*.git*" "*__pycache__*"
-          cd ..
-
-          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
-
-      - name: Upload Packaged Zip as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.create_zip.outputs.zip_name }}
-          path: ${{ steps.create_zip.outputs.zip_name }}
-
   release:
     name: Create Draft Release
-    needs: package
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
+      - name: Resolve Release Run
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+
+          # Resolve tag to commit SHA (handles annotated tags)
+          REF="$(gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}" --jq '.object.sha')"
+          SHA="$(gh api "repos/${{ github.repository }}/git/tags/${REF}" --jq '.object.sha' 2>/dev/null || echo "${REF}")"
+
+          # Find the build workflow run for that commit
+          RUN_ID="$(gh api "repos/${{ github.repository }}/actions/workflows/build_packages.yml/runs?head_sha=${SHA}&per_page=1" --jq '.workflow_runs[0].id')"
+
+          if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
+            RUN_ID="${{ github.event.inputs.run_id }}"
+          fi
+
+          if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
+            echo "::error::No build found for ${TAG} (commit ${SHA}) and no run_id provided."
+            exit 1
+          fi
+
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
       - name: Download all zipped artifacts
         uses: actions/download-artifact@v4
         with:
+          run-id: ${{ steps.resolve.outputs.run_id }}
           pattern: io_scene_bf2-*
-          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts
+
+      - name: Rename Artifacts to Tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          cd artifacts
+          for f in io_scene_bf2-*.zip; do
+            mv "$f" "io_scene_bf2-${TAG}-${f##*-}"
+          done
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          name: Release ${{ github.event.inputs.version }}
+          tag_name: ${{ github.event.inputs.tag }}
+          name: Release ${{ github.event.inputs.tag }}
           draft: true
-          files: ./*.zip
+          files: artifacts/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

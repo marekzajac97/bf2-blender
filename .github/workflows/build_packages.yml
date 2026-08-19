@@ -1,0 +1,74 @@
+name: Build Packages
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  package:
+    name: Package for ${{ matrix.platform_suffix }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform_suffix: linux-x64
+            texconv_file_suffix: Linux-x64.tar.xz
+            texconv_bin: libtexconv.so
+          - platform_suffix: windows-x64
+            texconv_file_suffix: Windows-x64.zip
+            texconv_bin: texconv.dll
+          - platform_suffix: windows-arm64
+            texconv_file_suffix: Windows-arm64.zip
+            texconv_bin: texconv.dll
+          - platform_suffix: macos-arm64
+            texconv_file_suffix: macOS-arm64.tar.xz
+            texconv_bin: libtexconv.dylib
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Fetch and Unpack Texconv
+        run: |
+          VERSION="v0.6.0"
+          FILE="TexconvCustomDLL-${VERSION}-${{ matrix.texconv_file_suffix }}"
+          URL="https://github.com/matyalatte/Texconv-Custom-DLL/releases/download/${VERSION}/${FILE}"
+
+          echo "Downloading $URL"
+          curl -L -O "$URL"
+
+          mkdir -p texconv_out
+          if [[ "$FILE" == *.zip ]]; then
+            unzip "$FILE" -d texconv_out
+          else
+            tar -xJf "$FILE" -C texconv_out
+          fi
+
+      - name: Prepare Addon Structure
+        run: |
+          # Add Texconv
+          mkdir -p io_scene_bf2/directx/
+          find texconv_out -name "${{ matrix.texconv_bin }}" -exec cp {} io_scene_bf2/directx/ \;
+
+          # Add Texconv third-party licenses
+          VERSION="v0.6.0"
+          LICENSES_URL="https://raw.githubusercontent.com/matyalatte/Texconv-Custom-DLL/${VERSION}/THIRD_PARTY_LICENSES.txt"
+          curl -L -o io_scene_bf2/directx/THIRD_PARTY_LICENSES.txt "$LICENSES_URL"
+
+      - name: Create Zip Archive (Contents Only)
+        id: create_zip
+        run: |
+          ZIP_NAME="io_scene_bf2-${{ github.sha }}-${{ matrix.platform_suffix }}.zip"
+
+          cd io_scene_bf2
+          zip -r "../$ZIP_NAME" . -x "*.git*" "*__pycache__*"
+          cd ..
+
+          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload Packaged Zip as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.create_zip.outputs.zip_name }}
+          path: ${{ steps.create_zip.outputs.zip_name }}
