@@ -14,12 +14,18 @@ from ...core.utils import (find_root, save_img_as_dds,
                            set_power_of_two_int_array,
                            get_power_of_two_int_array,
                            matrix_to_yaw_pitch_roll, swap_zy,
-                           strip_geom_lod_prefix,
-                           strip_numeric_suffix)
+                           strip_geom_lod_prefix)
 from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
 from ...core.tools.og_lod_generator import generate_og_lod
 from ...core.tools.fence_generator import make_objects_on_curve
 from ...core.material import setup_material
+
+def _strip_numeric_suffix(s):
+    if '.' not in s:
+        return s
+    head, tail = s.rsplit('.', 1)
+    if tail.isnumeric():
+        return head
 
 class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
     bl_idname = "bf2.gen_og_lod"
@@ -255,7 +261,7 @@ class OBJECT_OT_make_object_con_def(bpy.types.Operator):
             matrix_world = obj.matrix_world
             pos = swap_zy(matrix_world.translation)
             rot = matrix_to_yaw_pitch_roll(matrix_world)
-            name = strip_numeric_suffix(obj.name)
+            name = _strip_numeric_suffix(obj.name)
             name = strip_geom_lod_prefix(name)
             result += f'rem *** {name} ***\n'
             result += f'Object.create {name}\n'

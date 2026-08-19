@@ -422,13 +422,6 @@ def matrix_to_yaw_pitch_roll(m):
     roll = math.atan2(m[2][0], m[2][2])
     return tuple(map(math.degrees, (yaw, pitch, roll)))
 
-def strip_numeric_suffix(s):
-    if '.' not in s:
-        return s
-    head, tail = s.rsplit('.', 1)
-    if tail.isnumeric():
-        return head
-
 def strip_geom_lod_prefix(s):
     for char_idx, _ in enumerate(s):
         if s[char_idx:].startswith('__'):
