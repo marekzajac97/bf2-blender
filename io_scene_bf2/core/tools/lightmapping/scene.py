@@ -40,8 +40,7 @@ LIGHTMAPPING_CONFIG_TEMPLATE = \
 
 # Used to assign lightmap sizes to the object
 # based on the total surface area of the mesh in meters squared
-# NOTE1: values are only used when `.samples` file does not exist for the mesh
-# NOTE2: values for LOD0, size for consequtive lods will be halved
+# NOTE: values for LOD0, size for consecutive lods will be halved
 LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS = [
     # {'size': 8, 'min_area': 0},
     # {'size': 16, 'min_area': 4},
@@ -52,6 +51,9 @@ LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS = [
     # {'size': 512, 'min_area': 1024},
     # {'size': 1024, 'min_area': 2056}
 ]
+
+# whether to use sizes from `.samples` file when exists instead of the `LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS` (defaults to `True`)
+# USE_LIGHTMAP_SAMPLES = False
 
 # Skips loading meshes for GeometryTemplates
 # whose .con locations match the pattern
@@ -73,8 +75,8 @@ FORCE_TWO_SIDED = [
     # 'command_underground'
 ]
 
-# Replaces textures paths on materials:
-#   'from' - the source texture pattern, NOTE: it's only Color/Detail/Crack/Dirt textures, not normal maps
+# Replaces texture paths on materials:
+#   'from' - the source texture pattern (only Color/Detail/Crack/Dirt textures allowed)
 #   'to' - the target texture path
 #   'alpha_mode' - optional, the value must be either:
 #      'ALPHA_TEST' - texture's alpha channel will be used as transparency. Material will not receive or cast any shadows.
@@ -111,6 +113,8 @@ DEFAULT_LM_SIZE_TO_SURFACE_AREA_THRESHOLDS = [
     {'size': 512, 'min_area': 1024},
     {'size': 1024, 'min_area': 2056}
 ]
+
+DEFAULT_USE_LIGHTMAP_SAMPLES = True
 
 MESH_TYPES = {
     'StaticMesh': BF2StaticMesh,
@@ -646,6 +650,7 @@ def load_level(context, level_dir, use_cache=True,
         config = _module_from_file(config_file)
 
     lm_size_thresholds = _get_lm_size_thresholds(config, reporter)
+    use_samples = getattr(config, 'USE_LIGHTMAP_SAMPLES', DEFAULT_USE_LIGHTMAP_SAMPLES)
     ray_vis_mask = _make_ray_visibility_mask()
 
     if load_unpacked:
@@ -765,19 +770,19 @@ def load_level(context, level_dir, use_cache=True,
 
             for lod_idx, lod_obj in enumerate(geoms[0]): # TODO: Geom1 support
                 lm_size = None
-
                 if not skip_lightmaps:
-                    if lod_idx == 0:
-                        fname = path.join(meshes_dir, geom_temp.name + '.samples')
-                    else:
-                        fname = path.join(meshes_dir, geom_temp.name + f'.samp_{lod_idx:02d}')
+                    if use_samples:
+                        if lod_idx == 0:
+                            fname = path.join(meshes_dir, geom_temp.name + '.samples')
+                        else:
+                            fname = path.join(meshes_dir, geom_temp.name + f'.samp_{lod_idx:02d}')
 
-                    if load_unpacked:
-                        if path.isfile(fname):
-                            with open(fname, "rb") as f:
-                                lm_size = BF2Samples.read_map_size_from(f)
-                    else:
-                        raise NotImplementedError() # TODO
+                        if load_unpacked:
+                            if path.isfile(fname):
+                                with open(fname, "rb") as f:
+                                    lm_size = BF2Samples.read_map_size_from(f)
+                        else:
+                            raise NotImplementedError() # TODO
 
                     if lm_size is None:
                         if lod0_lm_size is not None:
@@ -787,7 +792,10 @@ def load_level(context, level_dir, use_cache=True,
                             # guess using surface area of the mesh
                             mesh_area = _calc_mesh_area(lod_obj.data)
                             if not lm_size_thresholds:
-                                reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', .samples file not found and LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
+                                if use_samples:
+                                    reporter.warning(f"Cannot determine LM size for mesh '{geom_temp.name}', .samples file not found and LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty")
+                                else:
+                                    reporter.error(f"Cannot determine LM size for mesh '{geom_temp.name}', LIGHTMAP_SIZE_TO_SURFACE_AREA_THRESHOLDS is empty and USE_LIGHTMAP_SAMPLES = False")
                                 lm_size = (0, 0)
                             else: 
                                 for lms, min_area in reversed(lm_size_thresholds):
