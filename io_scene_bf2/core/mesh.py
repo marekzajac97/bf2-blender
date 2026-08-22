@@ -446,31 +446,41 @@ class MeshImporter:
         for i, ske_bone in enumerate(ske_bones):
             id_to_bone[i] = armature.edit_bones[ske_bone]
 
-        rigs_bones = list()
+        # get list of bones per material
+        material_bones = list()
         for bf2_rig in bf2_lod.rigs:
             rig_bones = list()
             for bf2_bone in bf2_rig.bones:
                 m = conv_bf2_to_blender(bf2_bone.matrix)
+                if bf2_bone.id not in id_to_bone:
+                    raise ImportException(f"{mesh_obj.name}: The bone index {bf2_bone.id} is not present in the BF2 skeleton '{rig.name}', it has likely been exported for a different skeleton.")
                 bone_obj = id_to_bone[bf2_bone.id]
                 bone_obj.matrix = m @ ske_get_bone_rot(bone_obj)
                 rig_bones.append(bone_obj.name)
-            rigs_bones.append(rig_bones)
+            material_bones.append(rig_bones)
+
+        if all([len(bone_list) == 0 for bone_list in material_bones]):
+            # this is valid (e.g dropkit), skip linking to armature
+            bpy.ops.object.mode_set(mode='OBJECT')
+            return
 
         # get weigths from bf2 mesh
         vert_weigths = list()
-        for rig_bones, mat in zip(rigs_bones, bf2_lod.materials):
+        for rig_bones, mat in zip(material_bones, bf2_lod.materials):
             for vert in mat.vertices:
-                bone_ids = vert.blendindices
-                bone_weight = vert.blendweight[0]
-
                 weights = []
-                if rig_bones: # can be an empty list (e.g dropkit)
+                vert_weigths.append(weights)
+                if not rig_bones:
+                    # XXX: not sure if this is valid or not, didn't find any mesh like that
+                    raise ImportException(f"{mesh_obj.name}: Got SkinnedMesh material without any bones assigned")
+                else:
+                    bone_ids = vert.blendindices
+                    bone_weight = vert.blendweight[0]
                     _bone = rig_bones[bone_ids[0]]
                     weights.append((_bone, bone_weight))
                     if bone_weight < 1.0: # max two bones per vert
                         _bone = rig_bones[bone_ids[1]]
                         weights.append((_bone, 1.0 - bone_weight))
-                vert_weigths.append(weights)
 
         # create vertex group for each bone
         mesh_bones = ske_weapon_part_ids(rig)
@@ -812,14 +822,18 @@ class MeshExporter:
             bone_to_matrix = dict()
             bone_to_id = dict()
             if rig is None:
-                raise ExportException(f"{lod_obj.name}: does not have 'Armature' modifier or 'Object' in the modifier settings does not point to a BF2 skeleton")
-            ske_bones = rig['bf2_bones']
-
-            for bone_id, ske_bone in enumerate(ske_bones):
-                bone_obj = rig.data.bones[ske_bone]
-                m = bone_obj.matrix_local.copy() @ ske_get_bone_rot(bone_obj).inverted()
-                bone_to_matrix[bone_obj.name] = conv_blender_to_bf2(m)
-                bone_to_id[bone_obj.name] = bone_id
+                if len(lod_obj.vertex_groups):
+                    raise ExportException(f"{lod_obj.name}: mesh has got vertex groups but no skeleton object was found.\n"
+                                          f" Make sure the mesh has the 'Armature' modifier and the 'Object' in the modifier settings points to a BF2 skeleton")
+                else:
+                    self.reporter.warning(f"{lod_obj.name}: Skeleton object not found, exporting LOD without weights info.\n"
+                                          f" You can disregard this warning for dropkits; otherwise, make sure the mesh has the 'Armature' modifier and the 'Object' in the modifier settings points to a BF2 skeleton")
+            else:
+                for bone_id, ske_bone in enumerate(rig['bf2_bones']):
+                    bone_obj = rig.data.bones[ske_bone]
+                    m = bone_obj.matrix_local.copy() @ ske_get_bone_rot(bone_obj).inverted()
+                    bone_to_matrix[bone_obj.name] = conv_blender_to_bf2(m)
+                    bone_to_id[bone_obj.name] = bone_id
 
         # map materials to verts and faces
         mat_idx_to_verts_faces = dict()
@@ -983,7 +997,7 @@ class MeshExporter:
                                     bone_list.append(_bone_name)
                                     bf2_bone = bf2_rig.new_bone()
                                     if _bone_name not in bone_to_id:
-                                        raise ExportException(f"{lod_obj.name} (mat: {blend_material.name}): bone '{_bone_name}' is not present in BF2 skeleton")
+                                        raise ExportException(f"{lod_obj.name}: vertex group '{_bone_name}' does not reference a valid bone in the BF2 skeleton")
                                     bf2_bone.id = bone_to_id[_bone_name]
                                     bf2_bone.matrix = bone_to_matrix[_bone_name]
 
@@ -1066,8 +1080,6 @@ class MeshExporter:
                 print(stats)
 
             if mesh_type == BF2SkinnedMesh:
-                if not bone_list:
-                    self.reporter.info(f"{lod_obj.name}: Material '{blend_material.name}' has no weights assigned")
                 if len(bone_list) > MAX_BONE_LIMIT:
                     self.reporter.warning(f"{lod_obj.name}: BF2 only supports a maximum of {MAX_BONE_LIMIT} bones per material,"
                                           f" but material '{blend_material.name}' has got {len(bone_list)} bones (vertex groups) assigned!")

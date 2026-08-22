@@ -58,6 +58,12 @@ class EDIT_MESH_SELECT_OT_bf2_select_bad_weights(bpy.types.Operator):
     bl_label = "Select Invalid Skin Weights"
     bl_description = "Selects all elements with BF2 incompatible weights"
 
+    select_unassigned: BoolProperty(
+        name="Select Unassigned Weights",
+        description="Select elements which don't have any weights assigned",
+        default=True
+    ) # type: ignore
+
     select_unnormalized: BoolProperty(
         name="Select Unnormalized Weights",
         description="Select elements whose weights don't add-up to 1",
@@ -92,8 +98,10 @@ class EDIT_MESH_SELECT_OT_bf2_select_bad_weights(bpy.types.Operator):
             select = False
             if self.select_too_many:
                 select |= len(group_weights) > 2
+            if self.select_unassigned:
+                select |= len(group_weights) == 0
             if self.select_unnormalized:
-                select |= abs(sum(group_weights) - 1.0) > 0.0001
+                select |= len(group_weights) > 1 and abs(sum(group_weights) - 1.0) > 0.0001
 
             vert.select_set(select)
 

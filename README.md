@@ -23,11 +23,12 @@ As well as many other utilities for:
 | ------------------------- | ----------- |
 | Recommended <sup>1</sup>  | Blender 5.2 |
 
-<sup>1</sup>For best experiance always use the recommended Blender version. Newer versions of Blender might still work but have not been verified!
+<sup>1</sup> For best experiance always use the recommended Blender version. Newer versions of Blender might still work but have not been verified!
 
 ## Installation
 1. Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) compatible with your system
-2. Drag-and-drop the add-on's `.zip` file into Blender or [Install from Preferences](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
+2. Drag-and-drop the add-on's `.zip` file into Blender or [install it from preferences](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
+3. Before doing anything, follow the [initial add-on setup steps](docs/README.md#initial-add-on-setup)
 
 ## Usage
 Head over to the [Documentation](docs/README.md) for details on how to use this add-on

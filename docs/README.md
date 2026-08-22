@@ -25,10 +25,13 @@
 If you are completely unfamiliar with BF2 modding, consider reading [BF2 glossary](BF2.md) first, where you'll find explanations of BF2 specific terms and systems used throughout this documentation.
 
 # Initial Add-on setup
-Before using the add-on you must do two things:
+Before using the add-on you must do the following:
 - Configure path to your BF2 mod (`Edit -> Preferences -> Add-ons -> Battlefield 2 -> Preferences`). You may define multiple paths e.g. if your mod uses dependencies from the baseline game (`mods/bf2`)
 - Extract every `.zip` file from your mod directory into their respective folders (e.g. `objects_server.zip` and `objects_client.zip` must both be extracted to `objects` directory)
-- (Linux only) To avoid issues on case insensitive filesystem rename all your files to lower case (`find MOD_DIR -depth -exec rename 's/(.*)\/([^\/]*)/$1\/\L$2/' {} \;`)
+- **[Linux only]** To avoid issues on case insensitive filesystem rename all extracted files to lower case:
+    ```sh
+    find $MOD_DIR -depth -exec rename 's/(.*)\/([^\/]*)/$1\/\L$2/' {} \;
+    ```
 
 After that you may use `File -> Import/Export -> BF2` submenu or drag-and-drop any supported BF2 file into the viewport.
 
@@ -62,7 +65,7 @@ The skeleton will be imported as Blender's Armature object and before you start 
 - **Manually** - The armature can be freely extended by appending more bones to it which can act as helpers (constraint targets), but imported bones **MUST NOT** be modified! You cannot change their name, position, rotation or relations in `Edit Mode` otherwise your export will be all messed up. To alter their relations you can set up constraints (such as [Child Of](https://docs.blender.org/manual/en/latest/animation/constraints/relationship/child_of.html) and/or [Copy Transforms](https://docs.blender.org/manual/en/latest/animation/constraints/transform/copy_transforms.html) to other helper bones) on them instead.
 - **Automatically**:
   - Using external add-ons such as [Rigify](https://docs.blender.org/manual/en/latest/addons/rigging/rigify/index.html)
-  - Using this add-on's built-in option found under `Sidebar -> BF2 -> Run Setup`. This option can also be used after animations have been imported for easier editing of existing animations. By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Sidebar -> BF2 -> Change Parent` to fix that without messing up the existing animation data. NOTE: importing animations **AFTER** `Setup Controllers` has been run is not supported and will not work!
+  - Using this add-on's built-in option found under `Sidebar -> BF2 -> Run Setup`. This option can also be used after animations have been imported for easier editing of existing animations. By default, every controller bone will have no parent, meaning that some weapon parts will be detached from each other, you can use `Sidebar -> BF2 -> Change Parent` to fix that without messing up the existing animation data. NOTE: importing animations **AFTER** rig setup has been run is not supported and will not work!
 
 ## Animation Export
 Export settings allow you to choose:
@@ -73,23 +76,26 @@ Export settings allow you to choose:
 ## Recommended Extensions:
 Some very useful 3rd party add-ons for animating:
   * [Action to Scene Range](https://extensions.blender.org/add-ons/action-to-scene-range/) automatically applies [Action frame range](https://docs.blender.org/manual/en/latest/animation/actions.html#action-properties) to Scene frame range when switching actions (working with multiple animations)
-  * [Unlooped](https://extensions.blender.org/add-ons/unlooped/) prevents Blender from looping scene playback (useful for e.g. checking how smooth your fade outs to base pose are)
   * [Animation Auto Offset](https://extensions.blender.org/add-ons/anim-auto-offset/) works like auto-keying but transform changes affect the whole animation (3ds Max like behavior)
   * [FakeBones](https://extensions.blender.org/add-ons/fakebones/) can be used to clean up the visual mess after skeleton import since many vBF2 skeletons have bones pointing in random directions
 
 # ObjectTemplate vs Mesh import/export
-There are two ways of importing BF2 meshes. One is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure lacking some data present in the `.con` file, that's why its usability is limited. The second (and preferred) method is the `ObjectTemplate (.con)` option, which parses the ObjectTemplate definition allowing it to:
+There are two ways of importing BF2 meshes the add-on supports. First one is to use the `Import -> BF2` menu to directly import a specific mesh file type (`.staticMesh`, `.skinnedMesh`, `.bundledMesh` or `.collisionMesh`), which only imports the _raw_ mesh data according to its internal file structure and hierarchy; BundledMeshes will be imported **as a single mesh object** with its geometry parts assigned to vertex groups `mesh1`, `mesh2`, etc. The second (and preferred) method is the `ObjectTemplate (.con)` option, which parses the ObjectTemplate definition from the `.con` file allowing it to:
 - load visible mesh of the proper type
 - separate all geometry parts into Blender objects
 - transform (move & rotate) all geometry parts
 - map geometry parts to ObjectTemplates applying their names, types and hierarchy.
 - load collision mesh (with proper material names) and map collision parts to ObjectTemplates
+- automatically map SkinnedMesh Geoms to proper skeletons
 
 When you want to re-export a mesh that has been imported and modified, a proper option from the `Export -> BF2` menu has to be chosen based on the option used to import the mesh, meaning that when you import `.staticMesh` also export it as `.staticMesh`, other combinations will not work! Bare in mind that the `ObjectTemplate (.con)` exporter not only saves the ObjectTemplate's definition to a `.con` file but also exports visible mesh and collision mesh into the `Meshes` sub-directory.
 
 ## Known issues
-- Some vBF2 meshes and meshes exported with Autodesk 3ds Max may contain backfaces (another face defined over the same set of vertices but opposing normal directions). Such faces are (rightfully) illegal in Blender but for compatibility reasons are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face is tagged using a custom **boolean [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) in Face domain** called *`backface`*. When exporting a mesh, each face having attribute *`backface`* set will be exported as double-sided. To see exactly which faces are treated as double-sided while in `Edit Mode` select *`backface`* from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html).
-- Blender does not allow to import custom vertex tangents, therefore when re-exporting meshes they always get re-calculated. This may increase the number of unique vertices being exported. Use `Weld vertices` option when importing to mitigate this issue. NOTE: Blender generates tangent space using Mikk TSpace algorithm, your normal map must be baked using the same method or it will cause shading bugs in game.
+- vBF2 meshes may contain double-sided faces (two faces defined over the same set of vertices but opposing normal directions). Such faces are illegal in Blender but they are supported by the add-on. To avoid duplication of vertices when importing a mesh, each double-sided face is tagged using a custom **boolean [Attribute](https://docs.blender.org/manual/en/latest/modeling/geometry_nodes/attributes_reference.html) in Face domain** called *`backface`*. When exporting a mesh, each face having attribute *`backface`* set will be exported as double-sided. To see exactly which faces are treated as double-sided while in `Edit Mode` select *`backface`* from [Attributes in Object Data](https://docs.blender.org/manual/en/latest/modeling/meshes/properties/object_data.html#attributes) and use [Select -> By Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/selecting/by_attribute.html). To set or clear them use [Mesh -> Set Attribute](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/set_attribute.html). Double-sided faces will also appear properly in the material/shading view.
+- Mesh export is a **lossy** process, during which every vertex whose per-face attributes (such as the normal vector or UV coordinates) differ **will be split into a unique vertex**. Use `Weld vertices` option when importing a mesh if you intend to edit or re-export it. This automatically applies [Merge by Distance](https://docs.blender.org/manual/en/latest/modeling/meshes/editing/mesh/merge.html#bpy-ops-mesh-remove-doubles) operator (with *Sharp Edges* option enabled) which generally does a good job at reverting the damage done by the export process.
+- Blender does not allow to import custom vertex tangents, therefore when re-exporting meshes they always get re-calculated<sup>1</sup>. This may further increase the number of unique vertices being exported due to reasons above. Using `Weld vertices` option on import may or may not mitigate this issue.
+
+<sup>1</sup> Blender generates tangent space using Mikk TSpace algorithm, your normal map must be baked using the same method or it will cause shading bugs in game.
 
 # ObjectTemplate export guide
 
@@ -253,7 +259,7 @@ In order to skin your model, you must import the BF2 skeleton into your scene. W
   3. In `Object Mode` add the mesh object to the selection (left mouse click while holding `Shift`)
   4. In `Weight Paint Mode` click on [Weights -> Assign Automatic From Bones](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#assign-automatic-from-bone).
 
-Bare in mind that to export properly, each vertex must have at most two weights (be assigned to a maximum of two vertex groups), and all those weights have to be normalized (add-up to one). You can limit the number of vertex weights in `Weight Paint Mode` using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) option (make sure it is set to 2). You can normalize weights using [Weights -> Normalize All](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#normalize-all) option. Also, make sure that `Auto Normalize` is enabled in [Weight Paint Tools Settings](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/tool_settings/options.html) when skinning in `Weight Paint Mode`.
+Bare in mind that to export properly, each vertex must have at most two weights (be assigned to a maximum of two vertex groups), and all those weights have to be normalized (add-up to one). You can limit the number of vertex weights in `Weight Paint Mode` using [Weights -> Limit Total](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#limit-total) option (make sure it is set to 2). You can normalize weights using [Weights -> Normalize All](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/editing.html#normalize-all) option. Also, make sure that *Auto Normalize* is enabled in [Weight Paint Tools Settings](https://docs.blender.org/manual/en/latest/sculpt_paint/weight_paint/tool_settings/options.html) when skinning in `Weight Paint Mode`. Weights must be applied to all vertices, you can use [Zero Weights](https://docs.blender.org/manual/en/latest/editors/3dview/display/overlays.html#bpy-types-toolsettings-vertex-group-user) toggle to show "gaps" in weight painting. `Select -> BF2 -> Select Invalid Skin Weights` operator in `Edit Mode` can also help you troubleshoot weighting issues when the export fails.
 
 ## Overgrowth LOD Generation
 The add-on also ships with the OG LOD generation tool which can create a low quality OG mesh variant from the base mesh. The tool can be found under `Object` -> `BF2` submenu and its usage is quite straightforward. NOTE: You need to have the base OG imported as `ObjectTemplate (.con)`, not as `StaticMesh (.staticmesh)` for it to work. 
