@@ -162,15 +162,16 @@ def _fix_unassigned_parts(geom_obj, lod_obj, geom_parts):
         if child.name.startswith(lod_obj.name) and child.name != lod_obj.name:
             uassigned.append(child)
 
-    # sort by the order of geometry part indexes
-    sort_key = {obj.name: int(vg.removeprefix('mesh')) for vg, obj in geom_parts.items()}
-    uassigned.sort(key=lambda o: sort_key[o.name])
+    name_to_part_id = {obj.name: int(vg.removeprefix('mesh')) - 1 for vg, obj in geom_parts.items()}
 
-    # add numeric suffix and reparent them to LOD
-    padding = len(str(len(uassigned)))
-    for i, child in enumerate(uassigned, start=1):
+    # sort by the order of geometry part indexes so they are added to LOd in order
+    uassigned.sort(key=lambda o: name_to_part_id[o.name])
+
+    # add numeric suffix from part number and reparent them to LOD
+    for child in uassigned:
+        part_id = name_to_part_id[child.name]
         child.parent = lod_obj
-        n = "{}_{:0{width}d}".format(lod_obj.name, i, width=padding)
+        n = "{}_{:02d}".format(lod_obj.name, part_id)
         child.name = n
         child.data.name = n
         child.bf2_object_type = ''
