@@ -45,7 +45,7 @@ jobs:
           echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
 
       - name: Download all zipped artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           run-id: ${{ steps.resolve.outputs.run_id }}
           pattern: io_scene_bf2-*
