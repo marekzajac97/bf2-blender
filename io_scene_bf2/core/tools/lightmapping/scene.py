@@ -713,15 +713,26 @@ def load_level(context, level_dir, use_cache=True,
         except FileManagerFileNotFound:
             pass
 
-    static_objects = _make_collection(context, "StaticObjects")
-    static_objects_skip = _make_collection(context, "StaticObjects_SkipLightmaps")
     lm_keys = set()
     geom_template_to_mesh : Dict[str, GeometryTemplateConfig] = dict() # differen ObjectTemplates may use same GeometryTemplate
 
+    class ImportedObjectTemplate:
+        def __init__(self, temp_cfg, mesh_info, skip_lightmaps):
+            self.temp_cfg : ObjectTemplateConfig = temp_cfg
+            self.mesh_info : GeometryTemplateConfig = mesh_info
+            self.skip_lightmaps = skip_lightmaps
+
+    total_template_count = len(templates)
+    imported_templates : List[ImportedObjectTemplate] = list()
+    current_template_index = 0
     for template_name, temp_cfg in templates.items():
+        current_template_index += 1
+
         geom_temp = temp_cfg.geom
         if not geom_temp:
             continue # skip, just for point lights
+
+        print(f'{current_template_index}/{total_template_count} | Importing meshes... {geom_temp.name}')
 
         mesh_info = geom_template_to_mesh.get(geom_temp.name.lower())
         if not mesh_info:
@@ -819,7 +830,24 @@ def load_level(context, level_dir, use_cache=True,
             # delete source objects, keep mesh instances
             delete_object(mesh_obj, remove_data=False)
 
-        # instantiate meshes
+            imported_template = ImportedObjectTemplate(temp_cfg, mesh_info, skip_lightmaps)
+            imported_templates.append(imported_template)
+
+    # instantiate meshes
+    static_objects = _make_collection(context, "StaticObjects")
+    static_objects_skip = _make_collection(context, "StaticObjects_SkipLightmaps")
+
+    total_template_count = len(imported_templates)
+    current_template_index = 0
+    for imported_template in imported_templates:
+        current_template_index += 1
+
+        temp_cfg = imported_template.temp_cfg
+        mesh_info = imported_template.mesh_info
+        skip_lightmaps = imported_template.skip_lightmaps
+
+        print(f'{current_template_index}/{total_template_count} | Instantiating ObjectTemplates... {temp_cfg.template.name} x {len(temp_cfg.instances)}')
+
         for matrix_world in temp_cfg.instances:
             collection = static_objects_skip if skip_lightmaps else static_objects
 
@@ -833,7 +861,7 @@ def load_level(context, level_dir, use_cache=True,
 
             # check LM key collisions
             if not skip_lightmaps:
-                lm_key = gen_lm_key(geom_temp.name, obj.matrix_world.translation, lod_idx)
+                lm_key = gen_lm_key(geom_temp.name, obj.matrix_world.translation, 0)
                 if lm_key in lm_keys:
                     reporter.warning(f"Object '{obj.name}' is too close to another which will result in both having the same lightmap filenames!")
                 lm_keys.add(lm_key)

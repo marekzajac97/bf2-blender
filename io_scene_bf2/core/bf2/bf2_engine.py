@@ -490,7 +490,7 @@ class ObjectTemplate(Template):
                 child.template.parent = self
                 child.template.add_bundle_childs()
             else:
-                BF2Engine().main_console.report(f"child ObjectTemplate '{child.template_name}' not found")
+                BF2Engine().main_console.report(f"The definition of child ObjectTemplate '{child.template_name}' not found")
 
     def make_script(self, f):
         f.write(f'ObjectTemplate.create {self.type} {self.name}\n')
@@ -607,7 +607,10 @@ class ObjectTemplateManager(TemplateManager):
 
     def add_bundle_childs(self, object_template):
         for child in object_template.children:
-            child.template = self.templates[child.template_name.lower()]
+            try:
+                child.template = self.templates[child.template_name.lower()]
+            except KeyError:
+                raise BF2EngineException(f"The definition of child ObjectTemplate '{child.template_name.lower()}' not found")
             child.template.parent = object_template
             self.add_bundle_childs(child.template)
 
@@ -623,6 +626,15 @@ class GeometryTemplate(Template):
         'debugspheremesh': 'DebugSphereMesh'
     }
 
+    _FILE_EXT = {
+        'staticmesh': 'staticmesh',
+        'bundledmesh': 'bundledmesh',
+        'skinnedmesh': 'skinnedmesh',
+        'meshparticlemesh': 'bundledmesh',
+        'roadcompiled': 'mesh',
+        'debugspheremesh': None
+    }
+
     def __init__(self, geometry_type, name):
         super(GeometryTemplate, self).__init__(name)
         if geometry_type.lower() in self.TYPES:
@@ -636,7 +648,11 @@ class GeometryTemplate(Template):
         active_con = BF2Engine().main_console.get_active_con_file()
         if active_con:
             dir = os.path.dirname(active_con.lower())
-            self.location = os.path.join(dir, 'Meshes', f'{name}.{geometry_type.lower()}')
+            file_ext = self._FILE_EXT[geometry_type.lower()]
+            if file_ext is None:
+                self.location = None
+            else:
+                self.location = os.path.join(dir, 'Meshes', f'{name}.{file_ext}')
         else:
             self.location = None
 
@@ -1033,6 +1049,10 @@ class FileManager:
             zip.close()
         self._archive_to_zip.clear()
         self._mounted_archives.clear()
+
+
+class BF2EngineException(Exception):
+    pass
 
 
 class BF2Engine():

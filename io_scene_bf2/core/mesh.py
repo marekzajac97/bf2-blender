@@ -236,13 +236,15 @@ class MeshImporter:
                 material = bpy.data.materials[mat_name]
             else:
                 material = bpy.data.materials.new(mat_name)
-                try:
-                    material.bf2_shader = bf2_mat.fxfile[:-3].upper()
-                except TypeError:
-                    raise ImportError(f"Unsupported shader '{bf2_mat.fxfile}'")
 
-                if _MESH_TYPES[material.bf2_shader] != type(bf2_mesh):
-                    self.reporter.warning(f"'{name}': Material shader '{bf2_mat.fxfile}' doesn't match the mesh type")
+                # validate fx file, just warn and ignore (the engine ignores it as well)
+                try:
+                    if _MESH_TYPES[bf2_mat.fxfile[:-3].upper()] != type(bf2_mesh):
+                        self.reporter.warning(f"'{name}': Material shader '{bf2_mat.fxfile}' doesn't match the mesh type, ignoring")
+                except (IndexError, KeyError):
+                    raise self.reporter.warning(f"'{name}': Material shader '{bf2_mat.fxfile}' is invalid, ignoring")
+
+                material.bf2_shader = [mt_name for mt_name, mt in _MESH_TYPES.items() if mt == type(bf2_mesh)][0]
 
                 is_basendetail = False
                 material.bf2_technique = bf2_mat.technique
@@ -315,7 +317,7 @@ class MeshImporter:
                     for other_bm_face in bm.faces:
                         if are_backfaces(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
                             if material_index != other_bm_face.material_index: # XXX: could they differ ??
-                                raise ImportException("Attempted to create a backface with different material index, aborting")
+                                raise ImportException("Found double-sided face with a different material on each side, aborting import")
                             double_sided_faces.add(other_bm_face.index)
                             break
                     else:
@@ -388,10 +390,13 @@ class MeshImporter:
             bm = bmesh.new()
             bm.from_mesh(mesh)
             loose_verts = [v for v in bm.verts if not v.link_faces]
+            loose_verts_count = len(loose_verts)
             if loose_verts:
                 bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
                 bm.to_mesh(mesh)
             bm.free()
+            if loose_verts_count > 0:
+                self.reporter.info(f'{mesh.name}: removed {loose_verts_count} loose vertices')
 
         return mesh_obj
 

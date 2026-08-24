@@ -184,7 +184,7 @@ class CollMeshImporter:
                 for other_bm_face in bm.faces:
                     if are_backfaces(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
                         if material_index != other_bm_face.material_index: # XXX: could they differ ??
-                            raise ImportException("Attempted to create a backface with different material index, aborting")
+                            raise ImportException("Found double-sided face with a different material on each side, aborting import")
                         double_sided_faces.add(other_bm_face.index)
                         break
                 else:
@@ -196,8 +196,11 @@ class CollMeshImporter:
 
         if self.remove_loose_verts:
             loose_verts = [v for v in bm.verts if not v.link_faces]
+            loose_verts_count = len(loose_verts)
             if loose_verts:
                 bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
+            if loose_verts_count > 0:
+                self.reporter.info(f'{mesh.name}: removed {loose_verts_count} loose vertices')
 
         mesh = bpy.data.meshes.new(name)
         bm.to_mesh(mesh)

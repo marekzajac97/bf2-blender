@@ -356,14 +356,14 @@ def file_name(fname):
     return os.path.splitext(os.path.basename(fname))[0]
 
 def _compare_seq(a_seq, b_seq):
-    return all([math.isclose(a,b) for a, b in zip(a_seq, b_seq)])
+    return all([math.isclose(a, b, abs_tol=1e-06) for a, b in zip(a_seq, b_seq)])
 
 def _compare_val(a, b):
     try:
         iter(a)
         iter(b)
     except TypeError:
-        return math.isclose(a, b)
+        return math.isclose(a, b, abs_tol=1e-06)
     return _compare_seq(a, b)
 
 def check_transform(obj):

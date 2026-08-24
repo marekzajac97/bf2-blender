@@ -16,7 +16,6 @@
     * `None` - No transparency
     * `Alpha Test` - parts of the material can be either fully transparent or fully opaque, no in-between. It's cheap to compute.
     * `Alpha Blend` - Allows for semi-transparent materials. It's expensive to compute (may increase overdraw).
-  - **Shader** - name of the shader (.fx) file to use for drawing the material, usually matches the visible mesh type name.
   - **Technique** - a combination of modifiers that enable or disable certain shader features when drawing the material. These modifiers are names harcoded in the game engine and are shader type specific.
 - **Animated UVs** - UV (texture) coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement and/or road wheel rotation. Vertices that shall use this feature must be mapped to a specific UV transformation matrix depending on whether they belong to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 different combinations).
 - **Opacity map** - a grayscale image that controls the opacity, a pixel value of 1 makes the surface fully opaque. For optimization this map is always stored in the alpha channel of some other texture map (see [Materials](#materials) for details)
@@ -59,6 +58,7 @@ NOTE: A common misconception with BundledMesh materials is that you are required
 SkinnedMesh materials may use up to two texture maps: `Color` and `Normal`. The material may use either tangent space or object space normal maps with the latter one being more common. The gloss map is always embedded in the alpha channel of the `Normal` map.
 
 The following techniques are known to be supported by SkinnedMesh shader:
-- `Tangent` - must be defined if the material uses tangent space normal maps
+- `tangent` - must be defined if the material uses tangent space normal maps
 - `Alpha_Test` - must be defined if the material should use `Alpha Testing` render state
+- `humanskin` - is parsed by the engine but the exact effect it has (if any) is unknown
 - `EnvMap` - not used in vBF2 but is known to be exploited by mods like Project Reality e.g. to make soldiers show up on thermals.

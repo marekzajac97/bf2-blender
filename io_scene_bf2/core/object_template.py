@@ -1,13 +1,13 @@
 from typing import Dict
 import bpy # type: ignore
 import os
-import math
+import bmesh # type: ignore
 
 from getpass import getuser
 from mathutils import Matrix, Vector, Euler # type: ignore
 from bpy.types import Mesh, Armature # type: ignore
 
-from .bf2.bf2_engine import (BF2Engine, ObjectTemplate,
+from .bf2.bf2_engine import (BF2Engine, BF2EngineException, ObjectTemplate,
                              GeometryTemplate, CollisionMeshTemplate)
 
 from .bf2.bf2_mesh import BF2Samples
@@ -45,7 +45,10 @@ def import_object_template(context, con_filepath, import_collmesh=True,
 
     BF2Engine().main_console.run_file(con_filepath, ignore_includes=True) # don't parse .tweak
     for object_template in obj_template_manager.templates.values():
-        obj_template_manager.add_bundle_childs(object_template)
+        try:
+            obj_template_manager.add_bundle_childs(object_template)
+        except BF2EngineException as e:
+            raise ImportException(str(e))
 
     root_template = None
     for object_template in obj_template_manager.templates.values():
@@ -292,7 +295,9 @@ def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_par
     return _fix_geom_parts(root_template)
 
 def _transform_verts(geometry_part_obj, vertex_group, transform):
+    bpy.context.view_layer.objects.active = geometry_part_obj
     bpy.ops.object.mode_set(mode='OBJECT')
+
     vg_idx = -1
     for v_group in geometry_part_obj.vertex_groups:
         if v_group.name == vertex_group:
@@ -382,18 +387,32 @@ def _split_mesh_by_vertex_groups(context, mesh_obj):
         bpy.ops.object.vertex_group_set_active(group=v_group.name)
         bpy.ops.mesh.select_all(action='DESELECT')
         bpy.ops.object.vertex_group_select()
-        bpy.ops.mesh.separate(type='SELECTED')
+
+        bm = bmesh.from_edit_mesh(mesh_obj.data)
+        selected_verts = sum(1 for v in bm.verts if v.select)
+        bm.free()
+        if selected_verts != 0:
+            bpy.ops.mesh.separate(type='SELECTED')
+
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        for o in context.selected_objects:
-            if o.name == mesh_obj.name:
-                continue
-            new_name = f'{mesh_obj.name}_{v_group.name}'
-            o.name = new_name
-            o.data.name = new_name
-            o.vertex_groups.clear()
+        part_obj_name = f'{mesh_obj.name}_{v_group.name}'
+        if selected_verts != 0:
+            for o in context.selected_objects:
+                if o.name == mesh_obj.name:
+                    continue
+                o.name = part_obj_name
+                o.data.name = part_obj_name
+                o.vertex_groups.clear()
+                splitted_parts[v_group.name] = o
+                break
+        else:
+            # empty group, may happen with 'Remove Loose Vertices' option selected
+            empty_mesh = bpy.data.meshes.new(part_obj_name)
+            o = bpy.data.objects.new(part_obj_name, empty_mesh)
+            o.parent = mesh_obj.parent
             splitted_parts[v_group.name] = o
-            break
+            context.scene.collection.objects.link(o)
 
     # delete object if no unasigned verts left after splitting
     if mesh_obj.data is None or len(mesh_obj.data.vertices) == 0:
@@ -428,7 +447,8 @@ def _object_hierarchy_has_any_meshes(obj, parent_bones):
         return True # skin, keep this
 
     for child_obj in obj.children:
-        return _object_hierarchy_has_any_meshes(child_obj, parent_bones)
+        if _object_hierarchy_has_any_meshes(child_obj, parent_bones):
+            return True
     return False
 
 def _get_geom_to_ske(root_template, geometry_type, import_rig_mode, geom_to_ske_name=None, reporter=DEFAULT_REPORTER):
@@ -944,13 +964,14 @@ def _map_meshes_to_vertex_groups(obj, obj_to_geom_part, obj_to_vertex_group=None
     
     return obj_to_vertex_group
 
-def _select_geometry_parts(obj):
+def _join_lod_prepare(obj):
     for child_obj in obj.children:
         if _is_colmesh_dummy(child_obj):
             continue
-        _select_geometry_parts(child_obj)
+        _join_lod_prepare(child_obj)
 
-    if obj.data is None or not obj.data.vertices:
+    if obj.data is None:
+        # remove empties, they cannot be joined
         delete_object(obj, recursive=False)
     else:
         obj.select_set(True)
@@ -963,8 +984,13 @@ def _join_lod_hierarchy_into_single_mesh(lod_obj, obj_to_geom_part):
     # select all geom parts with meshes
     bpy.context.view_layer.objects.active = lod_obj
     bpy.ops.object.select_all(action='DESELECT')
-    _select_geometry_parts(lod_obj)
+    _join_lod_prepare(lod_obj)
     bpy.ops.object.join()
+    # if a mesh has no verts it will create empty material slots that mess with the MeshExporter
+    mesh = lod_obj.data
+    for i in range(len(mesh.materials) - 1, -1, -1):
+        if mesh.materials[i] is None:
+            mesh.materials.pop(index=i)
 
 def _join_lods(mesh_geoms, obj_to_geom_part):
     for geom_obj in mesh_geoms:
