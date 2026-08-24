@@ -28,7 +28,7 @@ If you are completely unfamiliar with BF2 modding, consider reading [BF2 glossar
 Before using the add-on you must do the following:
 - Configure path to your BF2 mod (`Edit -> Preferences -> Add-ons -> Battlefield 2 -> Preferences`). You may define multiple paths e.g. if your mod uses dependencies from the baseline game (`mods/bf2`)
 - Extract every `.zip` file from your mod directory into their respective folders (e.g. `objects_server.zip` and `objects_client.zip` must both be extracted to `objects` directory)
-- **[Linux only]** To avoid issues on case insensitive filesystem rename all extracted files to lower case:
+- **[Linux only]** To avoid issues on a case sensitive filesystem rename all extracted files to lower case:
     ```sh
     find $MOD_DIR -depth -exec rename 's/(.*)\/([^\/]*)/$1\/\L$2/' {} \;
     ```
