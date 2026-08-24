@@ -24,11 +24,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           TAG="${{ github.event.inputs.tag }}"
 
           # Resolve tag to commit SHA (handles annotated tags)
-          REF="$(gh api "repos/${{ github.repository }}/git/ref/tags/${TAG}" --jq '.object.sha')"
-          SHA="$(gh api "repos/${{ github.repository }}/git/tags/${REF}" --jq '.object.sha' 2>/dev/null || echo "${REF}")"
+          REF_JSON="$(gh api --silent "repos/${{ github.repository }}/git/ref/tags/${TAG}")" || {
+            echo "::error::Tag ${TAG} not found."
+            exit 1
+          }
+          SHA="$(jq -r '.object.sha' <<<"${REF_JSON}")"
+          if [[ "$(jq -r '.object.type' <<<"${REF_JSON}")" == "tag" ]]; then
+            SHA="$(gh api --silent "repos/${{ github.repository }}/git/tags/${SHA}" --jq '.object.sha')"
+          fi
 
           # Find the build workflow run for that commit
           RUN_ID="$(gh api "repos/${{ github.repository }}/actions/workflows/build_packages.yml/runs?head_sha=${SHA}&per_page=1" --jq '.workflow_runs[0].id')"
