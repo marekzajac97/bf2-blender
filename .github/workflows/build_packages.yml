@@ -70,5 +70,6 @@ jobs:
       - name: Upload Packaged Zip as Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.create_zip.outputs.zip_name }}
           path: ${{ steps.create_zip.outputs.zip_name }}
+          archive: false
+          if-no-files-found: error
