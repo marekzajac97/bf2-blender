@@ -51,13 +51,20 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
 
     import_rig_mode : EnumProperty(
         name="Import Rigs",
-        description="Load skin weights and bone transforms from SkinnedMeshes and apply them to mesh and armature",
+        description="Load skin weights and bone transforms from SkinnedMeshes and apply them to the mesh and the armature",
         default=0,
         items=[
             ('AUTO', "Auto", "Guess which Geom should be assigned to which skeleton (armature) based on imported ObjectTemplate type", 0),
             ('MANUAL', "Manual", "Manually define the mapping of each geom to a skeleton (armature)", 1),
             ('OFF', "Off", "Skip rig import", 2),
         ]
+    ) # type: ignore
+
+    keep_skeleton_pose: BoolProperty(
+        name="Keep Armature Pose",
+        description="When enabled, deforms imported SkinnedMesh to match the current rest pose of the armature; the armature itself remains unchanged.\n"
+                    "When disabled, bone transformations of the imported SkinnedMesh are applied to the armature; the mesh itself remains unchanged",
+        default=False
     ) # type: ignore
 
     merge_materials: BoolProperty(
@@ -116,6 +123,10 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
             row.operator(IMPORT_OT_bf2_object_skeleton_remove.bl_idname, text='', icon='REMOVE')
 
         col = layout.column()
+        col.prop(self, "keep_skeleton_pose")
+        col.active = self.import_rig_mode != 'OFF'
+
+        col = layout.column()
         col.prop(self, "merge_materials")
 
         col = layout.column()
@@ -151,6 +162,7 @@ class IMPORT_OT_bf2_object(bpy.types.Operator, ImporterBase, ConMeta):
                 load_backfaces=self.load_backfaces,
                 remove_loose_verts=self.remove_loose_verts,
                 free_normals=self.use_free_normals,
+                keep_skeleton_pose=self.keep_skeleton_pose,
                 reporter=Reporter(self.report))
 
     def invoke(self, context, _event):

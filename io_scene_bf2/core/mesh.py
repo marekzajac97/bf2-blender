@@ -4,7 +4,7 @@ import os
 import enum
 
 from itertools import chain
-from mathutils import Vector # type: ignore
+from mathutils import Vector, Matrix # type: ignore
 
 from .bf2.bf2_mesh import BF2MeshException, BF2Mesh, BF2BundledMesh, BF2SkinnedMesh, BF2StaticMesh
 from .bf2.bf2_common import Mat4
@@ -99,7 +99,8 @@ def _export_mesh(mesh_obj, mesh_file, mesh_type, **kwargs):
 class MeshImporter:
     def __init__(self, context, mesh_file, mesh_type='', reload=False,
                  texture_paths=[], geom_to_ske=None, merge_materials=True, free_normals=False,
-                 load_backfaces=True, remove_loose_verts=True, loader=None, silent=False, reporter=DEFAULT_REPORTER):
+                 load_backfaces=True, remove_loose_verts=True, loader=None, silent=False, reporter=DEFAULT_REPORTER,
+                 keep_skeleton_pose=False):
         self.context = context
         self.is_vegitation = 'vegitation' in mesh_file.lower() # yeah this is legit how BF2 detects it lmao
 
@@ -121,6 +122,7 @@ class MeshImporter:
         self.load_backfaces = load_backfaces
         self.remove_loose_verts = remove_loose_verts
         self.silent = silent
+        self.keep_skeleton_pose = keep_skeleton_pose
 
     def import_mesh(self, name='', geom=None, lod=None):
         try:
@@ -451,6 +453,9 @@ class MeshImporter:
         for i, ske_bone in enumerate(ske_bones):
             id_to_bone[i] = armature.edit_bones[ske_bone]
 
+        # remember the current rest pose of the bones so we can roll them back later
+        original_bone_matrices = dict()
+
         # get list of bones per material
         material_bones = list()
         for bf2_rig in bf2_lod.rigs:
@@ -460,6 +465,8 @@ class MeshImporter:
                 if bf2_bone.id not in id_to_bone:
                     raise ImportException(f"{mesh_obj.name}: The bone index {bf2_bone.id} is not present in the BF2 skeleton '{rig.name}', it has likely been exported for a different skeleton.")
                 bone_obj = id_to_bone[bf2_bone.id]
+                if self.keep_skeleton_pose and bone_obj.name not in original_bone_matrices:
+                    original_bone_matrices[bone_obj.name] = bone_obj.matrix.copy()
                 bone_obj.matrix = m @ ske_get_bone_rot(bone_obj)
                 rig_bones.append(bone_obj.name)
             material_bones.append(rig_bones)
@@ -499,10 +506,100 @@ class MeshImporter:
             v_weights = vert_weigths[vertex.index]
             for v_bone, v_bone_weight in v_weights: 
                 mesh_obj.vertex_groups[v_bone].add([vertex.index], v_bone_weight, "REPLACE")
-        
+
+        if self.keep_skeleton_pose:
+            # the rest pose of the armature's bones was temporarily changed to the mesh
+            # bind pose above, adjust the mesh geometry to the armature's original rest pose
+            # and then revert the bones
+            self._adjust_mesh_to_armature_pose(mesh_obj, rig, original_bone_matrices)
+        else:
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+            # add armature modifier to the object
+            modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
+            modifier.object = rig
+
+    def _adjust_mesh_to_armature_pose(self, mesh_obj, rig, original_bone_matrices):
+        armature = rig.data
+        pose_bones = rig.pose.bones
+
+        def _set_bone_matrices(matrix_map):
+            # set the pose space matrices of the bones, walking the hierarchy from
+            # the roots so parents are always processed before their children
+            def rec(pbone, parent_matrix):
+                if pbone.name in matrix_map:
+                    matrix = matrix_map[pbone.name]
+                    if pbone.parent:
+                        pbone.matrix_basis = pbone.bone.convert_local_to_pose(
+                            matrix,
+                            pbone.bone.matrix_local,
+                            parent_matrix=parent_matrix,
+                            parent_matrix_local=pbone.parent.bone.matrix_local,
+                            invert=True
+                        )
+                    else:
+                        pbone.matrix_basis = pbone.bone.convert_local_to_pose(
+                            matrix,
+                            pbone.bone.matrix_local,
+                            invert=True
+                        )
+                else:
+                    # propagate the (possibly changed) parent matrix to the children
+                    if pbone.parent:
+                        matrix = pbone.bone.convert_local_to_pose(
+                            pbone.matrix_basis,
+                            pbone.bone.matrix_local,
+                            parent_matrix=parent_matrix,
+                            parent_matrix_local=pbone.parent.bone.matrix_local,
+                        )
+                    else:
+                        matrix = pbone.bone.convert_local_to_pose(
+                            pbone.matrix_basis,
+                            pbone.bone.matrix_local,
+                        )
+                for child in pbone.children:
+                    rec(child, matrix)
+
+            for pbone in pose_bones:
+                if not pbone.parent:
+                    rec(pbone, None)
+
+        # temporarily link the armature modifier so the deformation can be evaluated
+        self.context.view_layer.objects.active = rig
+        bpy.ops.object.mode_set(mode='OBJECT')
+        modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
+        modifier.object = rig
+
+        # pose the armature back to its original rest pose (in pose mode)
+        bpy.ops.object.mode_set(mode='POSE')
+        # make sure there is no leftover pose applied before setting the target matrices
+        for bone_name in original_bone_matrices:
+            pose_bones[bone_name].matrix_basis = Matrix.Identity(4)
+        _set_bone_matrices(original_bone_matrices)
+
+        # bake the deformation into the mesh geometry by taking the deformed
+        # coordinates from the evaluated mesh
+        bpy.ops.object.mode_set(mode='OBJECT')
+        depsgraph = self.context.evaluated_depsgraph_get()
+        depsgraph.update()
+        eval_mesh_obj = mesh_obj.evaluated_get(depsgraph)
+        mesh_obj.data.vertices.foreach_set('co', [c for v in eval_mesh_obj.data.vertices for c in v.co])
+        mesh_obj.data.update()
+
+        # remove the temporary armature modifier
+        mesh_obj.modifiers.remove(modifier)
+
+        # revert the rest pose of the armature back to the original one
+        bpy.ops.object.mode_set(mode='EDIT')
+        for bone_name, matrix in original_bone_matrices.items():
+            armature.edit_bones[bone_name].matrix = matrix
+
+        # clear the temporary pose and re-add the armature modifier
+        bpy.ops.object.mode_set(mode='POSE')
+        for bone_name in original_bone_matrices:
+            pose_bones[bone_name].matrix_basis = Matrix.Identity(4)
         bpy.ops.object.mode_set(mode='OBJECT')
 
-        # add armature modifier to the object
         modifier = mesh_obj.modifiers.new(type='ARMATURE', name="Armature")
         modifier.object = rig
 

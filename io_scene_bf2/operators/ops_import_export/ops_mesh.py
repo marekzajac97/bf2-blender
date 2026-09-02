@@ -77,6 +77,13 @@ class MeshImportBase(ImporterBase):
         default=False
     ) # type: ignore
 
+    keep_skeleton_pose: BoolProperty(
+        name="Keep Armature Pose",
+        description="When enabled, deforms imported SkinnedMesh to match the current rest pose of the armature; the armature itself remains unchanged.\n"
+                    "When disabled, bone transformations of the imported SkinnedMesh are applied to the armature; the mesh itself remains unchanged",
+        default=False
+    ) # type: ignore
+
     def draw(self, context):
         layout = self.layout
 
@@ -99,6 +106,10 @@ class MeshImportBase(ImporterBase):
 
         col = layout.column()
         col.prop(self, "use_free_normals")
+
+        col = layout.column()
+        col.prop(self, "keep_skeleton_pose")
+        col.enabled = self.mesh_type() == 'SkinnedMesh'
 
     def invoke(self, context, _event):
         # suggest to load only single LOD when a skeleton got imported previoulsy
@@ -135,6 +146,7 @@ class MeshImportBase(ImporterBase):
                         load_backfaces=self.load_backfaces,
                         remove_loose_verts=self.remove_loose_verts,
                         free_normals=self.use_free_normals,
+                        keep_skeleton_pose=self.keep_skeleton_pose,
                         reporter=Reporter(self.report),
                         **kwargs)
 
