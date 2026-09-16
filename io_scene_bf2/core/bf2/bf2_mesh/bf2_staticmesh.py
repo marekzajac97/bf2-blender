@@ -6,8 +6,8 @@ from ..bf2_common import Mat4, Vec3, load_n_elems
 class StaticMeshMaterial(MaterialWithTransparency):
 
     @classmethod
-    def load(cls, f : FileUtils, version, **kwargs):
-        obj : StaticMeshMaterial = super(StaticMeshMaterial, cls).load(f, version=version, **kwargs)
+    def load(cls, f : FileUtils, version):
+        obj : StaticMeshMaterial = super(StaticMeshMaterial, cls).load(f, version=version)
         if version == 11:
             obj._min = Vec3.load(f)
             obj._max = Vec3.load(f)

@@ -184,7 +184,7 @@ class Material:
                 vertex_buffer += struct.pack(fmt, *vertex_attr_value)
         return self._vnum
 
-    def load_faces(self, index_buffer):
+    def load_faces(self, index_buffer, **kwargs):
         self.faces = list()
         for i in range(self._istart, self._istart + self._inum, 3):
             v1 = index_buffer[i + 0]
@@ -226,23 +226,19 @@ class MaterialWithTransparency(Material):
         self.alpha_mode : Material.AlphaMode = None
         # extra sets of pre-sorted faces, only used for materials with alpha blend
         self.face_sets : Optional[List[List[int]]] = None
-
-        # temp import/export data
-        self._alpha_blend_indexnum = None
         super().__init__()
 
     @classmethod
-    def load(cls, f : FileUtils, version, alpha_blend_indexnum):
+    def load(cls, f : FileUtils, **kwargs):
         alpha_mode = cls.AlphaMode(f.read_dword())
-        obj : MaterialWithTransparency = super(MaterialWithTransparency, cls).load(f, version=version)
+        obj : MaterialWithTransparency = super(MaterialWithTransparency, cls).load(f, **kwargs)
         obj.alpha_mode = alpha_mode
-        obj._alpha_blend_indexnum = alpha_blend_indexnum                
         return obj
 
-    def load_faces(self, index_buffer):
+    def load_faces(self, index_buffer, alpha_blend_indexnum):
         if self.alpha_mode == self.AlphaMode.ALPHA_BLEND:
             self.face_sets = list()
-            for i in range(self._alpha_blend_indexnum):
+            for i in range(alpha_blend_indexnum):
                 face_set = list()
                 self.face_sets.append(face_set)
                 istart = self._istart + i * self._inum
@@ -488,9 +484,10 @@ class BF2VisibleMesh():
         vertex_buffer : bytes = f.read_raw(vertex_decl_size * f.read_dword())
         index_buffer : List[int] = f.read_word(count=f.read_dword())
 
-        alpha_blend_indexnum = None
-        if issubclass(self._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE, MaterialWithTransparency):
+        if self._uses_material_with_transparency():
             alpha_blend_indexnum = f.read_dword()
+        else:
+            alpha_blend_indexnum = None
 
         for geom in self.geoms:
             for lod in geom.lods:
@@ -501,10 +498,10 @@ class BF2VisibleMesh():
 
         for geom in self.geoms:
             for lod in geom.lods:
-                lod.load_materials(f, version=version, alpha_blend_indexnum=alpha_blend_indexnum)
+                lod.load_materials(f, version=version)
                 for mat in lod.materials:
                     mat.load_vertices(vertex_decl_size, self.vertex_attributes, vertex_buffer)
-                    mat.load_faces(index_buffer)
+                    mat.load_faces(index_buffer, alpha_blend_indexnum=alpha_blend_indexnum)
 
     def export(self, export_path):
         with open(export_path, "wb") as file:
@@ -556,7 +553,7 @@ class BF2VisibleMesh():
             f.write_dword(len(index_buffer))
             f.write_word(index_buffer)
 
-            if issubclass(self._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE, MaterialWithTransparency):
+            if self._uses_material_with_transparency():
                 if has_alpha_blend_material:
                     f.write_dword(MaterialWithTransparency.ALPHA_BLEND_FACE_SET_COUNT)
                 else:
@@ -580,6 +577,12 @@ class BF2VisibleMesh():
             if vert_attr.decl_usage == decl_usage:
                 return True
         return False
+
+    def _material_type(self):
+        return self._GEOM_TYPE._LOD_TYPE._MATERIAL_TYPE
+
+    def _uses_material_with_transparency(self):
+        return issubclass(self._material_type(), MaterialWithTransparency)
 
     def has_normal(self):
         return self._has_vert_attr(D3DDECLUSAGE.NORMAL)
