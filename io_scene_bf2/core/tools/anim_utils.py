@@ -946,6 +946,57 @@ def nla_tweak_enable(context, action, track_name):
         with context.temp_override(**override):
             bpy.ops.nla.tweakmode_enter(use_upper_stack_evaluation=True)
 
+def _iter_action_fcurves(action):
+    if not SUPPORTS_ACTION_SLOTS: # < Blender 4.4, use legacy API
+        yield from action.fcurves
+        return
+    # TODO: update to support layers in 5.0
+    for slot in action.slots:
+        for layer in action.layers:
+            for strip in layer.strips:
+                channelbag = strip.channelbag(slot)
+                if channelbag is None:
+                    continue
+                yield from channelbag.fcurves
+
+def _bone_from_data_path(data_path):
+    match = re.match(r'^pose\.bones\["([^"]+)"\]', data_path)
+    return match.group(1) if match else None
+
+def _action_animated_bones(action):
+    bones = set()
+    for fcurve in _iter_action_fcurves(action):
+        bone = _bone_from_data_path(fcurve.data_path)
+        if bone:
+            bones.add(bone)
+    return bones
+
+def _bone_ancestors(obj, bone_name):
+    bones = getattr(obj.data, 'bones', None)
+    if bones is None or bone_name not in bones:
+        return set()
+    ancestors = set()
+    parent = bones[bone_name].parent
+    while parent:
+        ancestors.add(parent.name)
+        parent = parent.parent
+    return ancestors
+
+def _set_weapon_channels_muted(weapon_action, mute_bones):
+    # mute/lock at the action group (bone) level so the dope sheet shows a single
+    # muted group instead of every individual channel
+    groups = set()
+    for fcurve in _iter_action_fcurves(weapon_action):
+        # clear per-channel flags in case they were set previously
+        fcurve.mute = False
+        fcurve.lock = False
+        if fcurve.group is not None:
+            groups.add(fcurve.group)
+    for group in groups:
+        mute = group.name in mute_bones
+        group.mute = mute
+        group.lock = mute
+
 def update_nla_setup(context, action=None, activate_track=None) -> None:
     obj = context.object
     if not obj or not obj.animation_data:
@@ -960,10 +1011,24 @@ def update_nla_setup(context, action=None, activate_track=None) -> None:
     if soldier_track:
         obj.animation_data.nla_tracks.remove(soldier_track)
     if weapon_track:
+        for strip in weapon_track.strips:
+            if strip.action:
+                _set_weapon_channels_muted(strip.action, set())
         obj.animation_data.nla_tracks.remove(weapon_track)
     obj.animation_data.action_influence = 1
 
     soldier_action = action.bf2_soldier_action
+
+    # mute the weapon channels that should be overridden by the soldier action
+    mute_bones = set()
+    if soldier_action:
+        cutoff = action.bf2_ignore_mother_orientation.strip()
+        if cutoff:
+            # the cutoff bone and its children keep the weapon animation, while
+            # every parent (the 'mother' orientation) is overridden by the soldier
+            mute_bones = _action_animated_bones(action) & _bone_ancestors(obj, cutoff)
+    _set_weapon_channels_muted(action, mute_bones)
+
     if not soldier_action:
         return
 
@@ -981,6 +1046,9 @@ def update_nla_setup(context, action=None, activate_track=None) -> None:
                     bpy.ops.nla.action_pushdown(track_index=1)
                 weapon_track = tracks[0]
                 soldier_track = tracks[1]
+                weapon_track.select = False
+                with context.temp_override(**override):
+                    bpy.ops.anim.channels_move(direction='DOWN')
 
                 assert tracks.active.name == soldier_track.name
             elif activate_track == '3P_WEAPON':
@@ -991,16 +1059,13 @@ def update_nla_setup(context, action=None, activate_track=None) -> None:
                     bpy.ops.nla.action_pushdown(track_index=1)
                 weapon_track = tracks[1]
                 soldier_track = tracks[0]
-                soldier_track.select = False
-                with context.temp_override(**override):
-                    bpy.ops.anim.channels_move(direction='DOWN')
 
                 assert tracks.active.name == weapon_track.name
             else:
                 raise ValueError(f"bad arg {activate_track}")
     else:
+        soldier_track = tracks.new() # IMPORTANT: soldier must be on the bottom, weapon on top
         weapon_track = tracks.new()
-        soldier_track = tracks.new() # IMPORTANT: soldier must be on top
         weapon_track.strips.new(action.name, int(action.frame_start), action)
         soldier_track.strips.new(soldier_action.name, int(action.frame_start), soldier_action)
 
@@ -1008,7 +1073,7 @@ def update_nla_setup(context, action=None, activate_track=None) -> None:
     soldier_track.name = '3P_SOLDIER'
 
     obj.animation_data.action = action
-    obj.animation_data.action_influence = 0 # current action is always on the top of the stack but we want it to always be the soldier animation
+    obj.animation_data.action_influence = 0 # current action is already on the 3P_WEAPON strip, don't apply it twice
 
     action_len = action.frame_end - action.frame_start
     soldier_len = soldier_action.frame_end - soldier_action.frame_start

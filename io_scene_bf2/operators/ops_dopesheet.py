@@ -1,6 +1,6 @@
 import bpy # type: ignore
 
-from bpy.props import PointerProperty # type: ignore
+from bpy.props import PointerProperty, StringProperty # type: ignore
 from .utils import RegisterFactory
 from ..core.tools.anim_utils import update_nla_setup, nla_tweak_enable, nla_tweak_disable
 
@@ -42,6 +42,14 @@ class DOPESHEET_OT_bf2_weapon_anim_tweak_enable(bpy.types.Operator):
                 context.object.animation_data and
                 cls.TRACK_NAME in context.object.animation_data.nla_tracks)
 
+def _get_bf2_bone_id(armature, bone_name):
+    if not armature or not bone_name:
+        return -1
+    bf2_bones = list(armature.get('bf2_bones') or [])
+    if bone_name not in bf2_bones:
+        return -1
+    return bf2_bones.index(bone_name)
+
 class DOPESHEET_PT_bf2_action(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_label = "Battlefield 2"
@@ -56,6 +64,15 @@ class DOPESHEET_PT_bf2_action(bpy.types.Panel):
         action = context.active_action
         self.layout.use_property_split = True
         self.layout.prop(action, "bf2_soldier_action")
+        col = self.layout.column()
+        col.enabled = bool(action.bf2_soldier_action)
+        armature = context.object if context.object and context.object.type == 'ARMATURE' else None
+        if armature:
+            col.prop_search(action, "bf2_ignore_mother_orientation", armature.data, "bones")
+        else:
+            col.prop(action, "bf2_ignore_mother_orientation")
+        bone_id = _get_bf2_bone_id(armature, action.bf2_ignore_mother_orientation)
+        col.label(text=f"Bone ID: {bone_id}")
         self.layout.operator(DOPESHEET_OT_bf2_weapon_anim_tweak_enable.bl_idname,
                              emboss=True, depress=DOPESHEET_OT_bf2_weapon_anim_tweak_enable.is_active(context))
 
@@ -93,6 +110,14 @@ def init(rc : RegisterFactory):
             type=bpy.types.Action,
             name="Soldier action",
             description="Soldier animation to link with this animation (3P only)\n\nThis will set up a special NLA stack that combines both actions and also update it each time the action is changed",
+            update=_on_soldier_action_update
+        ) # type: ignore
+    )
+
+    rc.reg_prop(bpy.types.Action, 'bf2_ignore_mother_orientation',
+        StringProperty(
+            name="Ignore mother orientation",
+            description="Bone that defines the cutoff for the soldier action (3P only)\n\nThis bone and all of its children (direct or indirect) are driven by the weapon action, while every parent (the 'mother' orientation) is driven by the soldier action. Leave empty to let the weapon action drive every bone it animates",
             update=_on_soldier_action_update
         ) # type: ignore
     )
