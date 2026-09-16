@@ -2,45 +2,7 @@ import bpy # type: ignore
 
 from bpy.props import PointerProperty, StringProperty # type: ignore
 from .utils import RegisterFactory
-from ..core.tools.anim_utils import update_nla_setup, nla_tweak_enable, nla_tweak_disable
-
-def _get_active_nla_track(context):
-    if not context.object:
-        return
-    anim_data = context.object.animation_data
-    if not anim_data:
-        return
-    return anim_data.nla_tracks.active
-
-class DOPESHEET_OT_bf2_weapon_anim_tweak_enable(bpy.types.Operator):
-    bl_idname = "bf2.weapon_anim_tweak_enable"
-    bl_label = "Tweak Action"
-    bl_description = "A shortcut for enabling tweaking mode in NLA editor.\n\nBecause of the NLA stack, the action can't be edited normally. Also you will not be able to change action whilst in editing mode"
-    TRACK_NAME = '3P_WEAPON'
-
-    def execute(self, context):
-        if self.is_active(context):
-            nla_tweak_disable(context)
-        else:
-            nla_tweak_enable(context, context.active_action, track_name=self.TRACK_NAME)
-        return {'FINISHED'}
-
-    @classmethod
-    def is_active(cls, context):
-        if not context.scene.is_nla_tweakmode:
-            return False
-        track = _get_active_nla_track(context)
-        if not track or cls.TRACK_NAME != track.name:
-            return False
-        return True
-
-    @classmethod
-    def poll(cls, context):
-        return (context.object and
-                context.active_action and
-                context.active_action.bf2_soldier_action and
-                context.object.animation_data and
-                cls.TRACK_NAME in context.object.animation_data.nla_tracks)
+from ..core.tools.anim_utils import update_nla_setup
 
 def _get_bf2_bone_id(armature, bone_name):
     if not armature or not bone_name:
@@ -71,10 +33,8 @@ class DOPESHEET_PT_bf2_action(bpy.types.Panel):
             col.prop_search(action, "bf2_ignore_mother_orientation", armature.data, "bones")
         else:
             col.prop(action, "bf2_ignore_mother_orientation")
-        bone_id = _get_bf2_bone_id(armature, action.bf2_ignore_mother_orientation)
-        col.label(text=f"Bone ID: {bone_id}")
-        self.layout.operator(DOPESHEET_OT_bf2_weapon_anim_tweak_enable.bl_idname,
-                             emboss=True, depress=DOPESHEET_OT_bf2_weapon_anim_tweak_enable.is_active(context))
+        # bone_id = _get_bf2_bone_id(armature, action.bf2_ignore_mother_orientation)
+        # col.label(text=f"Ignore mother orientation value: {bone_id}")
 
 def _on_soldier_action_update(action, context):
     if context.scene.is_nla_tweakmode:
@@ -116,8 +76,8 @@ def init(rc : RegisterFactory):
 
     rc.reg_prop(bpy.types.Action, 'bf2_ignore_mother_orientation',
         StringProperty(
-            name="Ignore mother orientation",
-            description="Bone that defines the cutoff for the soldier action (3P only)\n\nThis bone and all of its children (direct or indirect) are driven by the weapon action, while every parent (the 'mother' orientation) is driven by the soldier action. Leave empty to let the weapon action drive every bone it animates",
+            name="Cutoff bone",
+            description="This bone including its children will be driven by the current (weapon) action, while every parent will be driven by the soldier action. Leave unset to let the weapon action drive every bone it animates.\n\nThis is the equivalent of the `animationManager.ignoreMotherOrientation` from the BF2's AnimationSystem",
             update=_on_soldier_action_update
         ) # type: ignore
     )
@@ -129,6 +89,5 @@ def init(rc : RegisterFactory):
     )
 
     rc.add_menu(bpy.app.handlers.load_post, _on_blendfile_load_post)
-    rc.reg_class(DOPESHEET_OT_bf2_weapon_anim_tweak_enable)
 
 register, unregister = RegisterFactory.create(init)

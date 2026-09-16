@@ -16,10 +16,11 @@
     * `None` - No transparency
     * `Alpha Test` - parts of the material can be either fully transparent or fully opaque, no in-between. It's cheap to compute.
     * `Alpha Blend` - Allows for semi-transparent materials. It's expensive to compute (may increase overdraw).
-  - **Technique** - a combination of modifiers that enable or disable certain shader features when drawing the material. These modifiers are names harcoded in the game engine and are shader type specific.
+  - **Technique** - a combination of modifiers that enable or disable certain shader features when drawing the material. These modifiers are names harcoded in the game engine and are mesh type specific.
 - **Animated UVs** - UV (texture) coordinates for BundledMeshes can be animated, BF2 uses this to fake tank track movement and/or road wheel rotation. Vertices that shall use this feature must be mapped to a specific UV transformation matrix depending on whether they belong to a tank track, wheel face or wheel outer rim and left/right side of the vehicle (total of 6 different combinations).
 - **Opacity map** - a grayscale image that controls the opacity, a pixel value of 1 makes the surface fully opaque. For optimization this map is always stored in the alpha channel of some other texture map (see [Materials](#materials) for details)
 - **Gloss map** - a grayscale image that scales the amount of [specular reflections](https://en.wikipedia.org/wiki/Specular_reflection), a pixel value of 1 applies maximum glossiness to the surface. For optimization this map is always stored in the alpha channel of some other texture map (see [Materials](#materials) for details)
+- **Lightmap** - an image texture containing pre-baked lighting data, used for StaticMeshes (excluding vegetation) and terrain. Each channel contains a different light type; the green channel contains the sunlight (directional light), while the blue channel contains the sky light (comming from all around) and ambient light. The red channel has dual purpose: for StaticMeshes it is used for point lights (e.g. street lamps) and for the terrain it is used to map the water depth (thus point lights on terrain can't work). The last UV map of the StaticMesh (UV4) is used to map that texture onto the mesh. Lightmaps are generated for each level using BF2Editor but nowadays Autodesk 3ds Max and Blender can be used as well.
 
 ## Materials
 
