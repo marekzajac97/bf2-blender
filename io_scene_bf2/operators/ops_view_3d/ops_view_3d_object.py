@@ -37,7 +37,7 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
             subtype="DIR_PATH"
         ) # type: ignore
 
-    dds_compression : EnumProperty(
+    dds_fmt : EnumProperty(
         name="Texture format",
         default=3,
         items=[
@@ -45,15 +45,6 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
             ('DXT1', "DXT1", "", 1),
             ('DXT3', "DXT3", "", 2),
             ('DXT5', "DXT5", "", 3),
-        ]
-    ) # type: ignore
-
-    target_channel : EnumProperty(
-        name="Target texture channel",
-        default=0,
-        items=[
-            ('BASE', "Base", "", 0),
-            ('DETAIL', "Detail", "", 1),
         ]
     ) # type: ignore
 
@@ -137,8 +128,6 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
         row.column().label( text="DDS format:")
         row.column().prop(self, "dds_fmt", text='')
         row = layout.row()
-        row.column().label( text="Target channel:")
-        row.column().prop(self, "target_channel", text='')
         for i in range(3):
             row = layout.row()
             row.prop(self, f'plane_{i}_enabled', text='')
@@ -188,7 +177,7 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
                 return {'CANCELLED'}
 
             lod0, texture = generate_og_lod(root, projections)
-            save_img_as_dds(texture, out_path, self.dds_compression)
+            save_img_as_dds(texture, out_path, self.dds_fmt)
             bpy.data.images.remove(texture)
 
             # apply material
@@ -197,11 +186,8 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
             material.bf2_shader = 'STATICMESH'
             material.is_bf2_vegitation = True
             material.bf2_alpha_mode = 'ALPHA_TEST'
-            if self.target_channel == 'BASE':
-                material.texture_slot_0 = out_path
-            else:
-                material.texture_slot_1 = out_path
-            material.is_bf2_material = True
+            material.is_bf2_material = True # must be set before 'texture_slot_X' to properly make the path relative
+            material.texture_slot_0 = out_path
             setup_material(material, texture_paths=[mod_path], reporter=Reporter(self.report))
 
             # build hierarchy
