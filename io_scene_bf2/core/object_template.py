@@ -24,6 +24,7 @@ from .utils import (check_transform, delete_object, check_suffix,
                     yaw_pitch_roll_to_matrix,
                     matrix_to_yaw_pitch_roll,
                     strip_geom_lod_prefix as strip_prefix,
+                    file_name,
                     DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
 
@@ -572,7 +573,8 @@ class CollMeshPartsCopy:
 
 def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=True,
                            apply_modifiers=False, samples_size=None, sample_padding=6,
-                           use_edge_margin=True, save_backfaces=True, reporter=DEFAULT_REPORTER, **kwargs):
+                           use_edge_margin=True, save_backfaces=True,
+                           reporter=DEFAULT_REPORTER, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
 
     with OrphanedAnchorObject(mesh_obj) as anchor_obj:
@@ -678,7 +680,7 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     col_mat_to_index = CollMeshExporter.collect_materials(collmesh_parts)
     for mat, mat_idx in sorted(col_mat_to_index.items(), key=lambda item: item[1]):
         if ' ' in mat:
-            # XXX: add quoting when dumping con to allow this
+            # TODO: add quoting when dumping con to allow this
             raise ExportException(f"CollisionMesh material: '{mat}' must not contain whitespaces!")
         root_obj_template.col_material_map[mat_idx] = mat
 
@@ -698,8 +700,17 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
                                                  material_to_index=col_mat_to_index)
             collmesh_exporter.export_collmesh()
 
-    print(f"Writing con file to '{con_file}'")
+    print(f"Writing '{con_file}' file")
     _dump_con_file(root_obj_template, con_file)
+
+    # export additional col-only variant for "vegitation"
+    if 'vegitation' in con_dir and not con_file.endswith('_lod.con') and root_obj_template.collmesh:
+        root_obj_template.geom = None
+        root_obj_template.name += '_col'
+        con_file_col = file_name(con_file) + '_col'
+        con_file_col = os.path.join(con_dir, f'{con_file_col}.con')
+        print(f"Writing '{con_file_col}' file")
+        _dump_con_file(root_obj_template, con_file_col)
 
 def _find_geom_parts(mesh_geoms):
     obj_to_part = dict()
@@ -1065,7 +1076,8 @@ def _get_nr_of_animted_uvs(mesh_geoms):
 
 def _dump_con_file(root_obj_template, con_file):
     with open(con_file, 'w') as f:
-        root_obj_template.geom.make_script(f)
+        if root_obj_template.geom:
+            root_obj_template.geom.make_script(f)
         if root_obj_template.collmesh:
             root_obj_template.collmesh.make_script(f)
         f.write('\n')
