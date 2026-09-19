@@ -39,12 +39,12 @@ ANCHOR_PREFIX = 'ANCHOR__'
 def import_object_template(context, con_filepath, import_collmesh=True,
                            import_rig_mode='AUTO', geom_to_ske_name=None, reload=False,
                            weld_verts=False, load_backfaces=True, remove_loose_verts=True, reporter=DEFAULT_REPORTER, **kwargs):
-    BF2Engine().shutdown() # clear previous state
-    obj_template_manager = BF2Engine().get_manager(ObjectTemplate)
-    geom_template_manager = BF2Engine().get_manager(GeometryTemplate)
-    col_template_manager = BF2Engine().get_manager(CollisionMeshTemplate)
+    engine = BF2Engine()
+    obj_template_manager = engine.get_manager(ObjectTemplate)
+    geom_template_manager = engine.get_manager(GeometryTemplate)
+    col_template_manager = engine.get_manager(CollisionMeshTemplate)
 
-    BF2Engine().main_console.run_file(con_filepath, ignore_includes=True) # don't parse .tweak
+    engine.main_console.run_file(con_filepath, ignore_includes=True) # don't parse .tweak
     for object_template in obj_template_manager.templates.values():
         try:
             obj_template_manager.add_bundle_childs(object_template)
@@ -577,6 +577,8 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
                            reporter=DEFAULT_REPORTER, **kwargs):
     geometry_type, obj_name = parse_geom_type(mesh_obj)
 
+    engine = BF2Engine()
+
     with OrphanedAnchorObject(mesh_obj) as anchor_obj:
         mesh_geoms = MeshExporter.collect_geoms_lods(mesh_obj)
 
@@ -593,14 +595,14 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
 
     collmesh_parts, obj_to_col_part_id = _find_collmeshes(mesh_geoms)
 
-    root_obj_template = _create_object_template(root_geom_part, obj_to_col_part_id)
+    root_obj_template = _create_object_template(root_geom_part, obj_to_col_part_id, engine)
     if root_obj_template is None:
         raise ExportException(f"root object '{root_geom_part.name}' is missing ObjectTemplate type, check object properties!")
     root_obj_template.save_in_separate_file = True
     root_obj_template.creator_name = getuser()
-    root_obj_template.geom = GeometryTemplate(geometry_type, obj_name)
+    root_obj_template.geom = GeometryTemplate(geometry_type, obj_name, engine)
     if root_obj_template.has_collision_physics:
-        root_obj_template.collmesh = CollisionMeshTemplate(obj_name)
+        root_obj_template.collmesh = CollisionMeshTemplate(obj_name, engine)
 
     if anchor_obj:
         root_obj_template.anchor_point = swap_zy(anchor_obj.location)
@@ -842,12 +844,12 @@ def _verify_lods_consistency(root_geom_part, lod_obj):
         geom_part_child = root_geom_children[child_name]
         _verify_lods_consistency(geom_part_child, child_obj)
 
-def _create_object_template(geom_part : GeomPartInfo, obj_to_col_part_id, is_vehicle=None) -> ObjectTemplate:
+def _create_object_template(geom_part : GeomPartInfo, obj_to_col_part_id, engine=None, is_vehicle=None) -> ObjectTemplate:
     if geom_part.bf2_object_type == '': # special case, geom part which has no object template (see GenericFirearm)
         return None
 
     obj_name = geom_part.name
-    obj_template = ObjectTemplate(geom_part.bf2_object_type, obj_name)
+    obj_template = ObjectTemplate(geom_part.bf2_object_type, obj_name, engine)
 
     obj_template.geom_part = geom_part.part_id
 
@@ -866,7 +868,7 @@ def _create_object_template(geom_part : GeomPartInfo, obj_to_col_part_id, is_veh
     for child_obj in sorted(geom_part.children, key=lambda child: child.name.lower()):
         if _is_colmesh_dummy(child_obj): # skip collmeshes
             continue
-        child_template = _create_object_template(child_obj, obj_to_col_part_id, is_vehicle)
+        child_template = _create_object_template(child_obj, obj_to_col_part_id, engine, is_vehicle)
         if child_template is None:
             continue
         child_object = ObjectTemplate.ChildObject(child_template.name)

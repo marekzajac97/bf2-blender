@@ -1,6 +1,5 @@
 import enum
 import inspect
-import types
 import os, glob, string
 import os.path as path
 import io
@@ -78,7 +77,8 @@ class MainConsole():
             self._constants = dict()
             self._variables = dict()
 
-    def __init__(self, silent = False):
+    def __init__(self, engine, silent = False):
+        self.engine = engine
         self._silent = silent
         self._stack = list()
         self._processed_line = 0
@@ -88,18 +88,17 @@ class MainConsole():
         self._registered_console_objects = dict()
         self.report_cb = None
 
-    def register_object(self, cls):
-        if cls.__class__ == type:
-            self._registered_console_objects[cls.__name__.lower()] = cls
-        else:
-            self._registered_console_objects[cls.__class__.__name__.lower()] = cls
+    def register_object(self, obj, name=None):
+        if name is None:
+            name = obj.__name__ if obj.__class__ == type else obj.__class__.__name__
+        self._registered_console_objects[name.lower()] = obj
 
     def get_active_con_file(self):
         return self._stack[-1]._con_file if self._stack else None
 
     def run_file(self, filepath, is_root=True, ignore_includes=False, args=[]):
         try:
-            content = BF2Engine().file_manager.readFile(filepath, is_root=is_root)
+            content = self.engine.file_manager.readFile(filepath, is_root=is_root)
             lines = content.decode(errors='ignore').splitlines()
         except UnicodeDecodeError as e:
             print(filepath)
@@ -292,30 +291,33 @@ def _str_to_vec(str_form, length):
 def _vec_to_str(vec):
     return '/'.join(f'{num:.4f}' for num in vec)
 
-class InstanceMethod(object):
-
-    def __init__(self, func):
-        self.func = func
-
-    def __get__(self, obj, objtype=None):
-        t = objtype or type(obj)
-        man = BF2Engine().get_manager(t)
-        if not man:
-            raise RuntimeError(f"Manager for {t} not found")
-        active = man.active_obj
-        if active:
-            return types.MethodType(self.func, active)
-
-        def not_active_dummy(*args, **kwargs):
-            return 'Template not active'
-        return not_active_dummy
-
-def instancemethod(func):
-    return InstanceMethod(func)
-
 class Manager:
-    def __init__(self):
+    def __init__(self, engine=None):
+        self.engine = engine
         self.active_obj = None
+
+    def __getattr__(self, name):
+        if name.startswith('__') or name == 'active_obj':
+            raise AttributeError(name)
+        obj = self.__dict__.get('active_obj')
+        seen = set()
+        while obj is not None and id(obj) not in seen:
+            seen.add(id(obj))
+            try:
+                return getattr(obj, name)
+            except AttributeError:
+                obj = getattr(obj, 'active_obj', None)
+        raise AttributeError(name)
+
+    def __dir__(self):
+        names = set(super().__dir__())
+        obj = self.__dict__.get('active_obj')
+        seen = set()
+        while obj is not None and id(obj) not in seen:
+            seen.add(id(obj))
+            names.update(dir(obj))
+            obj = getattr(obj, 'active_obj', None)
+        return sorted(names)
 
 class Template:
     MANAGED_TYPE = None
@@ -329,24 +331,16 @@ class Template:
     def __repr__(self):
         return '"%s"' % str(self)
 
-    @classmethod
-    def create(cls, *args):
-        BF2Engine().get_manager(cls).create(*args)
-
-    @classmethod
-    def active(cls, *args):
-        BF2Engine().get_manager(cls).active(*args)
-
 
 class TemplateManager(Manager):
     MANAGED_TYPE = Template
 
-    def __init__(self):
+    def __init__(self, engine=None):
+        super(TemplateManager, self).__init__(engine)
         self.templates = dict()
-        self.active_obj = None
 
     def create(self, *args):
-        new_template = self.MANAGED_TYPE(*args)
+        new_template = self.MANAGED_TYPE(*args, engine=self.engine)
         name = new_template.name.lower()
         if name in self.templates:
             template = self.templates[name]
@@ -363,7 +357,7 @@ class TemplateManager(Manager):
             self.active_obj = temp
         else:
             self.active_obj = None
-            BF2Engine().main_console.report('Activating non exisiting template {}'.format(template))
+            self.engine.main_console.report('Activating non exisiting template {}'.format(template))
 
 
 BF2_OBJECT_TEMPLATE_TYPES  = [
@@ -458,7 +452,7 @@ class ObjectTemplate(Template):
             self.position = (0, 0, 0)
             self.rotation = (0, 0, 0)
 
-    def __init__(self, object_type, name):
+    def __init__(self, object_type, name, engine=None):
         super(ObjectTemplate, self).__init__(name)
         self.type = object_type
         self._active_child = None
@@ -476,21 +470,11 @@ class ObjectTemplate(Template):
         self.save_in_separate_file = False
         self.anchor_point = None
 
-        active_con = BF2Engine().main_console.get_active_con_file()
+        active_con = engine.main_console.get_active_con_file() if engine else None
         if active_con:
             self.location = active_con.lower()
         else:
             self.location = None
-
-    def add_bundle_childs(self):
-        mngr = BF2Engine().get_manager(self.__class__)
-        for child in self.children:
-            child.template = mngr.templates.get(child.template_name.lower())
-            if child.template:
-                child.template.parent = self
-                child.template.add_bundle_childs()
-            else:
-                BF2Engine().main_console.report(f"The definition of child ObjectTemplate '{child.template_name}' not found")
 
     def make_script(self, f):
         f.write(f'ObjectTemplate.create {self.type} {self.name}\n')
@@ -533,67 +517,50 @@ class ObjectTemplate(Template):
         for child in self.children:
             child.template.make_script(f)
 
-    @classmethod
-    def activeSafe(cls, *args):
-        BF2Engine().get_manager(cls).activeSafe(*args)
-
-    @instancemethod
     def addTemplate(self, template):
         self._active_child = self.ChildObject(template)
         self.children.append(self._active_child)
 
-    @instancemethod
     def geometry(self, template):
         self.geom = template
 
-    @instancemethod
     def collisionMesh(self, template):
         self.collmesh = template
 
-    @instancemethod
     def geometryPart(self, val):
         self.geom_part = int(val)
 
-    @instancemethod
     def collisionPart(self, val):
         self.col_part = int(val)
     
-    @instancemethod
     def hasCollisionPhysics(self, val):
         self.has_collision_physics = bool(val)
 
-    @instancemethod
     def setPosition(self, vec):
         if self._active_child is None:
             return
         self._active_child.position = _str_to_vec(vec, 3)
 
-    @instancemethod
     def setRotation(self, vec):
         if self._active_child is None:
             return
         self._active_child.rotation = _str_to_vec(vec, 3)
     
-    @instancemethod
     def mapMaterial(self, mat_idx, mat_name, unk):
         self.col_material_map[int(mat_idx)] = mat_name
     
-    @instancemethod
     def physicsType(self, val):
         if val.isdigit():
             self.physics_type = ObjectTemplate._PhysicsType(int(val))
         else:
             self.physics_type = ObjectTemplate._PhysicsType[val.upper()]
 
-    @instancemethod
     def creator(self, val):
         self.creator_name = val
 
-    @instancemethod
     def saveInSeparateFile(self, val):
         self.save_in_separate_file = bool(val)
 
-    @instancemethod
     def anchor(self, vec):
         self.anchor_point = _str_to_vec(vec, 3)
 
@@ -605,14 +572,17 @@ class ObjectTemplateManager(TemplateManager):
         if temp and temp.type.lower() != object_type.lower():
             self.active_obj = None
 
-    def add_bundle_childs(self, object_template):
+    def add_bundle_childs(self, object_template, raise_on_missing=True):
         for child in object_template.children:
             try:
                 child.template = self.templates[child.template_name.lower()]
             except KeyError:
-                raise BF2EngineException(f"The definition of child ObjectTemplate '{child.template_name.lower()}' not found")
+                if raise_on_missing:
+                    raise BF2EngineException(f"The definition of child ObjectTemplate '{child.template_name.lower()}' not found")
+                self.engine.main_console.report(f"The definition of child ObjectTemplate '{child.template_name}' not found")
+                continue
             child.template.parent = object_template
-            self.add_bundle_childs(child.template)
+            self.add_bundle_childs(child.template, raise_on_missing)
 
 
 class GeometryTemplate(Template):
@@ -635,7 +605,7 @@ class GeometryTemplate(Template):
         'debugspheremesh': None
     }
 
-    def __init__(self, geometry_type, name):
+    def __init__(self, geometry_type, name, engine=None):
         super(GeometryTemplate, self).__init__(name)
         if geometry_type.lower() in self.TYPES:
             self.geometry_type = self.TYPES[geometry_type.lower()]
@@ -645,7 +615,7 @@ class GeometryTemplate(Template):
         self.nr_of_animated_uv_matrix = 0
         self.dont_generate_lightmaps = False
 
-        active_con = BF2Engine().main_console.get_active_con_file()
+        active_con = engine.main_console.get_active_con_file() if engine else None
         if active_con:
             dir = os.path.dirname(active_con.lower())
             file_ext = self._FILE_EXT[geometry_type.lower()]
@@ -661,7 +631,6 @@ class GeometryTemplate(Template):
         if self.nr_of_animated_uv_matrix:
             f.write(f'GeometryTemplate.nrOfAnimatedUVMatrix {self.nr_of_animated_uv_matrix}\n')
 
-    @instancemethod
     def doNotGenerateLightmaps(self, b):
         self.dont_generate_lightmaps = bool(int(b))
 
@@ -670,10 +639,10 @@ class GeometryTemplateManager(TemplateManager):
 
 
 class CollisionMeshTemplate(Template):
-    def __init__(self, name):
+    def __init__(self, name, engine=None):
         super(CollisionMeshTemplate, self).__init__(name)
 
-        active_con = BF2Engine().main_console.get_active_con_file()
+        active_con = engine.main_console.get_active_con_file() if engine else None
         if active_con:
             dir = os.path.dirname(active_con.lower())
             self.location = os.path.join(dir, 'Meshes', f'{name}.collisionmesh')
@@ -703,27 +672,21 @@ class Heightmap:
         self.raw_file = None
         self.mat_file = None
 
-    @instancemethod
     def setSize(self, x, y):
         self.size = (int(x), int(y))
 
-    @instancemethod
     def setScale(self, vec):
         self.scale = _str_to_vec(vec, 3)
 
-    @instancemethod
     def setBitResolution(self, val):
         self.bit_res = int(val)
 
-    @instancemethod
     def setMaterialScale(self, val):
         self.material_scale = float(val)
 
-    @instancemethod
     def loadHeightData(self, val):
         self.raw_file = val
 
-    @instancemethod
     def loadMaterialData(self, val):
         self.mat_file = val
 
@@ -731,40 +694,33 @@ class Heightmap:
 class HeightmapCluster(Manager):
     MANAGED_TYPE = Heightmap
 
-    def __init__(self, name):
+    def __init__(self, name, engine=None):
+        super(HeightmapCluster, self).__init__(engine)
         self.name = name # maybe its type?
         # TODO find defaults
         self.cluster_size = None
         self.heightmap_size = None
         self.heightmaps = list()
-        self.active_obj = None
         self.water_level = 0
 
-    @classmethod
-    def create(cls, *args):
-        BF2Engine().get_manager(HeightmapCluster).create(*args)
-
-    @instancemethod
     def setClusterSize(self, size):
         self.cluster_size = int(size)
 
-    @instancemethod
     def setHeightmapSize(self, size):
         self.heightmap_size = int(size)
 
-    @instancemethod
     def addHeightmap(self, _type, offset_x, offset_z):
         self.active_obj = Heightmap(_type, int(offset_x), int(offset_z))
         self.heightmaps.append(self.active_obj)
 
-    @instancemethod
     def setSeaWaterLevel(self, val):
         self.water_level = float(val)
 
 class HeightmapClusterManager(Manager):
     MANAGED_TYPE = HeightmapCluster
 
-    def __init__(self):
+    def __init__(self, engine=None):
+        super(HeightmapClusterManager, self).__init__(engine)
         self.reset()
     
     def reset(self):
@@ -772,7 +728,7 @@ class HeightmapClusterManager(Manager):
         self.active_obj = None
 
     def create(self, name):
-        new_cluster = HeightmapCluster(name)
+        new_cluster = HeightmapCluster(name, self.engine)
         self.clusters.append(new_cluster)
         self.active_obj = new_cluster
         return new_cluster
@@ -788,33 +744,23 @@ class Object:
         self.light_source_mask = 0
         self._layer = 0
 
-    @classmethod
-    def create(cls, *args):
-        BF2Engine().get_manager(Object).create(*args)
-
-    @instancemethod
     def isOvergrowth(self, flag):
         self.is_overgrowth = bool(int(flag))
 
-    @instancemethod
     def absolutePosition(self, pos):
         self.absolute_pos = _str_to_vec(pos, 3)
 
-    @instancemethod
     def absoluteTransformation(self, matrix_str):
         self.transform = list()
         for row in matrix_str.strip('[]').split(']['):
             self.transform.append(_str_to_vec(row, 4))
 
-    @instancemethod
     def rotation(self, rot):
         self.rot = _str_to_vec(rot, 3)
     
-    @instancemethod
     def layer(self, _layer):
         self._layer = int(_layer)
 
-    @instancemethod
     def setLightSourceMask(self, light_source_mask):
         self.light_source_mask = int(light_source_mask)
 
@@ -842,7 +788,8 @@ class Object:
 class ObjectManager(Manager):
     MANAGED_TYPE = Object
 
-    def __init__(self):
+    def __init__(self, engine=None):
+        super(ObjectManager, self).__init__(engine)
         self.reset()
 
     def reset(self):
@@ -850,11 +797,11 @@ class ObjectManager(Manager):
         self.active_obj = None
 
     def create(self, template):
-        obj_temp_manager = BF2Engine().get_manager(ObjectTemplate)
+        obj_temp_manager = self.engine.get_manager(ObjectTemplate)
 
         temp = obj_temp_manager.templates.get(template.lower())
         if not temp:
-            BF2Engine().main_console.report(f"ObjectTemplate definition not found")
+            self.engine.main_console.report(f"ObjectTemplate definition not found")
             self.active_obj = None
             return
 
@@ -1056,7 +1003,30 @@ class BF2EngineException(Exception):
 
 
 class BF2Engine():
-    _instance = None
+
+    def __init__(self, silent=True):
+        self.silent = silent
+        self.reset()
+
+    def reset(self):
+        self.glob_managers = list()
+        self.glob_managers.append(ObjectTemplateManager(self))
+        self.glob_managers.append(GeometryTemplateManager(self))
+        self.glob_managers.append(CollisionManager(self))
+        self.glob_managers.append(ObjectManager(self))
+        self.glob_managers.append(HeightmapClusterManager(self))
+        self.file_manager : FileManager = FileManager()
+        self.light_manager : LightManager = LightManager()
+
+        self.main_console : MainConsole = MainConsole(self, silent=self.silent)
+        self.main_console.register_object(self.get_manager(ObjectTemplate), 'objecttemplate')
+        self.main_console.register_object(self.get_manager(GeometryTemplate), 'geometrytemplate')
+        self.main_console.register_object(self.get_manager(Object), 'object')
+        self.main_console.register_object(self.get_manager(HeightmapCluster), 'heightmapcluster')
+        self.main_console.register_object(self.get_manager(HeightmapCluster), 'heightmap')
+        self.main_console.register_object(self.get_manager(CollisionMeshTemplate))
+        self.main_console.register_object(self.file_manager)
+        self.main_console.register_object(self.light_manager)
 
     def _get_manager(self, manager, _type):
         if not isinstance(manager, Manager):
@@ -1074,33 +1044,3 @@ class BF2Engine():
         for manager in self.glob_managers:
             if found := self._get_manager(manager, _type):
                 return found
-
-    def __new__(cls, *args, **kwargs):
-        if not isinstance(cls._instance, cls):
-            cls._instance = object.__new__(cls, *args, **kwargs)
-            cls._instance.init()
-        return cls._instance
-
-    def init(self):
-        self.glob_managers = list()
-        self.glob_managers.append(ObjectTemplateManager())
-        self.glob_managers.append(GeometryTemplateManager())
-        self.glob_managers.append(CollisionManager())
-        self.glob_managers.append(ObjectManager())
-        self.glob_managers.append(HeightmapClusterManager())
-        self.file_manager : FileManager = FileManager()
-        self.light_manager : LightManager = LightManager()
-
-        self.main_console : MainConsole = MainConsole(silent=True)
-        self.main_console.register_object(ObjectTemplate)
-        self.main_console.register_object(GeometryTemplate)
-        self.main_console.register_object(Object)
-        self.main_console.register_object(HeightmapCluster)
-        self.main_console.register_object(Heightmap)
-        self.main_console.register_object(self.get_manager(CollisionMeshTemplate))
-        self.main_console.register_object(self.file_manager)
-        self.main_console.register_object(self.light_manager)
-
-    @classmethod
-    def shutdown(cls):
-        cls._instance = None

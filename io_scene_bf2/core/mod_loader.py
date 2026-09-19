@@ -11,14 +11,15 @@ CACHE_FILE_NAME = ".io_scene_bf2_cache"
 CACHE_VERSION = "1.0" # must be changed if anything within xxxTemplate data is added/modified
 
 class ModLoader:
-    def __init__(self, mod_dir, use_cache=True):
+    def __init__(self, mod_dir, use_cache=True, engine=None):
         self.mod_dir = mod_dir
         self.use_cache = use_cache
+        self.engine = engine if engine is not None else BF2Engine()
 
     def reload_all(self):
-        BF2Engine().shutdown()
-        file_manager = BF2Engine().file_manager
-        main_console = BF2Engine().main_console
+        self.engine.reset()
+        file_manager = self.engine.file_manager
+        main_console = self.engine.main_console
 
         file_manager.root_dirs = [self.mod_dir]
         main_console.run_file('serverarchives.con')
@@ -36,9 +37,9 @@ class ModLoader:
         geometries = cache_data["geometries"]
         collisons = cache_data["collisons"]
 
-        obj_manager = BF2Engine().get_manager(ObjectTemplate)
-        geom_manager = BF2Engine().get_manager(GeometryTemplate)
-        col_manager = BF2Engine().get_manager(CollisionMeshTemplate)
+        obj_manager = self.engine.get_manager(ObjectTemplate)
+        geom_manager = self.engine.get_manager(GeometryTemplate)
+        col_manager = self.engine.get_manager(CollisionMeshTemplate)
 
         # TODO: make methods int TemplateManager for this
         objects.update(obj_manager.templates) # XXX so templates already exisiting don't get overwriten
@@ -51,7 +52,7 @@ class ModLoader:
         col_manager.templates = collisons
 
     def load_cache(self):
-        file_manager = BF2Engine().file_manager
+        file_manager = self.engine.file_manager
         if not self.use_cache:
             return False
         md5hash = self.object_archives_md5()
@@ -68,7 +69,7 @@ class ModLoader:
         return False
     
     def object_archives_md5(self):
-        file_manager = BF2Engine().file_manager
+        file_manager = self.engine.file_manager
         hash_md5 = hashlib.md5()
         for zipfile in file_manager.getArchives('objects'):
             zipfile = zipfile.lower()
@@ -79,9 +80,9 @@ class ModLoader:
         return hash_md5.hexdigest()
 
     def write_cache_to_file(self, cache):
-        obj_manager = BF2Engine().get_manager(ObjectTemplate)
-        geom_manager = BF2Engine().get_manager(GeometryTemplate)
-        col_manager = BF2Engine().get_manager(CollisionMeshTemplate)
+        obj_manager = self.engine.get_manager(ObjectTemplate)
+        geom_manager = self.engine.get_manager(GeometryTemplate)
+        col_manager = self.engine.get_manager(CollisionMeshTemplate)
 
         obj_templates = obj_manager.templates
         geom_templates = geom_manager.templates
@@ -95,14 +96,14 @@ class ModLoader:
     def write_cache(self):
         if not self.use_cache:
             return False
-        file_manager = BF2Engine().file_manager
+        file_manager = self.engine.file_manager
         md5hash = self.object_archives_md5()
         filepath = os.path.join(self.mod_dir, CACHE_FILE_NAME + '__' + CACHE_VERSION + '__' + md5hash)
         self.write_cache_to_file(filepath)
 
     def load_objects(self, levels_only=False):
-        file_manager = BF2Engine().file_manager
-        main_console = BF2Engine().main_console
+        file_manager = self.engine.file_manager
+        main_console = self.engine.main_console
 
         files_to_process : Dict[List[str]] = dict()
         processed_con_files = set()

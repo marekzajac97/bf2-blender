@@ -368,16 +368,16 @@ def _module_from_file(py_file):
     spec.loader.exec_module(lm_config)
     return lm_config
 
-def _get_templates(template, matrix, templates=None):
+def _get_templates(template, matrix, engine, templates=None):
     if templates is None:
         templates = list()
     templates.append((template, matrix))
-    template.add_bundle_childs()
+    engine.get_manager(ObjectTemplate).add_bundle_childs(template, raise_on_missing=False)
     for child in template.children:
         if child.template is not None:
             child_matrix = yaw_pitch_roll_to_matrix(child.rotation)
             child_matrix.translation = swap_zy(child.position)
-            _get_templates(child.template, matrix @ child_matrix, templates)
+            _get_templates(child.template, matrix @ child_matrix, engine, templates)
     return templates
 
 def _get_obj_matrix(bf2_object):
@@ -411,12 +411,12 @@ def _calc_mesh_area(mesh):
     bm.free()
     return area
 
-def _load_heightmap(context, level_dir):
-    file_manager = BF2Engine().file_manager
-    main_console = BF2Engine().main_console
+def _load_heightmap(context, level_dir, engine):
+    file_manager = engine.file_manager
+    main_console = engine.main_console
 
     main_console.run_file(path.join(level_dir, 'Heightdata.con'))
-    hm_cluster = BF2Engine().get_manager(HeightmapCluster).active_obj
+    hm_cluster = engine.get_manager(HeightmapCluster).active_obj
     if not hm_cluster:
         return
     for heightmap in hm_cluster.heightmaps:
@@ -517,10 +517,10 @@ class GeometryTemplateConfig:
                 collection.objects.link(lod_obj)
         return root
 
-def _get_template_configs(template, matrix, config, templates : Dict[str, ObjectTemplateConfig], reporter):
+def _get_template_configs(template, matrix, config, templates : Dict[str, ObjectTemplateConfig], reporter, engine):
     temp_cfg = templates.get(template.name.lower())
     if temp_cfg is None:
-        template.add_bundle_childs() # resolve children
+        engine.get_manager(ObjectTemplate).add_bundle_childs(template, raise_on_missing=False) # resolve children
         geom_name = template.geom
 
         if (geom_name and
@@ -529,7 +529,7 @@ def _get_template_configs(template, matrix, config, templates : Dict[str, Object
             geom_name = None
 
         if geom_name:
-            geom_manager = BF2Engine().get_manager(GeometryTemplate)
+            geom_manager = engine.get_manager(GeometryTemplate)
             geom = geom_manager.templates.get(geom_name.lower())
             if not geom:
                 reporter.error(f"GeometryTemplate definition for '{geom_name}' not found")
@@ -547,7 +547,7 @@ def _get_template_configs(template, matrix, config, templates : Dict[str, Object
         if child.template is not None:
             child_matrix = yaw_pitch_roll_to_matrix(child.rotation)
             child_matrix.translation = swap_zy(child.position)
-            _get_template_configs(child.template, matrix @ child_matrix, config, templates, reporter)
+            _get_template_configs(child.template, matrix @ child_matrix, config, templates, reporter, engine)
 
 def _do_material_tweaks(config, geom_temp_name, geom, texture_paths, ray_vis_mask, reporter):
     materials_done = set()
@@ -628,10 +628,10 @@ def _get_lm_size_thresholds(config, reporter):
             prev_thresh = thresh
     return lm_size_thresholds
 
-def _run_all_con_files(root_dir):
+def _run_all_con_files(root_dir, engine):
     if not path.isdir(root_dir):
         return
-    main_console = BF2Engine().main_console
+    main_console = engine.main_console
     for root, _, files in os.walk(root_dir):
         for filename in files:
             if filename.endswith('.con'):
@@ -642,6 +642,8 @@ def load_level(context, level_dir, use_cache=True,
                load_overgrowth=True, load_heightmap=True, load_lights=True,
                mod_dirs=[], max_lod_to_load=None, lm_skip_lod0_only=True,
                config=None, config_file='', reporter=DEFAULT_REPORTER):
+
+    engine = BF2Engine()
 
     level_dir = level_dir.rstrip('/').rstrip('\\')
     mod_dir = path.normpath(path.join(level_dir, '..', '..'))
@@ -654,10 +656,10 @@ def load_level(context, level_dir, use_cache=True,
     ray_vis_mask = _make_ray_visibility_mask()
 
     if load_unpacked:
-        BF2Engine().shutdown()
+        engine.reset()
 
-    file_manager = BF2Engine().file_manager
-    main_console = BF2Engine().main_console
+    file_manager = engine.file_manager
+    main_console = engine.main_console
 
     def report_cb(con_file, line_no, line, what):
         if line.lower().startswith('object.create'):
@@ -675,7 +677,7 @@ def load_level(context, level_dir, use_cache=True,
             mod_dirs.append(mod_dir)
 
         mod_dirs.append(level_dir) # for objects inside levels dir
-        BF2Engine().file_manager.root_dirs = mod_dirs
+        engine.file_manager.root_dirs = mod_dirs
 
     # load statics & OG
     if load_static_objects or load_overgrowth:
@@ -683,7 +685,7 @@ def load_level(context, level_dir, use_cache=True,
         if not load_unpacked:
             try:
                 main_console.run_file(path.join(level_dir, 'serverarchives.con'))
-                mod_loader = ModLoader(mod_dir, use_cache) # load just the main mod (ignore mod_dirs)
+                mod_loader = ModLoader(mod_dir, use_cache, engine=engine) # load just the main mod (ignore mod_dirs)
                 mod_loader.reload_all()
             except FileManagerFileNotFound:
                 pass
@@ -691,8 +693,8 @@ def load_level(context, level_dir, use_cache=True,
             # load each mod_dir configured
             for md in mod_dirs:
                 print(f'Loading objects from "{md}"')
-                _run_all_con_files(os.path.join(md, 'objects'))
-            _run_all_con_files(os.path.join(level_dir, 'objects'))
+                _run_all_con_files(os.path.join(md, 'objects'), engine)
+            _run_all_con_files(os.path.join(level_dir, 'objects'), engine)
 
         if load_static_objects:
             main_console.run_file(path.join(level_dir, 'StaticObjects.con'))
@@ -702,8 +704,8 @@ def load_level(context, level_dir, use_cache=True,
 
     # collect template configs recursively
     templates : Dict[str, ObjectTemplateConfig] = dict()
-    for obj in BF2Engine().get_manager(Object).objects:
-        _get_template_configs(obj.template, _get_obj_matrix(obj), config, templates, reporter)
+    for obj in engine.get_manager(Object).objects:
+        _get_template_configs(obj.template, _get_obj_matrix(obj), config, templates, reporter, engine)
 
     # load meshes
     if not load_unpacked:
@@ -867,14 +869,14 @@ def load_level(context, level_dir, use_cache=True,
                 lm_keys.add(lm_key)
 
     if load_heightmap:
-        _load_heightmap(context, level_dir)
+        _load_heightmap(context, level_dir, engine)
 
     if load_lights:
         lights = _make_collection(context, "Lights")
 
         # sun (green channel)
         main_console.run_file(path.join(level_dir, 'Sky.con'))
-        sun_dir = Vector(BF2Engine().light_manager.sun_dir)
+        sun_dir = Vector(engine.light_manager.sun_dir)
         _convert_pos(sun_dir)
         sun_light = bpy.data.lights.new(name='Sun', type='SUN')
         obj = bpy.data.objects.new(sun_light.name, sun_light)
