@@ -953,10 +953,9 @@ def update_nla_setup(context, action=None) -> None:
         return
 
     # cleanup
-    for track_name in ('3P_WEAPON', '3P_SOLDIER'):
-        track = obj.animation_data.nla_tracks.get(track_name)
-        if track:
-            obj.animation_data.nla_tracks.remove(track)
+    track = obj.animation_data.nla_tracks.get('3P_SOLDIER')
+    if track:
+        obj.animation_data.nla_tracks.remove(track)
 
     # the active action is evaluated on top of the stack, so its influence must be full
     obj.animation_data.action_influence = 1
