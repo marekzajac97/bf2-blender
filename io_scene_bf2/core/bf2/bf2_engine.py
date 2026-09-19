@@ -69,6 +69,10 @@ def igetattr(obj, attr):
             return getattr(obj, a)
     raise AttributeError()
 
+def console_command(func):
+    func._console_callable = True
+    return func
+
 class MainConsole():
 
     class StackFrame:
@@ -170,7 +174,7 @@ class MainConsole():
         obj_method = None
         try:
             obj_method = igetattr(obj_class_or_instance, method_name)
-            if not callable(obj_method):
+            if not callable(obj_method) or not getattr(obj_method, '_console_callable', False):
                 obj_method = None
         except AttributeError:
             pass
@@ -339,6 +343,7 @@ class TemplateManager(Manager):
         super(TemplateManager, self).__init__(engine)
         self.templates = dict()
 
+    @console_command
     def create(self, *args):
         new_template = self.MANAGED_TYPE(*args, engine=self.engine)
         name = new_template.name.lower()
@@ -350,6 +355,7 @@ class TemplateManager(Manager):
         self.active_obj = new_template
         return new_template
 
+    @console_command
     def active(self, template):
         template_low = template.lower()
         temp = self.templates.get(template_low)
@@ -517,56 +523,70 @@ class ObjectTemplate(Template):
         for child in self.children:
             child.template.make_script(f)
 
+    @console_command
     def addTemplate(self, template):
         self._active_child = self.ChildObject(template)
         self.children.append(self._active_child)
 
+    @console_command
     def geometry(self, template):
         self.geom = template
 
+    @console_command
     def collisionMesh(self, template):
         self.collmesh = template
 
+    @console_command
     def geometryPart(self, val):
         self.geom_part = int(val)
 
+    @console_command
     def collisionPart(self, val):
         self.col_part = int(val)
     
+    @console_command
     def hasCollisionPhysics(self, val):
         self.has_collision_physics = bool(val)
 
+    @console_command
     def setPosition(self, vec):
         if self._active_child is None:
             return
         self._active_child.position = _str_to_vec(vec, 3)
 
+    @console_command
     def setRotation(self, vec):
         if self._active_child is None:
             return
         self._active_child.rotation = _str_to_vec(vec, 3)
     
+    @console_command
     def mapMaterial(self, mat_idx, mat_name, unk):
         self.col_material_map[int(mat_idx)] = mat_name
     
+    @console_command
     def physicsType(self, val):
         if val.isdigit():
             self.physics_type = ObjectTemplate._PhysicsType(int(val))
         else:
             self.physics_type = ObjectTemplate._PhysicsType[val.upper()]
 
+    @console_command
     def creator(self, val):
         self.creator_name = val
 
+    @console_command
     def saveInSeparateFile(self, val):
         self.save_in_separate_file = bool(val)
 
+    @console_command
     def anchor(self, vec):
         self.anchor_point = _str_to_vec(vec, 3)
 
 class ObjectTemplateManager(TemplateManager):
     MANAGED_TYPE = ObjectTemplate
 
+    @console_command
     def activeSafe(self, object_type, template):
         temp = self.active(template)
         if temp and temp.type.lower() != object_type.lower():
@@ -631,6 +651,7 @@ class GeometryTemplate(Template):
         if self.nr_of_animated_uv_matrix:
             f.write(f'GeometryTemplate.nrOfAnimatedUVMatrix {self.nr_of_animated_uv_matrix}\n')
 
+    @console_command
     def doNotGenerateLightmaps(self, b):
         self.dont_generate_lightmaps = bool(int(b))
 
@@ -656,6 +677,7 @@ class CollisionMeshTemplate(Template):
 class CollisionManager(TemplateManager):
     MANAGED_TYPE = CollisionMeshTemplate
 
+    @console_command
     def createTemplate(self, name):
         self.create(name)
 
@@ -672,21 +694,27 @@ class Heightmap:
         self.raw_file = None
         self.mat_file = None
 
+    @console_command
     def setSize(self, x, y):
         self.size = (int(x), int(y))
 
+    @console_command
     def setScale(self, vec):
         self.scale = _str_to_vec(vec, 3)
 
+    @console_command
     def setBitResolution(self, val):
         self.bit_res = int(val)
 
+    @console_command
     def setMaterialScale(self, val):
         self.material_scale = float(val)
 
+    @console_command
     def loadHeightData(self, val):
         self.raw_file = val
 
+    @console_command
     def loadMaterialData(self, val):
         self.mat_file = val
 
@@ -703,16 +731,20 @@ class HeightmapCluster(Manager):
         self.heightmaps = list()
         self.water_level = 0
 
+    @console_command
     def setClusterSize(self, size):
         self.cluster_size = int(size)
 
+    @console_command
     def setHeightmapSize(self, size):
         self.heightmap_size = int(size)
 
+    @console_command
     def addHeightmap(self, _type, offset_x, offset_z):
         self.active_obj = Heightmap(_type, int(offset_x), int(offset_z))
         self.heightmaps.append(self.active_obj)
 
+    @console_command
     def setSeaWaterLevel(self, val):
         self.water_level = float(val)
 
@@ -721,12 +753,10 @@ class HeightmapClusterManager(Manager):
 
     def __init__(self, engine=None):
         super(HeightmapClusterManager, self).__init__(engine)
-        self.reset()
-    
-    def reset(self):
         self.clusters = list()
         self.active_obj = None
 
+    @console_command
     def create(self, name):
         new_cluster = HeightmapCluster(name, self.engine)
         self.clusters.append(new_cluster)
@@ -744,27 +774,33 @@ class Object:
         self.light_source_mask = 0
         self._layer = 0
 
+    @console_command
     def isOvergrowth(self, flag):
         self.is_overgrowth = bool(int(flag))
 
+    @console_command
     def absolutePosition(self, pos):
         self.absolute_pos = _str_to_vec(pos, 3)
 
+    @console_command
     def absoluteTransformation(self, matrix_str):
         self.transform = list()
         for row in matrix_str.strip('[]').split(']['):
             self.transform.append(_str_to_vec(row, 4))
 
+    @console_command
     def rotation(self, rot):
         self.rot = _str_to_vec(rot, 3)
     
+    @console_command
     def layer(self, _layer):
         self._layer = int(_layer)
 
+    @console_command
     def setLightSourceMask(self, light_source_mask):
         self.light_source_mask = int(light_source_mask)
 
-    def makeScript(self):
+    def make_script(self):
         s = f'Object.create {self.template.name.lower()}\n'
         if self.absolute_pos != (0, 0, 0):
             s += f'Object.absolutePosition {_vec_to_str(self.absolute_pos)}\n'
@@ -790,12 +826,10 @@ class ObjectManager(Manager):
 
     def __init__(self, engine=None):
         super(ObjectManager, self).__init__(engine)
-        self.reset()
-
-    def reset(self):
         self.objects = list()
         self.active_obj = None
 
+    @console_command
     def create(self, template):
         obj_temp_manager = self.engine.get_manager(ObjectTemplate)
 
@@ -816,6 +850,7 @@ class LightManager():
     def __init__(self):
         self.sun_dir = (0, 0, 0)
 
+    @console_command
     def sunDirection(self, vec):
         self.sun_dir = _str_to_vec(vec, 3)
 
@@ -839,7 +874,7 @@ class FileManager:
     def __del__(self):
         for _, archive in self._archive_to_zip.items():
             archive.close()
-    
+
     def getZipFile(self, archive):
         archive = archive.lower()
         return self._archive_to_zip[archive]
@@ -967,6 +1002,7 @@ class FileManager:
             self._mounted_paths[k].append(dirpathfull)
             break
 
+    @console_command
     def mountArchive(self, archive, mount_dir, mode='r'):
         archive = archive.lower()
         for root_dir in self.root_dirs:
@@ -1019,11 +1055,11 @@ class BF2Engine():
         self.light_manager : LightManager = LightManager()
 
         self.main_console : MainConsole = MainConsole(self, silent=self.silent)
-        self.main_console.register_object(self.get_manager(ObjectTemplate), 'objecttemplate')
-        self.main_console.register_object(self.get_manager(GeometryTemplate), 'geometrytemplate')
-        self.main_console.register_object(self.get_manager(Object), 'object')
-        self.main_console.register_object(self.get_manager(HeightmapCluster), 'heightmapcluster')
-        self.main_console.register_object(self.get_manager(HeightmapCluster), 'heightmap')
+        self.main_console.register_object(self.get_manager(ObjectTemplate), 'ObjectTemplate')
+        self.main_console.register_object(self.get_manager(GeometryTemplate), 'GeometryTemplate')
+        self.main_console.register_object(self.get_manager(Object), 'Object')
+        self.main_console.register_object(self.get_manager(HeightmapCluster), 'HeightmapCluster')
+        self.main_console.register_object(self.get_manager(HeightmapCluster), 'Heightmap')
         self.main_console.register_object(self.get_manager(CollisionMeshTemplate))
         self.main_console.register_object(self.file_manager)
         self.main_console.register_object(self.light_manager)

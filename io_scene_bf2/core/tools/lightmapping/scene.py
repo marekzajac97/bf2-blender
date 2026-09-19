@@ -655,9 +655,6 @@ def load_level(context, level_dir, use_cache=True,
     use_samples = getattr(config, 'USE_LIGHTMAP_SAMPLES', DEFAULT_USE_LIGHTMAP_SAMPLES)
     ray_vis_mask = _make_ray_visibility_mask()
 
-    if load_unpacked:
-        engine.reset()
-
     file_manager = engine.file_manager
     main_console = engine.main_console
 
