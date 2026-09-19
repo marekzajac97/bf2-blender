@@ -147,21 +147,24 @@ def project_to_plane(obj, plane_name, texture_size):
         u_offset = u_bound.distance / 2 + u_bound.min
         v_offset = v_bound.distance / 2 + v_bound.min
 
+        # plane matches the object bounds exactly
+        plane_width = u_bound.distance
+        plane_height = v_bound.distance
+
+        # camera view has the texture aspect ratio but must fully contain the plane
         texture_width, texture_height = texture_size
         aspect_ratio = texture_width / texture_height
 
-        if u_bound.distance > v_bound.distance:
-            ortho_scale = plane_width = u_bound.distance
-            plane_height = plane_width * (1/aspect_ratio)
-            s = max(v_bound.distance / plane_height, 1.0)
+        if plane_height <= 0.0 or plane_width / plane_height > aspect_ratio:
+            view_width = plane_width
+            view_height = plane_width / aspect_ratio
         else:
-            ortho_scale = plane_height = v_bound.distance
-            plane_width = plane_height * aspect_ratio
-            s = max(u_bound.distance / plane_width, 1.0)
+            view_height = plane_height
+            view_width = plane_height * aspect_ratio
 
-        ortho_scale *= s
-        plane_width *= s
-        plane_height *= s
+        ortho_scale = max(view_width, view_height)
+        uv_scale_u = 1 / max(view_width, 1e-6)
+        uv_scale_v = 1 / max(view_height, 1e-6)
 
         # Make plane
         bm = bmesh.new()
@@ -198,8 +201,8 @@ def project_to_plane(obj, plane_name, texture_size):
         loop_uvs = list()
         for loop in mesh.loops:
             vertex = mesh.vertices[loop.vertex_index]
-            u = vertex.co[plane_axes_idx[0]] / plane_width + 0.5
-            v = vertex.co[plane_axes_idx[1]] / plane_height + 0.5
+            u = vertex.co[plane_axes_idx[0]] * uv_scale_u + 0.5
+            v = vertex.co[plane_axes_idx[1]] * uv_scale_v + 0.5
             if flip_uv:
                 loop_uvs.extend((1 - u, v))
             else:
@@ -278,11 +281,40 @@ def project_to_plane(obj, plane_name, texture_size):
 
     return plane_obj, image
 
-def generate_og_lod(root, projections):
-    _, obj_name = parse_geom_type(root)
+TEXTURE_MIN_SIZE = 16
+TEXTURE_MAX_SIZE = 2048
+
+def _get_lod0_mesh_obj(root):
     with OrphanedAnchorObject(root):
         mesh_geoms = MeshExporter.collect_geoms_lods(root)
-    obj = mesh_geoms[0][0]
+    return mesh_geoms[0][0]
+
+def _fit_texture_size(plane_width, plane_height, base_size):
+    aspect_ratio = plane_width / plane_height if plane_height > 0.0 else 1.0
+    if aspect_ratio >= 1.0:
+        size_x = base_size
+        size_y = next_power_of_2(max(1, int(round(base_size / aspect_ratio))))
+    else:
+        size_y = base_size
+        size_x = next_power_of_2(max(1, int(round(base_size * aspect_ratio))))
+    size_x = min(max(size_x, TEXTURE_MIN_SIZE), TEXTURE_MAX_SIZE)
+    size_y = min(max(size_y, TEXTURE_MIN_SIZE), TEXTURE_MAX_SIZE)
+    return (size_x, size_y)
+
+def compute_optimal_texture_sizes(root, base_sizes):
+    obj = _get_lod0_mesh_obj(root)
+    bounds = obj_bounds(obj)
+    sizes = dict()
+    for side, base_size in base_sizes.items():
+        cfg = PLANE_CONFIGS[side]
+        plane_width = bounds[cfg.plane_axes[0]].distance
+        plane_height = bounds[cfg.plane_axes[1]].distance
+        sizes[side] = _fit_texture_size(plane_width, plane_height, base_size)
+    return sizes
+
+def generate_og_lod(root, projections):
+    _, obj_name = parse_geom_type(root)
+    obj = _get_lod0_mesh_obj(root)
 
     planes = list()
     textures = list()

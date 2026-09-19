@@ -16,7 +16,7 @@ from ...core.utils import (find_root, save_img_as_dds,
                            matrix_to_yaw_pitch_roll, swap_zy,
                            strip_geom_lod_prefix)
 from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
-from ...core.tools.og_lod_generator import generate_og_lod
+from ...core.tools.og_lod_generator import generate_og_lod, compute_optimal_texture_sizes
 from ...core.tools.fence_generator import make_objects_on_curve
 from ...core.material import setup_material
 
@@ -207,6 +207,19 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        try:
+            root = find_root(context.view_layer.objects.active)
+            base_sizes = dict()
+            for i in range(3):
+                side = getattr(self, f'plane_{i}_side')
+                base_sizes[side] = max(getattr(self, f'plane_{i}_txt_size'))
+            sizes = compute_optimal_texture_sizes(root, base_sizes)
+            for i in range(3):
+                side = getattr(self, f'plane_{i}_side')
+                if side in sizes:
+                    setattr(self, f'plane_{i}_txt_size', sizes[side])
+        except Exception:
+            pass
         return context.window_manager.invoke_props_dialog(self, width=300)
 
     @classmethod

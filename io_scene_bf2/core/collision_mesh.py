@@ -200,7 +200,7 @@ class CollMeshImporter:
             if loose_verts:
                 bmesh.ops.delete(bm, geom=loose_verts, context='VERTS')
             if loose_verts_count > 0:
-                self.reporter.info(f'{mesh.name}: removed {loose_verts_count} loose vertices')
+                self.reporter.info(f'{name}: removed {loose_verts_count} loose vertices')
 
         mesh = bpy.data.meshes.new(name)
         bm.to_mesh(mesh)
