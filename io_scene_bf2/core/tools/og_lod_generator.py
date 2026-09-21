@@ -4,6 +4,7 @@ import bmesh # type: ignore
 import tempfile
 import os
 import math
+import numpy as np
 from ... import rectpack
 
 from ..object_template import OrphanedAnchorObject, MeshExporter, parse_geom_type
@@ -27,15 +28,16 @@ PLANE_CONFIGS = {
 
 def paste_img(dst_img, src_img, x, y):
     src_width, src_height = src_img.size
+    dst_width, dst_height = dst_img.size
 
     # its RGBA buffer so every pixel contains 4 values
-    row_offset = lambda img, i: img.size[0] * img.size[1]*4 - (i + 1) * img.size[0]*4
+    src = np.array(src_img.pixels[:], dtype=np.float32).reshape((src_height, src_width, 4))
+    dst = np.array(dst_img.pixels[:], dtype=np.float32).reshape((dst_height, dst_width, 4))
 
-    # copy
-    for i in range(src_height):
-        dst_off = row_offset(dst_img, i + y) + x*4
-        src_off = row_offset(src_img, i)
-        dst_img.pixels[dst_off:dst_off+src_width*4] = src_img.pixels[src_off:src_off+src_width*4]
+    # copy, Blender image rows start at the bottom
+    dst[y:y+src_height, x:x+src_width] = src
+
+    dst_img.pixels = dst.ravel().tolist()
     dst_img.update()
 
 def combine_planes(name, planes, textures):

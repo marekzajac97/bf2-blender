@@ -137,25 +137,166 @@ def _make_flatten_at_water_level():
     group_output = node_tree.nodes.new("NodeGroupOutput")
     group_output.is_active_output = True
 
-    get_position = node_tree.nodes.new("GeometryNodeInputPosition")
+    NODE_SPACING = 200
+    Z_PADDING = 1.0
 
+    def math_node(operation, x, y):
+        node = node_tree.nodes.new("ShaderNodeMath")
+        node.operation = operation
+        node.location = (x * NODE_SPACING, y * NODE_SPACING)
+        return node
+
+    def link(from_socket, to_socket):
+        node_tree.links.new(from_socket, to_socket)
+
+    bound_box = node_tree.nodes.new("GeometryNodeBoundBox")
+    separate_min = node_tree.nodes.new("ShaderNodeSeparateXYZ")
+    separate_max = node_tree.nodes.new("ShaderNodeSeparateXYZ")
+    link(group_input.outputs['Geometry'], bound_box.inputs['Geometry'])
+    link(bound_box.outputs['Min'], separate_min.inputs['Vector'])
+    link(bound_box.outputs['Max'], separate_max.inputs['Vector'])
+
+    size_x = math_node('SUBTRACT', 1, 6)
+    size_y = math_node('SUBTRACT', 1, 5)
+    link(separate_max.outputs['X'], size_x.inputs[0])
+    link(separate_min.outputs['X'], size_x.inputs[1])
+    link(separate_max.outputs['Y'], size_y.inputs[0])
+    link(separate_min.outputs['Y'], size_y.inputs[1])
+
+    padding = math_node('MAXIMUM', 1, 4)
+    link(size_x.outputs['Value'], padding.inputs[0])
+    link(size_y.outputs['Value'], padding.inputs[1])
+
+    size_x_padded = math_node('ADD', 2, 6)
+    size_y_padded = math_node('ADD', 2, 5)
+    link(size_x.outputs['Value'], size_x_padded.inputs[0])
+    link(padding.outputs['Value'], size_x_padded.inputs[1])
+    link(size_y.outputs['Value'], size_y_padded.inputs[0])
+    link(padding.outputs['Value'], size_y_padded.inputs[1])
+
+    below_span = math_node('SUBTRACT', 1, 3)
+    link(group_input.outputs['Water Level'], below_span.inputs[0])
+    link(separate_min.outputs['Z'], below_span.inputs[1])
+    above_span = math_node('SUBTRACT', 1, 2)
+    link(separate_max.outputs['Z'], above_span.inputs[0])
+    link(group_input.outputs['Water Level'], above_span.inputs[1])
+    span = math_node('MAXIMUM', 1, 1)
+    link(below_span.outputs['Value'], span.inputs[0])
+    link(above_span.outputs['Value'], span.inputs[1])
+    volume_height = math_node('ADD', 2, 3)
+    link(span.outputs['Value'], volume_height.inputs[0])
+    volume_height.inputs[1].default_value = 2.0 * Z_PADDING
+
+    combine_size = node_tree.nodes.new("ShaderNodeCombineXYZ")
+    link(size_x_padded.outputs['Value'], combine_size.inputs['X'])
+    link(size_y_padded.outputs['Value'], combine_size.inputs['Y'])
+    link(volume_height.outputs['Value'], combine_size.inputs['Z'])
+
+    cube = node_tree.nodes.new("GeometryNodeMeshCube")
+    link(combine_size.outputs['Vector'], cube.inputs['Size'])
+
+    tag_volume = node_tree.nodes.new("GeometryNodeStoreNamedAttribute")
+    tag_volume.domain = 'FACE'
+    tag_volume.data_type = 'BOOLEAN'
+    tag_volume.inputs['Name'].default_value = 'bf2_water_volume'
+    tag_volume.inputs['Value'].default_value = True
+    link(cube.outputs['Mesh'], tag_volume.inputs['Geometry'])
+
+    center_x_sum = math_node('ADD', 1, 0)
+    center_y_sum = math_node('ADD', 1, -1)
+    link(separate_min.outputs['X'], center_x_sum.inputs[0])
+    link(separate_max.outputs['X'], center_x_sum.inputs[1])
+    link(separate_min.outputs['Y'], center_y_sum.inputs[0])
+    link(separate_max.outputs['Y'], center_y_sum.inputs[1])
+    center_x = math_node('MULTIPLY', 2, 0)
+    center_y = math_node('MULTIPLY', 2, -1)
+    link(center_x_sum.outputs['Value'], center_x.inputs[0])
+    center_x.inputs[1].default_value = 0.5
+    link(center_y_sum.outputs['Value'], center_y.inputs[0])
+    center_y.inputs[1].default_value = 0.5
+
+    half_height = math_node('MULTIPLY', 2, 3)
+    link(volume_height.outputs['Value'], half_height.inputs[0])
+    half_height.inputs[1].default_value = 0.5
+
+    below_center_z = math_node('SUBTRACT', 2, 2)
+    link(group_input.outputs['Water Level'], below_center_z.inputs[0])
+    link(half_height.outputs['Value'], below_center_z.inputs[1])
+    above_center_z = math_node('ADD', 2, -2)
+    link(group_input.outputs['Water Level'], above_center_z.inputs[0])
+    link(half_height.outputs['Value'], above_center_z.inputs[1])
+
+    combine_below_center = node_tree.nodes.new("ShaderNodeCombineXYZ")
+    link(center_x.outputs['Value'], combine_below_center.inputs['X'])
+    link(center_y.outputs['Value'], combine_below_center.inputs['Y'])
+    link(below_center_z.outputs['Value'], combine_below_center.inputs['Z'])
+
+    combine_above_center = node_tree.nodes.new("ShaderNodeCombineXYZ")
+    link(center_x.outputs['Value'], combine_above_center.inputs['X'])
+    link(center_y.outputs['Value'], combine_above_center.inputs['Y'])
+    link(above_center_z.outputs['Value'], combine_above_center.inputs['Z'])
+
+    below_volume = node_tree.nodes.new("GeometryNodeTransform")
+    link(tag_volume.outputs['Geometry'], below_volume.inputs['Geometry'])
+    link(combine_below_center.outputs['Vector'], below_volume.inputs['Translation'])
+
+    above_volume = node_tree.nodes.new("GeometryNodeTransform")
+    link(tag_volume.outputs['Geometry'], above_volume.inputs['Geometry'])
+    link(combine_above_center.outputs['Vector'], above_volume.inputs['Translation'])
+
+    above_water = node_tree.nodes.new("GeometryNodeMeshBoolean")
+    above_water.operation = 'DIFFERENCE'
+    above_water.solver = 'EXACT'
+    link(group_input.outputs['Geometry'], above_water.inputs[0])
+    link(below_volume.outputs['Geometry'], above_water.inputs[1])
+
+    below_water = node_tree.nodes.new("GeometryNodeMeshBoolean")
+    below_water.operation = 'DIFFERENCE'
+    below_water.solver = 'EXACT'
+    link(group_input.outputs['Geometry'], below_water.inputs[0])
+    link(above_volume.outputs['Geometry'], below_water.inputs[1])
+
+    volume_tag = node_tree.nodes.new("GeometryNodeInputNamedAttribute")
+    volume_tag.data_type = 'BOOLEAN'
+    volume_tag.inputs['Name'].default_value = 'bf2_water_volume'
+
+    clean_above_water = node_tree.nodes.new("GeometryNodeDeleteGeometry")
+    clean_above_water.domain = 'FACE'
+    clean_above_water.mode = 'ALL'
+    link(above_water.outputs['Mesh'], clean_above_water.inputs['Geometry'])
+    link(volume_tag.outputs['Attribute'], clean_above_water.inputs['Selection'])
+
+    clean_below_water = node_tree.nodes.new("GeometryNodeDeleteGeometry")
+    clean_below_water.domain = 'FACE'
+    clean_below_water.mode = 'ALL'
+    link(below_water.outputs['Mesh'], clean_below_water.inputs['Geometry'])
+    link(volume_tag.outputs['Attribute'], clean_below_water.inputs['Selection'])
+
+    get_position = node_tree.nodes.new("GeometryNodeInputPosition")
+    separate_xyz = node_tree.nodes.new("ShaderNodeSeparateXYZ")
     clamp = node_tree.nodes.new("ShaderNodeClamp")
     clamp.inputs['Min'].default_value = 0.0
     clamp.inputs['Max'].default_value = 10000.0
+    combine_xyz = node_tree.nodes.new("ShaderNodeCombineXYZ")
+    link(get_position.outputs['Position'], separate_xyz.inputs['Vector'])
+    link(separate_xyz.outputs['Z'], clamp.inputs['Value'])
+    link(clamp.outputs['Result'], combine_xyz.inputs['Z'])
+    link(separate_xyz.outputs['Y'], combine_xyz.inputs['Y'])
+    link(separate_xyz.outputs['X'], combine_xyz.inputs['X'])
+    link(group_input.outputs['Water Level'], clamp.inputs['Min'])
 
     set_position = node_tree.nodes.new("GeometryNodeSetPosition")
-    combine_xyz = node_tree.nodes.new("ShaderNodeCombineXYZ")
-    separate_xyz = node_tree.nodes.new("ShaderNodeSeparateXYZ")
+    link(clean_below_water.outputs['Geometry'], set_position.inputs['Geometry'])
+    link(combine_xyz.outputs['Vector'], set_position.inputs['Position'])
 
-    node_tree.links.new(group_input.outputs['Water Level'], clamp.inputs['Min'])
-    node_tree.links.new(group_input.outputs['Geometry'], set_position.inputs['Geometry'])
-    node_tree.links.new(set_position.outputs['Geometry'], group_output.inputs['Geometry'])
-    node_tree.links.new(get_position.outputs['Position'], separate_xyz.inputs['Vector'])
-    node_tree.links.new(separate_xyz.outputs['Z'], clamp.inputs['Value'])
-    node_tree.links.new(clamp.outputs['Result'], combine_xyz.inputs['Z'])
-    node_tree.links.new(separate_xyz.outputs['Y'], combine_xyz.inputs['Y'])
-    node_tree.links.new(separate_xyz.outputs['X'], combine_xyz.inputs['X'])
-    node_tree.links.new(combine_xyz.outputs['Vector'], set_position.inputs['Position'])
+    join = node_tree.nodes.new("GeometryNodeJoinGeometry")
+    link(clean_above_water.outputs['Geometry'], join.inputs['Geometry'])
+    link(set_position.outputs['Geometry'], join.inputs['Geometry'])
+
+    remove_tag = node_tree.nodes.new("GeometryNodeRemoveAttribute")
+    remove_tag.inputs['Name'].default_value = 'bf2_water_volume'
+    link(join.outputs['Geometry'], remove_tag.inputs['Geometry'])
+    link(remove_tag.outputs['Geometry'], group_output.inputs['Geometry'])
     return node_tree
 
 def _make_water_depth_material():
