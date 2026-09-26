@@ -1,10 +1,11 @@
 import bpy # type: ignore
 import bmesh # type: ignore
 import traceback
+import re
 import os
 from pathlib import Path
 
-from bpy.props import BoolProperty, StringProperty, EnumProperty, IntVectorProperty # type: ignore
+from bpy.props import BoolProperty, StringProperty, EnumProperty, IntVectorProperty, IntProperty, FloatProperty # type: ignore
 
 from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
@@ -15,7 +16,7 @@ from ...core.utils import (find_root, save_img_as_dds,
                            get_power_of_two_int_array,
                            matrix_to_yaw_pitch_roll, swap_zy,
                            strip_geom_lod_prefix)
-from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX
+from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX, ANCHOR_PREFIX
 from ...core.tools.og_lod_generator import generate_og_lod, compute_optimal_texture_sizes
 from ...core.tools.fence_generator import make_objects_on_curve
 from ...core.material import setup_material
@@ -275,12 +276,199 @@ class OBJECT_OT_make_object_con_def(bpy.types.Operator):
 
 # --------------------------------------------------------------------
 
+_GEOM_INDEX_RE = re.compile(r'geom(\d+)', re.IGNORECASE)
+_LOD_INDEX_RE = re.compile(r'lod(\d+)', re.IGNORECASE)
+_COL_INDEX_RE = re.compile(r'col(\d+)', re.IGNORECASE)
+
+def _parse_staticmesh_part(obj):
+    name = _strip_numeric_suffix(obj.name) or obj.name
+    name = name.lower()
+    geom_match = _GEOM_INDEX_RE.search(name)
+    geom_idx = int(geom_match.group(1)) if geom_match else 0
+    col_match = _COL_INDEX_RE.search(name)
+    if col_match:
+        return 'col', geom_idx, int(col_match.group(1))
+    lod_match = _LOD_INDEX_RE.search(name)
+    if lod_match:
+        return 'lod', geom_idx, int(lod_match.group(1))
+    return None, geom_idx, None
+
+def _generate_decimated_lod(context, base_obj, geom_obj, obj_name, geom_idx, lod_idx, ratio):
+    name = f'G{geom_idx}L{lod_idx}__{obj_name}'
+    mesh = base_obj.data.copy()
+    mesh.name = name
+    new_obj = bpy.data.objects.new(name, mesh)
+    context.scene.collection.objects.link(new_obj)
+
+    new_obj.parent = geom_obj
+    new_obj.rotation_mode = base_obj.rotation_mode
+    new_obj.location = base_obj.location.copy()
+    new_obj.rotation_euler = base_obj.rotation_euler.copy()
+    new_obj.rotation_quaternion = base_obj.rotation_quaternion.copy()
+    new_obj.scale = base_obj.scale.copy()
+
+    modifier = new_obj.modifiers.new(name="Decimate", type='DECIMATE')
+    modifier.decimate_type = 'COLLAPSE'
+    modifier.ratio = max(ratio, 0.01)
+
+    for prop in ('bf2_object_type', 'bf2_object_type_enum',
+                 'bf2_object_type_manual_mode', 'bf2_lightmap_size'):
+        if hasattr(base_obj, prop):
+            setattr(new_obj, prop, getattr(base_obj, prop))
+    return new_obj
+
+def _build_staticmesh_hierarchy(context, obj_name, objects,
+                                generate_lods=False, lod_count=1, lod_ratio=0.5):
+    if not obj_name:
+        raise ValueError("ObjectTemplate name must not be empty")
+
+    visible = dict()
+    collisions = dict()
+    for obj in objects:
+        if obj.type != 'MESH' or obj.data is None:
+            continue
+        kind, geom_idx, part_idx = _parse_staticmesh_part(obj)
+        if kind == 'col':
+            if not 0 <= part_idx <= 3:
+                raise ValueError(f"'{obj.name}': collision index must be in range 0-3")
+            cols = collisions.setdefault(geom_idx, dict())
+            if part_idx in cols:
+                raise ValueError(f"'{obj.name}': duplicated collision mesh COL{part_idx} for geom {geom_idx}")
+            cols[part_idx] = obj
+        elif kind == 'lod':
+            lods = visible.setdefault(geom_idx, dict())
+            if part_idx in lods:
+                raise ValueError(f"'{obj.name}': duplicated LOD{part_idx} for geom {geom_idx}")
+            lods[part_idx] = obj
+        else:
+            raise ValueError(f"'{obj.name}': name must contain 'lod' (visible mesh) or 'col' (collision mesh)")
+
+    if not visible:
+        raise ValueError("No visible mesh objects selected (name them with 'lod', e.g. 'lod0')")
+
+    if generate_lods:
+        for geom_idx, lods in visible.items():
+            if 0 not in lods:
+                raise ValueError(f"Cannot generate LODs for geom {geom_idx}: no LOD0 mesh selected")
+
+    for geom_idx in collisions:
+        if geom_idx not in visible or 0 not in visible[geom_idx]:
+            raise ValueError(f"Collision meshes selected for geom {geom_idx}, but there is no visible LOD0 mesh for it")
+
+    root_obj = bpy.data.objects.new('StaticMesh_' + obj_name, None)
+    context.scene.collection.objects.link(root_obj)
+
+    anchor_obj = bpy.data.objects.new(ANCHOR_PREFIX + obj_name, None)
+    anchor_obj.parent = root_obj
+    context.scene.collection.objects.link(anchor_obj)
+
+    for geom_idx in sorted(visible):
+        geom_obj = bpy.data.objects.new(f'G{geom_idx}__{obj_name}', None)
+        geom_obj.parent = root_obj
+        context.scene.collection.objects.link(geom_obj)
+
+        lods = visible[geom_idx]
+        if generate_lods:
+            base_obj = lods[0]
+            for lod_idx in range(1, lod_count):
+                if lod_idx in lods:
+                    continue
+                ratio = lod_ratio ** lod_idx
+                lods[lod_idx] = _generate_decimated_lod(context, base_obj, geom_obj,
+                                                        obj_name, geom_idx, lod_idx, ratio)
+
+        for lod_idx in sorted(lods):
+            lod_obj = lods[lod_idx]
+            lod_name = f'G{geom_idx}L{lod_idx}__{obj_name}'
+            lod_obj.name = lod_name
+            lod_obj.data.name = lod_name
+            lod_obj.parent = geom_obj
+
+        if geom_idx in collisions:
+            nonvis_obj = bpy.data.objects.new(f'{NONVIS_PRFX}_G{geom_idx}__{obj_name}', None)
+            nonvis_obj.parent = lods[0]
+            context.scene.collection.objects.link(nonvis_obj)
+            for col_idx in sorted(collisions[geom_idx]):
+                col_obj = collisions[geom_idx][col_idx]
+                col_name = f'G{geom_idx}__{obj_name}_{COL_SUFFIX}{col_idx}'
+                col_obj.name = col_name
+                col_obj.data.name = col_name
+                col_obj.parent = nonvis_obj
+
+    return root_obj
+
+class OBJECT_OT_bf2_staticmesh_wizard(bpy.types.Operator):
+    bl_idname = "bf2.staticmesh_wizard"
+    bl_label = "StaticMesh Wizard"
+    bl_description = "Build a StaticMesh ObjectTemplate export hierarchy from the selected mesh objects"
+
+    object_name: StringProperty(
+        name="ObjectTemplate Name",
+        description="Name of the root ObjectTemplate",
+        default=""
+    ) # type: ignore
+
+    generate_lods: BoolProperty(
+        name="Generate LODs",
+        description="Generate lower-detail LODs from LOD0 by applying a Decimate modifier",
+        default=False
+    ) # type: ignore
+
+    lod_count: IntProperty(
+        name="Number of LODs",
+        description="Total number of LODs (LOD0 included) to generate for each geom",
+        default=3,
+        min=1,
+        max=6
+    ) # type: ignore
+
+    lod_ratio: FloatProperty(
+        name="LOD Decimate Ratio",
+        description="Fraction of faces kept by each consecutive LOD relative to LOD0",
+        default=0.5,
+        min=0.01,
+        max=1.0
+    ) # type: ignore
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "object_name")
+        layout.prop(self, "generate_lods")
+        col = layout.column()
+        col.enabled = self.generate_lods
+        col.prop(self, "lod_count")
+        col.prop(self, "lod_ratio")
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self, width=300)
+
+    def execute(self, context):
+        try:
+            _build_staticmesh_hierarchy(context, self.object_name, list(context.selected_objects),
+                                        generate_lods=self.generate_lods,
+                                        lod_count=self.lod_count,
+                                        lod_ratio=self.lod_ratio)
+        except Exception as e:
+            self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+    @classmethod
+    def poll(cls, context):
+        if not context.selected_objects:
+            cls.poll_message_set("No objects selected")
+            return False
+        return True
+
+# --------------------------------------------------------------------
+
 class OBJECT_MT_bf2_submenu(bpy.types.Menu):
     bl_idname = "OBJECT_MT_bf2_submenu"
     bl_label = "Battlefield 2"
 
     def draw(self, context):
         self.layout.operator(OBJECT_OT_bf2_gen_og_lod.bl_idname)
+        self.layout.operator(OBJECT_OT_bf2_staticmesh_wizard.bl_idname)
         self.layout.operator(OBJECT_OT_make_object_con_def.bl_idname)
 
 def menu_func_object(self, context):
@@ -411,6 +599,7 @@ def init(rc : RegisterFactory):
 
     rc.reg_class(OBJECT_OT_make_object_con_def)
     rc.reg_class(OBJECT_OT_bf2_gen_og_lod)
+    rc.reg_class(OBJECT_OT_bf2_staticmesh_wizard)
     rc.reg_class(OBJECT_MT_bf2_submenu)
     rc.add_menu(bpy.types.VIEW3D_MT_object, menu_func_object)
 

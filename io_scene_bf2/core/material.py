@@ -591,17 +591,25 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
         if has_envmap:
             glossy_BSDF = node_tree.nodes.new('ShaderNodeBsdfGlossy')
             glossy_BSDF.inputs['Roughness'].default_value = 0.05
+            glossy_BSDF.location = (3 * NODE_WIDTH, -1 * NODE_HEIGHT)
+            glossy_BSDF.hide = True
             mix_envmap = node_tree.nodes.new('ShaderNodeMixShader')
 
             # scale envmap with gloss
             mix_envmap.inputs['Factor'].default_value = 1.0
+            mix_envmap.location = (4 * NODE_WIDTH, -1 * NODE_HEIGHT)
+            mix_envmap.hide = True
             if spec_out:
                 node_tree.links.new(spec_out, mix_envmap.inputs['Factor'])
 
             # add transparency
             if alpha_out:
                 transparent_BSDF = node_tree.nodes.new('ShaderNodeBsdfTransparent')
+                transparent_BSDF.location = (3 * NODE_WIDTH, -2 * NODE_HEIGHT)
+                transparent_BSDF.hide = True
                 mix_transparency = node_tree.nodes.new('ShaderNodeMixShader')
+                mix_transparency.location = (4 * NODE_WIDTH, -2 * NODE_HEIGHT)
+                mix_transparency.hide = True
                 node_tree.links.new(transparent_BSDF.outputs['BSDF'], _sockets(mix_transparency.inputs, 'Shader')[0])
                 node_tree.links.new(glossy_BSDF.outputs['BSDF'], _sockets(mix_transparency.inputs, 'Shader')[1])
                 node_tree.links.new(alpha_out, mix_transparency.inputs['Factor'])

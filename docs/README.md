@@ -123,11 +123,11 @@ StaticMesh_house
 ├─ANCHOR__house
 └─G0__house
   ├─G0L0__house [m]
-  │ └─NONVIS__G1L0__house
-  │   ├─G0L0__house__COL0 [m]
-  │   ├─G0L0__house__COL1 [m]
-  │   ├─G0L0__house__COL2 [m]
-  │   └─G0L0__house__COL3 [m]
+  │ └─NONVIS_G1__house
+  │   ├─G0__house_COL0 [m]
+  │   ├─G0__house_COL1 [m]
+  │   ├─G0__house_COL2 [m]
+  │   └─G0__house_COL3 [m]
   ├─G0L1__house [m]
   └─G0L2__house [m]
 ```
@@ -146,10 +146,10 @@ BundledMesh_gun
   ├─G1L0__gun [m]
   │ ├─G1L0__gun_1_mag [m]
   │ ├─G1L0__gun_2_bolt [m]
-  │ └─NONVIS__G1L0__gun
-  │   ├─G1L0__gun__COL0 [m]
-  │   ├─G1L0__gun__COL1 [m]
-  │   └─G1L0__gun__COL2 [m]
+  │ └─NONVIS_G1__gun
+  │   ├─G1__gun_COL0 [m]
+  │   ├─G1__gun_COL1 [m]
+  │   └─G1__gun_COL2 [m]
   ├─G1L1__gun [m]
   │ └─G1L1__gun_1_mag [m]
   └─G1L2__gun [m]
@@ -169,34 +169,34 @@ BundledMesh_car
 ├─G1__car
 │ ├─G1L0__car [m]
 │ │ ├─G1L0__car_steering [m]
-│ │ ├─NONVIS__G1L0__car
-│ │ │ ├─G1L0__car__COL0 [m]
-│ │ │ └─G1L0__car__COL1 [m]
+│ │ ├─NONVIS_G1__car
+│ │ │ ├─G1__car_COL0 [m]
+│ │ │ └─G1__car_COL1 [m]
 │ │ └─G1L0__car_motor [m]
 │ │   ├─G1L0__car_navFL [m]
 │ │   │ └─G1L0__car_whlFL [m]
-│ │   │   └─NONVIS__G1L0__car
-│ │   │     ├─G1L0__car_whlFL__COL0 [m]
-│ │   │     └─G1L0__car_whlFL__COL1 [m]
+│ │   │   └─NONVIS_G1__car
+│ │   │     ├─G1__car_whlFL_COL0 [m]
+│ │   │     └─G1__car_whlFL_COL1 [m]
 │ │   ├─G1L0__car_navFR [m]
 │ │   │ └─G1L0__car_whlFR [m]
-│ │   │   └─NONVIS__G1L0__car_whlFR
-│ │   │     ├─G1L0__car_whlFR__COL0 [m]
-│ │   │     └─G1L0__car_whlFR__COL1 [m]
+│ │   │   └─NONVIS_G1__car_whlFR
+│ │   │     ├─G1__car_whlFR_COL0 [m]
+│ │   │     └─G1__car_whlFR_COL1 [m]
 │ │   ├─G1L0__car_whlRL [m]
-│ │   │ └─NONVIS__G1L0__car_whlRL
-│ │   │   ├─G1L0__car_whlRL__COL0 [m]
-│ │   │   └─G1L0__car_whlRL__COL1 [m]
+│ │   │ └─NONVIS_G1__car_whlRL
+│ │   │   ├─G1__car_whlRL_COL0 [m]
+│ │   │   └─G1__car_whlRL_COL1 [m]
 │ │   │   
 │ │   └─G1L0__car_whlRR [m]
-│ │     └─NONVIS__G1L0__car_whlRR
-│ │       ├─G1L0__car_whlRR__COL0 [m]
-│ │       └─G1L0__car_whlRR__COL1 [m]
+│ │     └─NONVIS_G1__car_whlRR
+│ │       ├─G1__car_whlRR_COL0 [m]
+│ │       └─G1__car_whlRR_COL1 [m]
 │ ├─G1L1__car [m]
 │ │ ├─G1L1__car_steering [m]
-│ │ ├─NONVIS__G1L1__car
-│ │ │ ├─G1L1__car__COL0 [m]
-│ │ │ └─G1L1__car__COL1 [m]
+│ │ ├─NONVIS_G1__car
+│ │ │ ├─G1__car_COL0 [m]
+│ │ │ └─G1__car_COL1 [m]
 │ │ └─G1L1__car_motor [m]
 │ │   ├─G1L1__car_navFL [m]
 │ │   │ └─G1L1__car_whlFL [m]
@@ -207,9 +207,9 @@ BundledMesh_car
 │ └─G1L2__car [m]
 └─G2__car [m]
   ├─G2L0__car [m]
-  │ └─NONVIS__G2L0__car
-  │   ├─G2L0__car__COL0 [m]
-  │   └─G2L0__car__COL1 [m]
+  │ └─NONVIS_G2__car
+  │   ├─G2__car_COL0 [m]
+  │   └─G2__car_COL1 [m]
   ├─G2L1__car [m]
   └─G2L2__car [m]
 ```
@@ -241,7 +241,7 @@ SkinnedMesh_soldier
 - Be aware that when making StaticMeshes, tangent space is generated using UV1 (Detail Normal). This means that if Crack Normal map is also used, its UVs can't be rotated or mirrored (relative to Detail Normal UVs) otherwise the lighting calculations will be incorrect.
 
 ## Collision meshes
-- Each object may contain collision mesh data. To add it, you must create an empty child object prefixed with `NONVIS__`. This new object should have a maximum of 4 child objects (suffixed with `_COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added under the object's Lod0 hierarchies.
+- Each object may contain collision mesh data. To add it, you must create an empty child object prefixed with `NONVIS_`. This new object should have a maximum of 4 child objects (suffixed with `_COL<index>`) containing collision mesh data, each corresponding to a specific collision type: Projectile = COL0, Vehicle = COL1, Soldier = COL2, AI (navmesh) = COL3. Collision meshes should only be added under the object's Lod0 hierarchies.
 - Each COL can have an arbitrary number of materials assigned, no special material settings are required, object's material index-to-name mapping will be saved inside the `.con` file.
 
 ## Skinning (BundledMesh)

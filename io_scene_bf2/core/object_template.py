@@ -275,14 +275,14 @@ def _apply_obj_template_data_to_lod(context, root_template, geom_parts, coll_par
             (obj_template is root_template or obj_template.col_part > 0)): # children must have col part >0
 
             col_part_id = obj_template.col_part
-            col_dummy = bpy.data.objects.new(f'{NONVIS_PRFX}{prfx}{obj_template.name}', None)
+            col_dummy = bpy.data.objects.new(f'{NONVIS_PRFX}G{geom}__{obj_template.name}', None)
             col_dummy.empty_display_type = 'PLAIN_AXES'
             col_dummy.empty_display_size = 0.1
             col_dummy.hide_render = True
             context.scene.collection.objects.link(col_dummy)
             col_dummy.parent = geometry_part_obj
             for col_id, col_mesh in coll_parts[col_part_id][geom].items():
-                col_name = f'{part_name}{COL_SUFFIX}{col_id}'
+                col_name = f'G{geom}__{obj_template.name}_{COL_SUFFIX}{col_id}'
                 collmesh_obj = bpy.data.objects.new(col_name, col_mesh)
                 col_mesh.name = col_name
                 collmesh_obj.parent = col_dummy
@@ -608,6 +608,15 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
         root_obj_template.anchor_point = swap_zy(anchor_obj.location)
 
     con_dir = os.path.dirname(con_file)
+    is_vegitation = 'vegitation' in con_dir.lower()
+    if is_vegitation:
+        if kwargs.get('gen_lightmap_uv'):
+            reporter.warning("Generation of lightmap UV (UV4) is enabled while exporting to 'vegitation' directory. "
+                             "This might be a mistake (BF2 overgrowth does not use lightmaps)")
+        if samples_size is not None:
+            reporter.warning("Generation of lightmapping samples is enabled while exporting to 'vegitation' directory. "
+                             "This might be a mistake (BF2 overgrowth does not use lightmaps)")
+
     meshes_dir = os.path.join(con_dir, 'Meshes')
     if geom_export or colmesh_export:
         os.makedirs(meshes_dir, exist_ok=True)
@@ -706,7 +715,7 @@ def export_object_template(mesh_obj, con_file, geom_export=True, colmesh_export=
     _dump_con_file(root_obj_template, con_file)
 
     # export additional col-only variant for "vegitation"
-    if 'vegitation' in con_dir and not con_file.endswith('_lod.con') and root_obj_template.collmesh:
+    if is_vegitation and not con_file.endswith('_lod.con') and root_obj_template.collmesh:
         root_obj_template.geom = None
         root_obj_template.name += '_col'
         con_file_col = file_name(con_file) + '_col'
