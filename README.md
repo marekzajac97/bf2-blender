@@ -1,6 +1,8 @@
 # bf2-blender
 A Blender toolset for working with the Refractor 2 engine assets (primarily for Battlefield 2).
 
+This is still a work in progress. Features may be added, removed or changed without maintaining backwards compatibility with assets created using older versions of this add-on!
+
 ## Features:
 Import & export support of:
 - Skeleton (`.ske`)
