@@ -7,7 +7,7 @@ on:
         description: 'Release Tag (e.g., v0.5.0)'
         required: true
       run_id:
-        description: 'Build run id to use if no build was found for the tag (optional)'
+        description: 'Override build run id to use (optional)'
         required: false
 
 permissions:
@@ -26,26 +26,25 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ github.event.inputs.tag }}"
-
-          # Resolve tag to commit SHA (handles annotated tags)
-          REF_JSON="$(gh api --silent "repos/${{ github.repository }}/git/ref/tags/${TAG}")" || {
-            echo "::error::Tag ${TAG} not found."
-            exit 1
-          }
-          SHA="$(jq -r '.object.sha' <<<"${REF_JSON}")"
-          if [[ "$(jq -r '.object.type' <<<"${REF_JSON}")" == "tag" ]]; then
-            SHA="$(gh api --silent "repos/${{ github.repository }}/git/tags/${SHA}" --jq '.object.sha')"
-          fi
-
-          # Find the build workflow run for that commit
-          RUN_ID="$(gh api "repos/${{ github.repository }}/actions/workflows/build_packages.yml/runs?head_sha=${SHA}&per_page=1" --jq '.workflow_runs[0].id')"
+          RUN_ID="${{ github.event.inputs.run_id }}"
 
           if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
-            RUN_ID="${{ github.event.inputs.run_id }}"
+            # Resolve tag to commit SHA (handles annotated tags)
+            REF_JSON="$(gh api --silent "repos/${{ github.repository }}/git/ref/tags/${TAG}")" || {
+              echo "::error::Tag ${TAG} not found."
+              exit 1
+            }
+            SHA="$(jq -r '.object.sha' <<<"${REF_JSON}")"
+            if [[ "$(jq -r '.object.type' <<<"${REF_JSON}")" == "tag" ]]; then
+              SHA="$(gh api --silent "repos/${{ github.repository }}/git/tags/${SHA}" --jq '.object.sha')"
+            fi
+
+            # Find the build workflow run for that commit
+            RUN_ID="$(gh api "repos/${{ github.repository }}/actions/workflows/build_packages.yml/runs?head_sha=${SHA}&per_page=1" --jq '.workflow_runs[0].id')"
           fi
 
           if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
-            echo "::error::No build found for ${TAG} (commit ${SHA}) and no run_id provided."
+            echo "::error::No build found for ${TAG} and no run_id provided."
             exit 1
           fi
 
