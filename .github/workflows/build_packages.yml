@@ -70,6 +70,7 @@ jobs:
       - name: Upload Packaged Zip as Artifact
         uses: actions/upload-artifact@v7
         with:
+          name: io_scene_bf2-${{ matrix.platform_suffix }}
           path: ${{ steps.create_zip.outputs.zip_name }}
           archive: false
           if-no-files-found: error
