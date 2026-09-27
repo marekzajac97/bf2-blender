@@ -589,8 +589,11 @@ def menu_func_add(self, context):
 # --------------------------------------------------------------------
 
 def init(rc : RegisterFactory):
-    rc.reg_class(ADD_OT_bf2_fence_object)
-    rc.add_menu(bpy.types.VIEW3D_MT_add, menu_func_add)
+    # disabled, something in the new Blender version has fucked it up
+    # node setup needs to be regenerated
+
+    # rc.reg_class(ADD_OT_bf2_fence_object)
+    # rc.add_menu(bpy.types.VIEW3D_MT_add, menu_func_add)
 
     rc.reg_class(OBJECT_SELECT_OT_bf2_by_lm_size)
     rc.reg_class(OBJECT_SELECT_MT_bf2_submenu)

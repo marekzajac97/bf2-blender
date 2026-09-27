@@ -13,12 +13,15 @@ SUPPORTS_ACTION_SLOTS = hasattr(bpy.types, "ActionSlot") # Blender 4.4
 
 SUPPORTS_GEOMETRY_NODE_UV_TANGENT = hasattr(bpy.types,'GeometryNodeUVTangent') # Blender 5.0
 
-def iter_action_fcurves(action):
+def iter_action_fcurves(action, slot=None):
+    if action is None:
+        return
     if not SUPPORTS_ACTION_SLOTS: # < Blender 4.4, use legacy API
         yield from action.fcurves
         return
     # TODO: update to support layers in the future
-    for slot in action.slots:
+    slots = action.slots if slot is None else [slot]
+    for slot in slots:
         for layer in action.layers:
             for strip in layer.strips:
                 channelbag = strip.channelbag(slot)

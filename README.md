@@ -1,5 +1,5 @@
-# Blender addon for Battlefield 2
-I'm probably like 15 years late but anyway, here are some Blender tools for working with Refractor 2 engine assets!
+# bf2-blender
+A Blender toolset for working with the Refractor 2 engine assets (primarily for Battlefield 2).
 
 ## Features:
 Import & export support of:
@@ -11,11 +11,11 @@ Import & export support of:
 - CollisionMesh (`.collisionMesh`)
 - Occlusion Mesh (`.occ`)
 
-As well as many other utilities for:
-- Lightmapping
-- Skeleton rigging
-- Making overgrowth LODs
-- BundledMesh skinning
+As well as many other utilities for creating new assets, including:
+- Level import & lightmap baking tools
+- Skeleton rigging tools
+- StaticMesh & Overgrowth LOD generation
+- SkinnedMesh/BundledMesh skinning
 
 ## Compatibility
 
@@ -23,20 +23,20 @@ As well as many other utilities for:
 | ------------------------- | ----------- |
 | Recommended <sup>1</sup>  | Blender 5.2 |
 
-<sup>1</sup> For best experiance always use the recommended Blender version. Newer versions of Blender might still work but have not been verified!
+<sup>1</sup> For the best experience, always use the recommended Blender version. Newer versions of Blender might still work but have not been verified!
 
 ## Installation
-1. Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) compatible with your system
-2. Drag-and-drop the add-on's `.zip` file into Blender or [install it from preferences](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons)
-3. Before doing anything, follow the [initial add-on setup steps](docs/README.md#initial-add-on-setup)
+1. Download the latest `io_scene_bf2` package from [Releases](https://github.com/marekzajac97/bf2-blender/releases/latest) compatible with your system.
+2. Drag-and-drop the add-on's `.zip` file into Blender or [install it from preferences](https://docs.blender.org/manual/en/latest/editors/preferences/addons.html#installing-legacy-add-ons).
+3. Before doing anything, follow the [initial add-on setup steps](docs/README.md#initial-add-on-setup).
 
 ## Usage
-Head over to the [Documentation](docs/README.md) for details on how to use this add-on
+Head over to the [documentation](docs/README.md) for details on how to use this add-on.
 
 ## License
 This repository includes the source code of the following third-party projects:
 - [rectpack](https://github.com/secnot/rectpack) licensed under Apache License Version 2.0
-- [Texconv Custom DLL](https://github.com/matyalatte/Texconv-Custom-DLL) including python bindings from [Blender-DDS-Addon](https://github.com/matyalatte/Blender-DDS-Addon) licensed under MIT License
+- [Texconv Custom DLL](https://github.com/matyalatte/Texconv-Custom-DLL) including Python bindings from [Blender-DDS-Addon](https://github.com/matyalatte/Blender-DDS-Addon) licensed under MIT License
 
 The distributed `Texconv Custom DLL` binaries include third-party libraries (libjpeg-turbo, libpng, zlib, libdeflate, OpenEXR, and others). This software is based in part on the work of the Independent JPEG Group. See [`THIRD_PARTY_LICENSES.txt`](io_scene_bf2/directx/THIRD_PARTY_LICENSES.txt) for full third-party license details.
 

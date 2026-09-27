@@ -797,7 +797,8 @@ def _get_bone_fcurves(pose_bone, data_path):
         return
 
     action = obj.animation_data.action
-    for fcurve in iter_action_fcurves(action):
+    slot = obj.animation_data.action_slot if SUPPORTS_ACTION_SLOTS else None
+    for fcurve in iter_action_fcurves(action, slot=slot):
         if fcurve.data_path.startswith(path):
             yield fcurve
 
