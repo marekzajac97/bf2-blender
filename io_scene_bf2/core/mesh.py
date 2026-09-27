@@ -12,20 +12,13 @@ from .bf2.bf2_mesh.bf2_visiblemesh import Material, MaterialWithTransparency, Ve
 from .bf2.fileutils import FileUtils
 
 from .exceptions import ImportException, ExportException
-from .utils import (check_transform, conv_bf2_to_blender,
-                    conv_blender_to_bf2,
-                    delete_object,
+from .utils import (check_transform, delete_object,
                     delete_object_if_exists,
                     check_prefix,
-                    swap_zy,
-                    flip_uv,
-                    invert_face,
-                    are_backfaces,
-                    apply_modifiers,
-                    triangulate,
                     check_scale,
                     file_name,
                     DEFAULT_REPORTER)
+from .utils.compat import SUPPORTS_GEOMETRY_NODE_UV_TANGENT
 from .skeleton import (ske_get_bone_rot,
                        ske_weapon_part_ids,
                        find_rig_attached_to_object)
@@ -37,6 +30,8 @@ from .material import (setup_material,
                             texture_suffix_is_valid,
                             get_texture_suffix,
                             TEXTURE_MAPS)
+from .utils.convert import conv_bf2_to_blender, conv_blender_to_bf2, flip_uv, invert_face, swap_zy
+from .utils import apply_modifiers, is_backface, triangulate_mesh
 
 _DEBUG = False
 
@@ -317,7 +312,7 @@ class MeshImporter:
                     bm.faces.index_update()
                     bm_face_verts = [vert.index for vert in face_verts]
                     for other_bm_face in bm.faces:
-                        if are_backfaces(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
+                        if is_backface(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
                             if material_index != other_bm_face.material_index: # XXX: could they differ ??
                                 raise ImportException("Found double-sided face with a different material on each side, aborting import")
                             double_sided_faces.add(other_bm_face.index)
@@ -378,7 +373,7 @@ class MeshImporter:
         self.context.scene.collection.objects.link(mesh_obj)
 
         if isinstance(bf2_mesh, BF2SkinnedMesh):
-            if hasattr(bpy.types,'GeometryNodeUVTangent'): # only suppored in Blender 5.0 :/
+            if SUPPORTS_GEOMETRY_NODE_UV_TANGENT:
                 # add custom modifier which saves tangent & normal vectors to attributes
                 # need those from before mesh deformation to fix shading with OS normal maps later
                 modifier = mesh_obj.modifiers.new(type='NODES', name="SaveTangentSpace")
@@ -854,7 +849,7 @@ class MeshExporter:
         if self.apply_modifiers:
             apply_modifiers(lod_obj)
         if self.triangulate:
-            triangulate(lod_obj)
+            triangulate_mesh(lod_obj)
 
         mesh = lod_obj.data
         mesh_type = type(self.bf2_mesh)

@@ -9,12 +9,10 @@ from .utils import (check_transform, check_scale, delete_object,
                     delete_material_if_exists,
                     delete_mesh_if_exists,
                     check_prefix,
-                    invert_face,
-                    are_backfaces,
-                    apply_modifiers as _apply_modifiers,
-                    triangulate as _triangulate,
                     DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
+from .utils.convert import invert_face
+from .utils import apply_modifiers as _apply_modifiers, is_backface, triangulate_mesh as _triangulate
 
 MATERIAL_COLORS = [
     [0.267004, 0.004874, 0.329415, 1.],
@@ -182,7 +180,7 @@ class CollMeshImporter:
                 bm.faces.index_update()
                 bm_face_verts = [vert.index for vert in face_verts]
                 for other_bm_face in bm.faces:
-                    if are_backfaces(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
+                    if is_backface(bm_face_verts, [vert.index for vert in other_bm_face.verts]):
                         if material_index != other_bm_face.material_index: # XXX: could they differ ??
                             raise ImportException("Found double-sided face with a different material on each side, aborting import")
                         double_sided_faces.add(other_bm_face.index)

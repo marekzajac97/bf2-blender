@@ -8,6 +8,7 @@ from mathutils import Matrix, Vector # type: ignore
 from ..utils import DEFAULT_REPORTER, delete_object_if_exists
 from ..skeleton import (find_animated_weapon_object,
                        ske_weapon_part_ids)
+from ..utils.compat import iter_action_fcurves, pose_bone_hide, SUPPORTS_ACTION_SLOTS
 
 AUTO_SETUP_ID = 'bf2_auto_setup' # identifier for custom bones and constraints
 
@@ -20,8 +21,6 @@ POLE_OFFSET = 0.5
 # constatnts
 ONES_VEC = Vector((1, 1, 1))
 ZERO_VEC = Vector((0, 0, 0))
-
-SUPPORTS_ACTION_SLOTS = hasattr(bpy.types, "ActionSlot")
 
 class Mode(enum.IntEnum):
     ALL = 0
@@ -572,10 +571,7 @@ def _setup_3p_controllers(context, rig, step):
     for pose_bone in rig.pose.bones:
         bone = pose_bone.bone
         if bone.name in blacklist or not _is_ctrl_of(bone) and bone.name not in whitelist:
-            if hasattr(pose_bone, 'hide'):
-                pose_bone.hide = True # Blender 5.0 onwards
-            else:
-                bone.hide = True # Blender 4.5 and earlier
+            pose_bone_hide(pose_bone)
 
     _create_bone_collection(armature, 'BF2_LEFT_FINGERS', r'^left_(index|ring|thumb)\d$', 3) # green
     _create_bone_collection(armature, 'BF2_RIGHT_FINGERS', r'^right_(index|ring|thumb)\d$', 4) # blue
@@ -726,10 +722,7 @@ def _setup_1p_controllers(context, rig, step):
     for pose_bone in rig.pose.bones:
         bone = pose_bone.bone
         if not _is_ctrl_of(bone) and bone.name not in whitelist:
-            if hasattr(pose_bone, 'hide'):
-                pose_bone.hide = True # Blender 5.0 onwards
-            else:
-                bone.hide = True # Blender 4.5 and earlier
+            pose_bone_hide(pose_bone)
 
     _create_bone_collection(armature, 'BF2_LEFT_ARM', r'^L_.*', 3) # green
     _create_bone_collection(armature, 'BF2_LEFT_FINGERS', r'^L_(pink|index|point|ring|thumb)_\d$', 3) # green
@@ -804,21 +797,9 @@ def _get_bone_fcurves(pose_bone, data_path):
         return
 
     action = obj.animation_data.action
-    if not SUPPORTS_ACTION_SLOTS: # < Blender 4.4, use legacy API
-        fcurves = action.fcurves
-    else:
-        slot = obj.animation_data.action_slot
-        if slot is None:
-            return
-        # TODO: update to support layers in 5.0
-        channelbag = action.layers[0].strips[0].channelbag(slot)
-        if channelbag is None:
-            return
-        fcurves = channelbag.fcurves
-
-    for fcu in fcurves:
-        if fcu.data_path.startswith(path):
-            yield fcu
+    for fcurve in iter_action_fcurves(action):
+        if fcurve.data_path.startswith(path):
+            yield fcurve
 
 def _keyframes_as_dict(pose_bone):
     keyframes = dict()
@@ -893,26 +874,13 @@ def reparent_bones(context, rig, target_bones, parent_bone, reporter=DEFAULT_REP
         bpy.ops.object.mode_set(mode='POSE') 
 
 
-def _iter_action_fcurves(action):
-    if not SUPPORTS_ACTION_SLOTS: # < Blender 4.4, use legacy API
-        yield from action.fcurves
-        return
-    # TODO: update to support layers in 5.0
-    for slot in action.slots:
-        for layer in action.layers:
-            for strip in layer.strips:
-                channelbag = strip.channelbag(slot)
-                if channelbag is None:
-                    continue
-                yield from channelbag.fcurves
-
 def _bone_from_data_path(data_path):
     match = re.match(r'^pose\.bones\["([^"]+)"\]', data_path)
     return match.group(1) if match else None
 
 def _action_animated_bones(action):
     bones = set()
-    for fcurve in _iter_action_fcurves(action):
+    for fcurve in iter_action_fcurves(action):
         bone = _bone_from_data_path(fcurve.data_path)
         if bone:
             bones.add(bone)
@@ -933,7 +901,7 @@ def _set_weapon_channels_muted(weapon_action, mute_bones):
     # mute/lock at the action group (bone) level so the dope sheet shows a single
     # muted group instead of every individual channel
     groups = set()
-    for fcurve in _iter_action_fcurves(weapon_action):
+    for fcurve in iter_action_fcurves(weapon_action):
         # clear per-channel flags in case they were set previously
         fcurve.mute = False
         fcurve.lock = False

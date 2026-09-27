@@ -16,17 +16,14 @@ from .collision_mesh import CollMeshImporter, CollMeshExporter
 from .skeleton import find_all_skeletons, find_rig_attached_to_object
 
 from .utils import (check_transform, delete_object, check_suffix,
-                    check_prefix, swap_zy,
-                    apply_modifiers as _apply_modifiers,
-                    triangulate as _triangulate,
-                    remove_double_verts,
+                    check_prefix, remove_double_verts,
                     check_scale,
-                    yaw_pitch_roll_to_matrix,
-                    matrix_to_yaw_pitch_roll,
                     strip_geom_lod_prefix as strip_prefix,
                     file_name,
                     DEFAULT_REPORTER)
 from .exceptions import ImportException, ExportException
+from .utils.convert import matrix_to_yaw_pitch_roll, swap_zy, yaw_pitch_roll_to_matrix
+from .utils import apply_modifiers as _apply_modifiers, triangulate_mesh as _triangulate
 
 NONVIS_PRFX = 'NONVIS_'
 COL_SUFFIX = '_COL'

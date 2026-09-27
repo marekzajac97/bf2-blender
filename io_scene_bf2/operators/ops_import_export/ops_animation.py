@@ -3,12 +3,13 @@ import os
 from bpy.props import StringProperty, BoolProperty, IntProperty, CollectionProperty, EnumProperty # type: ignore
 from bpy_extras.io_utils import poll_file_object_drop # type: ignore
 
+from ...core.utils.compat import SUPPORTS_ACTION_SLOTS
 from .ops_common import ImporterBase, ExporterBase
 from ..utils import RegisterFactory
 
 from ...core.animation import import_animation, export_animation, get_bones_for_export, save_bones_for_export
 from ...core.skeleton import find_active_skeleton
-from ...core.tools.anim_utils import SUPPORTS_ACTION_SLOTS, AnimationContext
+from ...core.tools.anim_utils import AnimationContext
 
 # -------------------------- Import --------------------------
 

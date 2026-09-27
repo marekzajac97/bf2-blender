@@ -7,6 +7,7 @@ from pathlib import Path
 
 from bpy.props import BoolProperty, StringProperty, EnumProperty, IntVectorProperty, IntProperty, FloatProperty # type: ignore
 
+from ...core.utils.convert import matrix_to_yaw_pitch_roll, swap_zy
 from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
 
@@ -14,7 +15,6 @@ from ...core.utils import Reporter
 from ...core.utils import (find_root, save_img_as_dds,
                            set_power_of_two_int_array,
                            get_power_of_two_int_array,
-                           matrix_to_yaw_pitch_roll, swap_zy,
                            strip_geom_lod_prefix)
 from ...core.object_template import parse_geom_type, parse_geom_type_safe, NONVIS_PRFX, COL_SUFFIX, ANCHOR_PREFIX
 from ...core.tools.og_lod_generator import generate_og_lod, compute_optimal_texture_sizes
@@ -141,8 +141,11 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
         root = find_root(context.view_layer.objects.active)
         _, obj_name = parse_geom_type(root)
         obj_name += '_lod'
-        if not self.texture_dir or not os.path.isdir(self.texture_dir):
-            self.report({"ERROR"}, "Provided directory is not valid")
+        if not self.texture_dir:
+            self.report({"ERROR"}, f"Texture output directory has not been provided")
+            return {'CANCELLED'}
+        if not os.path.isdir(self.texture_dir):
+            self.report({"ERROR"}, f"Provided texture output directory '{self.texture_dir}' is not valid")
             return {'CANCELLED'}
 
         out_path = os.path.join(self.texture_dir, obj_name + '.dds')
@@ -161,7 +164,7 @@ class OBJECT_OT_bf2_gen_og_lod(bpy.types.Operator):
                 mod_path = ''
 
         if not mod_path:
-            self.report({"ERROR"}, f'Given path: "{out_path}" is not relative to one of the MOD paths defined in add-on preferences')
+            self.report({"ERROR"}, f'Given texture output directory: "{self.texture_dir}" is not relative to any of the MOD paths defined in add-on preferences')
             return {'CANCELLED'}
 
         try:

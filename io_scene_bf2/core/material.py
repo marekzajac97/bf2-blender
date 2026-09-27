@@ -3,6 +3,7 @@ import os
 from collections import OrderedDict
 
 from .utils import DEFAULT_REPORTER, file_name
+from .utils.compat import SUPPORTS_GEOMETRY_NODE_UV_TANGENT
 from .exceptions import ImportException
 
 NODE_WIDTH = 300
@@ -530,7 +531,7 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
 
             if material.bf2_shader == 'SKINNEDMESH' and not material.bf2_use_tangent:
                 # uses OS normal map
-                if hasattr(bpy.types,'GeometryNodeUVTangent'):
+                if SUPPORTS_GEOMETRY_NODE_UV_TANGENT:
                     # dynamically convert object space normals to tangent space normals
                     # fixes bad shading when mesh is deformed
                     os_to_b = node_tree.nodes.new('ShaderNodeGroup')
@@ -540,8 +541,11 @@ def setup_material(material, uvs=None, texture_paths=[], backface_cull=True, rep
                     node_tree.links.new(normal.outputs['Color'], os_to_b.inputs['Color'])
                     node_tree.links.new(os_to_b.outputs['Color'], normal_node.inputs['Color'])
                 else:
-                    # not Blender 5.0, use standard Object Space normal mapping
-                    # (will produce shading issues when deformed)
+                    # use standard Object Space normal mapping
+                    reporter.warning("UV Tangent Geometry Node is not supported by this Blender version. "
+                                     "This will cause shading bugs when the mesh is deformed; "
+                                     "please upgrade to Blender 5.0 or above")
+
                     normal_node.space = 'OBJECT'
                     axes_swap = node_tree.nodes.new('ShaderNodeGroup')
                     axes_swap.node_tree = _create_bf2_axes_swap()

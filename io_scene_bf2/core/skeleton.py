@@ -3,10 +3,9 @@ import math
 
 from mathutils import Matrix, Vector, Quaternion # type: ignore
 from .bf2.bf2_skeleton import BF2Skeleton, BF2SkeletonException
-from .utils import (to_matrix, conv_bf2_to_blender,
-                    conv_blender_to_bf2,
-                    delete_object_if_exists)
+from .utils import delete_object_if_exists
 from .exceptions import ImportException, ExportException
+from .utils.convert import to_matrix, conv_bf2_to_blender, conv_blender_to_bf2
 
 # BF2 hardcoded limits, binary can be easily hacked to support more if needed
 MAX_ITEMS_1P = 16

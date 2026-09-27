@@ -14,18 +14,17 @@ from ...bf2.bf2_engine import (BF2Engine,
                             Object)
 from ...bf2.bf2_mesh import BF2BundledMesh, BF2StaticMesh, BF2SkinnedMesh, BF2Samples
 from ...mod_loader import ModLoader
-from ...utils import set_gn_modifier_input
+from ...utils.compat import set_gn_modifier_input
 from ...material import (setup_material,
                         get_material_maps,
                         get_staticmesh_uv_channel_mapping,
                         STATICMESH_TEXUTRE_MAP_TYPES)
 from ...mesh import MeshImporter, MeshExporter
 from ...utils import (DEFAULT_REPORTER,
-                    swap_zy, file_name,
-                    _convert_pos, _convert_rot,
-                    to_matrix, delete_object,
-                    yaw_pitch_roll_to_matrix,
+                    file_name,
+                    delete_object,
                     remove_double_verts)
+from ...utils.convert import swap_zy, yaw_pitch_roll_to_matrix, conv_pos, conv_rot, to_matrix
 from ...heightmap import import_heightmap_from
 from ...exceptions import ImportException
 from fnmatch import fnmatch
@@ -527,8 +526,8 @@ def _get_obj_matrix(bf2_object):
         matrix_world = Matrix(bf2_object.transform)
         matrix_world.transpose()
         pos, rot, _ = matrix_world.decompose()
-        _convert_pos(pos)
-        _convert_rot(rot)
+        conv_pos(pos)
+        conv_rot(rot)
         return to_matrix(pos, rot)
     else:
         # statics
@@ -1015,7 +1014,7 @@ def load_level(context, level_dir, use_cache=True,
         # sun (green channel)
         main_console.run_file(path.join(level_dir, 'Sky.con'))
         sun_dir = Vector(engine.light_manager.sun_dir)
-        _convert_pos(sun_dir)
+        conv_pos(sun_dir)
         sun_light = bpy.data.lights.new(name='Sun', type='SUN')
         obj = bpy.data.objects.new(sun_light.name, sun_light)
         lights.objects.link(obj)

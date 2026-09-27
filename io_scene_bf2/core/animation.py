@@ -2,10 +2,12 @@ import bpy # type: ignore
 
 from mathutils import Matrix # type: ignore
 from .bf2.bf2_animation import BF2Animation, BF2KeyFrame, BF2AnimationException
-from .utils import to_matrix, conv_bf2_to_blender, conv_blender_to_bf2, file_name
+from .utils import file_name
 from .skeleton import (ske_get_bone_rot,
                        find_animated_weapon_object, ske_weapon_part_ids)
 from .exceptions import ImportException, ExportException
+from .utils.convert import conv_bf2_to_blender, conv_blender_to_bf2, to_matrix
+from .utils.compat import iter_action_fcurves
 
 def get_bones_for_export(rig):
     ske_bones = rig['bf2_bones']
@@ -161,28 +163,12 @@ def import_animation(context, rig, baf_file, insert_at_frame=0, to_new_action=Tr
     bpy.ops.object.mode_set(mode='OBJECT')
 
     # by default keyframe_insert makes the frame selected
-    _deselect_all_keyframes(rig.animation_data)
+    _deselect_all_keyframes(rig.animation_data.action)
 
     return rig.animation_data.action
 
-def _get_fcurves_from_anim_data(animation_data):
-    action = animation_data.action
-    if not hasattr(bpy.types, "ActionSlot"): # < Blender 4.4, use legacy API
-        return action.fcurves
-    else:
-        slot = animation_data.action_slot
-        if slot is None:
-            return
-        channelbag = action.layers[0].strips[0].channelbag(slot)
-        if channelbag is None:
-            return
-        return channelbag.fcurves
-
-def _deselect_all_keyframes(animation_data):
-    fcurves = _get_fcurves_from_anim_data(animation_data)
-    if not fcurves:
-        return
-    for fcurve in fcurves:
+def _deselect_all_keyframes(action):
+    for fcurve in iter_action_fcurves(action):
         if not fcurve.keyframe_points:
             continue
 

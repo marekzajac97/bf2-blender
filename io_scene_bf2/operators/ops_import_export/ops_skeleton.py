@@ -19,7 +19,8 @@ class IMPORT_OT_bf2_skeleton(bpy.types.Operator, ImporterBase, SkeMeta):
     fix_bone_dir: BoolProperty(
         name="Fix bone direction",
         description="When enabled each bone gets re-oriented so that bone's tail points toward its children. "
-                    "Disabling this keeps the original messy bone transformations",
+                    "Disabling this keeps the original messy bone transformations.\n" \
+                    "NOTE: The inverse operation is applied when re-exporting the skeleton",
         default=True
     ) # type: ignore
 

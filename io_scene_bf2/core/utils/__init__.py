@@ -1,0 +1,348 @@
+import bpy # type: ignore
+from bpy.types import Mesh, Armature, Camera # type: ignore
+from mathutils import Vector # type: ignore
+from ..exceptions import ExportException
+import tempfile
+import os
+import math
+
+from ...directx.texconv import Texconv
+
+class Reporter:
+    def __init__(self, report_func=None, report_once=True) -> None:
+        if report_once:
+            self.history = set()
+        else:
+            self.history = None
+        self.report_func = report_func
+
+    def _report(self, level, msg):
+        fmt_msg = f"{level}: {msg}"
+        if self.history is not None:
+            if fmt_msg in self.history:
+                return
+            self.history.add(fmt_msg)
+
+        print(fmt_msg)
+        if self.report_func:
+            self.report_func({level}, msg)
+
+    def warning(self, msg):
+        self._report("WARNING", msg)
+
+    def error(self, msg):
+        self._report("ERROR", msg)
+
+    def info(self, msg):
+        self._report("INFO", msg)
+
+DEFAULT_REPORTER = Reporter(None)
+
+def delete_object(obj, recursive=True, remove_data=True):
+    if recursive:
+        for child in obj.children:
+            delete_object(child, recursive=True, remove_data=remove_data)
+    data = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if data is None or not remove_data:
+        return
+    if isinstance(data, Mesh):
+        bpy.data.meshes.remove(data, do_unlink=True)
+    elif isinstance(data, Armature):
+        bpy.data.armatures.remove(data, do_unlink=True)
+    elif isinstance(data, Camera):
+        bpy.data.cameras.remove(data, do_unlink=True)
+    else:
+        raise ValueError(f"unknown object data type {type(data)}")
+
+def delete_object_if_exists(obj_name, recursive=True, remove_data=True):
+    if obj_name in bpy.data.objects:
+        delete_object(bpy.data.objects[obj_name], recursive=recursive, remove_data=remove_data)
+
+
+def _delete_if_exists(mesh_name, collection):
+    if mesh_name in collection:
+        collection.remove(collection[mesh_name])
+
+def delete_mesh_if_exists(name):
+    _delete_if_exists(name, bpy.data.meshes)
+
+def delete_material_if_exists(name):
+    _delete_if_exists(name, bpy.data.meshes)
+
+def check_prefix(name, fmt):
+
+    def _bad_format():
+        expected = ''
+        for identifier in fmt:
+            expected += f'{identifier}<index>'
+        raise ExportException(f"Object '{name}' has invalid prefix format, expected '{expected}__', where <index> is a number")
+
+    s = name
+    indexes = list()
+    for identifier in fmt:
+        if not s.startswith(identifier):
+            _bad_format()
+        else:
+            s = s[len(identifier):]
+            index = ''
+            for char in s:
+                if char.isdigit():
+                    index += char
+                else:
+                    break
+            if not index:
+                _bad_format()
+            indexes.append(int(index))
+            s = s[len(index):]
+
+    if not s.startswith('__'):
+        _bad_format()
+
+    return indexes[0] if len(indexes) == 1 else tuple(indexes)
+
+def check_suffix(name, expected_suffix):
+    index = ''
+    for char in name[::-1]:
+        if char.isdigit():
+            index += char
+        else:
+            break
+    index = index[::-1]
+    if not index:
+        raise ExportException(f"{name} must contain numeric suffix")
+    n = name[0:-len(index)]
+    if not n.endswith(f'{expected_suffix}'):
+        raise ExportException(f"{name} must be suffixed with '{expected_suffix}' and an index")
+    return int(index)
+
+def find_root(obj):
+    if obj.parent is None:
+        return obj
+    return find_root(obj.parent)
+
+def show_error(context, title, text=''):
+    def draw(self, context):
+        self.layout.label(text=text)
+    context.window_manager.popup_menu(draw, title=title, icon='ERROR')
+
+def next_power_of_2(n):
+    if n == 0:
+        return 1
+    if n & (n - 1) == 0:
+        return n
+    while n & (n - 1) > 0:
+        n &= (n - 1)
+    return n << 1
+
+def prev_power_of_2(n):
+    if n == 0:
+        return 1
+    if n & (n - 1) == 0:
+        return n
+    while n & (n - 1) > 0:
+        n &= (n - 1)
+    return n
+
+def set_power_of_two_int(prop_name):
+    def _set_func(self, val):
+        prev_val = getattr(self, prop_name)
+        prop = self.bl_rna.properties[prop_name]
+        if val > prev_val:
+            val = next_power_of_2(val)
+        else:
+            val = prev_power_of_2(val)
+        val = max(prop.hard_min, val)
+        val = min(prop.hard_max, val)
+        self[prop_name] = val
+    return _set_func
+
+def get_power_of_two_int(prop_name):
+    def _get_func(self):
+        prop = self.bl_rna.properties[prop_name]
+        return self.get(prop_name, prop.default)
+    return _get_func
+
+def set_power_of_two_int_array(prop_name, link_prop=None):
+    def _set_func(self, value):
+        prop = self.bl_rna.properties[prop_name]
+        link_value = False if link_prop is None else getattr(self, link_prop)
+        prev_val = tuple(getattr(self, prop_name))
+        val = list(value)
+        for i in range(prop.array_length):
+            link = False
+            if val[i] != prev_val[i]:
+                link = link_value
+            if val[i] > prev_val[i]:
+                val[i] = next_power_of_2(val[i])
+            else:
+                val[i] = prev_power_of_2(val[i])
+            val[i] = max(prop.hard_min, val[i])
+            val[i] = min(prop.hard_max, val[i])
+            if link:
+                for j in range(prop.array_length):
+                    val[j] = val[i]
+        self[prop_name] = val
+    return _set_func
+
+def get_power_of_two_int_array(prop_name):
+    def _get_func(self):
+        prop = self.bl_rna.properties[prop_name]
+        return self.get(prop_name, prop.default_array)
+    return _get_func 
+
+def is_pow_two(n):
+    return (n & (n-1) == 0) and n != 0
+
+FOURCC_TO_DXGI = {
+    'DXT1': 'BC1_UNORM',
+    'DXT3': 'BC2_UNORM',
+    'DXT5': 'BC3_UNORM',
+    'NONE': 'R8G8B8A8_UNORM'
+}
+
+def convert_to_dds(in_file, out_dir, compression):
+    dds_fmt = FOURCC_TO_DXGI[compression]
+    texconv = Texconv()
+    texconv.convert_to_dds(in_file, dds_fmt, out=out_dir, verbose=False)
+
+def save_img_as_dds(img, outfile, compression='DXT5', reload=False):
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_file = os.path.join(tmp_dir, file_name(outfile) + '.tga')
+        img.file_format = 'TARGA'
+        img.filepath_raw = tmp_file
+        img.alpha_mode = 'STRAIGHT'
+        img.save(filepath=tmp_file)
+        convert_to_dds(tmp_file, os.path.dirname(outfile), compression)
+
+def file_name(fname):
+    return os.path.splitext(os.path.basename(fname))[0]
+
+def _compare_seq(a_seq, b_seq):
+    return all([math.isclose(a, b, abs_tol=1e-06) for a, b in zip(a_seq, b_seq)])
+
+def _compare_val(a, b):
+    try:
+        iter(a)
+        iter(b)
+    except TypeError:
+        return math.isclose(a, b, abs_tol=1e-06)
+    return _compare_seq(a, b)
+
+def check_transform(obj):
+    tip = ". This could be a mistake, use `Object -> Apply -> All transforms` if you think it is valid."
+    location, rotation_quat, scale = obj.matrix_local.decompose()
+    if not _compare_val(scale, (1, 1, 1)):
+        raise ExportException(f"'{obj.name}' has non-uniform scale: {tuple(scale)}" + tip)
+    if not _compare_val(location, (0, 0, 0)):
+        raise ExportException(f"'{obj.name}' has non-zero location: {tuple(location)}" + tip)
+    if not _compare_val(rotation_quat, (1, 0, 0, 0)):
+        raise ExportException(f"'{obj.name}' has non-zero rotation: {tuple(rotation_quat)}" + tip)
+
+def check_scale(obj):
+    tip = ". This could be a mistake, use `Object -> Apply -> Scale` if you think it is valid."
+    if not _compare_val(obj.scale, (1, 1, 1)):
+        raise ExportException(f"'{obj.name}' has non-uniform scale: {obj.scale}" + tip)
+
+class AxisBound:
+    def __init__(self):
+        self.min = None
+        self.max = None
+        self.distance = None
+
+def obj_bounds(obj, local=True):
+    local_coords = obj.bound_box[:]
+    om = obj.matrix_world
+ 
+    if not local:
+        worldify = lambda p: om @ Vector(p[:]) 
+        coords = [worldify(p).to_tuple() for p in local_coords]
+    else:
+        coords = [p[:] for p in local_coords]
+        
+    rotated = zip(*coords[::-1])
+
+    push_axis = []
+    for (axis, _list) in zip('xyz', rotated):
+        info = AxisBound()
+        info.max = max(_list)
+        info.min = min(_list)
+        info.distance = info.max - info.min
+        push_axis.append(info)
+
+    return dict(zip(['x', 'y', 'z'], push_axis))
+
+def strip_geom_lod_prefix(s):
+    for char_idx, _ in enumerate(s):
+        if s[char_idx:].startswith('__'):
+            return s[char_idx+2:]
+    return s
+
+def remove_double_verts(obj, recursive=False):
+    if obj.data and isinstance(obj.data, Mesh):
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.select_all(action='DESELECT')
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_mode(type='VERT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        # use_sharp_edge_from_normals=True is important as it "preserves" custom normals
+        bpy.ops.mesh.remove_doubles(threshold=0.0001, use_sharp_edge_from_normals=True)
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    if recursive:
+        for child in obj.children:
+            remove_double_verts(child, recursive=recursive)
+
+def _call_object_op(obj, op, context, recursive):
+    if context is None:
+        context = bpy.context
+
+    bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    select = obj.select_get()
+    obj.hide_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    op()
+    obj.hide_set(hide)
+    obj.select_set(select)
+
+    if recursive:
+        for child in obj.children:
+            _call_object_op(child, op, context, recursive)
+
+def apply_modifiers(obj, context=None, recursive=False):
+    _call_object_op(obj, bpy.ops.object.convert, context, recursive)
+
+def triangulate_mesh(obj, context=None):
+    if context is None:
+        context = bpy.context
+    bpy.ops.object.select_all(action='DESELECT')
+    hide = obj.hide_get()
+    obj.hide_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_mode(type='FACE')
+    bpy.ops.mesh.reveal(select=False)
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.quads_convert_to_tris()
+    bpy.ops.object.mode_set(mode='OBJECT')
+    obj.hide_set(hide)
+
+def is_backface(face1, face2):
+    face1_set = set(face1)
+    face2_set = set(face2)
+
+    if face1_set != face2_set or len(face1_set) != 3:
+        # vert sets are not the same or contain duplicate verts
+        return False
+
+    for i in range(3):
+        if face1[i:] + face1[:i] == face2:
+            return False # face is a duplicate just with verts in different order
+
+    return True

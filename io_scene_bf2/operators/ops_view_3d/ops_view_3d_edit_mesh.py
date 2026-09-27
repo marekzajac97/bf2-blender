@@ -6,7 +6,7 @@ from bpy.props import IntProperty, BoolProperty # type: ignore
 
 from ..utils import RegisterFactory
 
-from ...core.utils import flip_uv
+from ...core.utils.convert import flip_uv
 from ...core.mesh import AnimUv
 
 # --------------------------------------------------------------------

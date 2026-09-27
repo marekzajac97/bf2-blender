@@ -6,8 +6,9 @@ from bpy.props import (StringProperty, EnumProperty, BoolProperty, # type: ignor
                        IntProperty, IntVectorProperty, CollectionProperty,
                        PointerProperty, FloatProperty, FloatVectorProperty)
 from ..core.bf2.bf2_engine import BF2_OBJECT_TEMPLATE_TYPES
-from ..core.utils import set_power_of_two_int_array, get_power_of_two_int_array, find_root, show_error, set_gn_modifier_input
+from ..core.utils import set_power_of_two_int_array, get_power_of_two_int_array, find_root, show_error
 from ..core.object_template import parse_geom_type_safe
+from ..core.utils.compat import set_gn_modifier_input
 from .utils import RegisterFactory
 
 BF2_OBJECTS_ENUM = [(n, n, "", i) for i, n in enumerate(BF2_OBJECT_TEMPLATE_TYPES)]

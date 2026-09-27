@@ -9,6 +9,7 @@ from ... import rectpack
 
 from ..object_template import OrphanedAnchorObject, MeshExporter, parse_geom_type
 from ..utils import next_power_of_2, obj_bounds
+from ..utils.compat import eevee_id
 
 class PlaneConfig:
     def __init__(self, plane_axes, camera_rot, dir, flip_uv):
@@ -248,11 +249,7 @@ def project_to_plane(obj, plane_name, texture_size):
         scene.world.node_tree.nodes["Background"].inputs['Color'].default_value = (1, 1, 1, 1)
 
         # render settings
-        try:
-            scene.render.engine = 'BLENDER_EEVEE_NEXT'
-        except:
-            scene.render.engine = 'BLENDER_EEVEE' # Blender 5.0
-
+        scene.render.engine = eevee_id()
         scene.render.resolution_x = texture_width
         scene.render.resolution_y = texture_height
         scene.render.image_settings.file_format = "PNG"
