@@ -56,6 +56,7 @@ jobs:
           run-id: ${{ steps.resolve.outputs.run_id }}
           pattern: io_scene_bf2-*
           merge-multiple: true
+          skip-decompress: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: artifacts
 
@@ -64,7 +65,9 @@ jobs:
           TAG="${{ github.event.inputs.tag }}"
           cd artifacts
           for f in io_scene_bf2-*.zip; do
-            mv "$f" "io_scene_bf2-${TAG}-${f##*-}"
+            rest="${f#io_scene_bf2-}"
+            suffix="${rest#*-}"
+            mv "$f" "io_scene_bf2-${TAG}-${suffix}"
           done
 
       - name: Create GitHub Release
