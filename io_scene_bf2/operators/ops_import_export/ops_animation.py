@@ -209,6 +209,8 @@ class EXPORT_OT_bf2_animation(bpy.types.Operator, ExporterBase, BafMeta):
         res = super().invoke(context, _event)
         if self.multi_action:
             self.filepath = ''
+        elif rig.animation_data and rig.animation_data.action:
+            self.filepath = rig.animation_data.action.name + self.filename_ext
         return res
 
     def _execute(self, context):

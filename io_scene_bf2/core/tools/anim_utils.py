@@ -913,8 +913,32 @@ def _set_weapon_channels_muted(weapon_action, mute_bones):
         group.mute = mute
         group.lock = mute
 
-def update_nla_setup(context, action=None) -> None:
-    obj = context.object
+def cutoff_bone_mutes(obj, action):
+    """Weapon channels that are muted because the soldier action drives them instead.
+
+    Returns the bones animated by ``action`` that sit above the cutoff bone, which
+    are exactly the ones overridden by the linked ``bf2_soldier_action``.
+    """
+    if obj is None or action is None:
+        return set()
+    cutoff = (action.bf2_ignore_mother_orientation or '').strip()
+    if not action.bf2_soldier_action or not cutoff:
+        return set()
+    return _action_animated_bones(action) & _bone_ancestors(obj, cutoff)
+
+def uncovered_mute_bones(obj, action):
+    """Muted weapon bones that the soldier action does not animate.
+
+    These bones end up driven by neither action, so their pose is never updated
+    when switching actions. Callers use this to warn the user.
+    """
+    soldier_action = action.bf2_soldier_action if action else None
+    if not soldier_action:
+        return set()
+    return cutoff_bone_mutes(obj, action) - _action_animated_bones(soldier_action)
+
+def update_nla_setup(context, action=None, obj=None) -> None:
+    obj = obj or context.object
     if not obj or not obj.animation_data:
         return
     action = action or obj.animation_data.action
@@ -928,19 +952,13 @@ def update_nla_setup(context, action=None) -> None:
 
     # the active action is evaluated on top of the stack, so its influence must be full
     obj.animation_data.action_influence = 1
+    context.view_layer.update()
+
+    # the cutoff bone and its children keep the weapon animation, while every
+    # parent (the 'mother' orientation) is overridden by the soldier action
+    _set_weapon_channels_muted(action, cutoff_bone_mutes(obj, action))
 
     soldier_action = action.bf2_soldier_action
-
-    # mute the weapon channels that should be overridden by the soldier action
-    mute_bones = set()
-    if soldier_action:
-        cutoff = action.bf2_ignore_mother_orientation.strip()
-        if cutoff:
-            # the cutoff bone and its children keep the weapon animation, while
-            # every parent (the 'mother' orientation) is overridden by the soldier
-            mute_bones = _action_animated_bones(action) & _bone_ancestors(obj, cutoff)
-    _set_weapon_channels_muted(action, mute_bones)
-
     if not soldier_action:
         return
 
@@ -950,7 +968,7 @@ def update_nla_setup(context, action=None) -> None:
 
     action_len = action.frame_end - action.frame_start
     soldier_len = soldier_action.frame_end - soldier_action.frame_start
-    if int(action_len) == 0 or int(soldier_len) == 0:
-        return
-    else:
+    if int(action_len) != 0 and int(soldier_len) != 0:
         soldier_track.strips[0].repeat = action_len / soldier_len
+
+    context.view_layer.update()

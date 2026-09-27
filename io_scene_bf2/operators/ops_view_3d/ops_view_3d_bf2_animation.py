@@ -2,14 +2,17 @@ import bpy # type: ignore
 import traceback
 import os
 
-from bpy.props import StringProperty, IntProperty, BoolProperty # type: ignore
+from bpy.props import StringProperty, IntProperty, EnumProperty # type: ignore
+from bpy_extras.io_utils import ImportHelper # type: ignore
 
 from ..utils import RegisterFactory
 from ..ops_prefs import get_mod_dirs
+from ...core.bf2.bf2_engine import BF2Engine, Animation
 from ...core.tools.anim_utils import (
     toggle_mesh_mask_mesh_for_active_bone,
     reparent_bones,
     setup_controllers,
+    update_nla_setup,
     Mode,
     AnimationContext)
 from ...core.skeleton import is_bf2_skeleton
@@ -133,12 +136,51 @@ def _find_matching_soldier_animation(directory, anim_filepath):
 
     return _find_file(directory, _match)
 
+def _parse_animation_system(context, inc_filepath):
+    engine = BF2Engine()
+    engine.file_manager.root_dirs = get_mod_dirs(context)
+    engine.main_console.run_file(inc_filepath)
+    manager = engine.get_manager(Animation)
+    return list(manager.templates.values()) if manager else []
+
+def _resolve_weapon_anim_path(context, anim_path):
+    rel = anim_path.replace('\\', '/').lstrip('/')
+    for mod_dir in get_mod_dirs(context):
+        candidate = os.path.normpath(os.path.join(mod_dir, *rel.split('/')))
+        if os.path.isfile(candidate):
+            return candidate
+
+def _anim_path_is_3p(anim_filepath):
+    return '3p' in anim_filepath.replace('\\', '/').lower().split('/')
+
+def _on_weapon_anim_system_update(self, context):
+    if not self.weapon_anim_system_file or not os.path.isfile(self.weapon_anim_system_file):
+        return
+    animations = _parse_animation_system(context, self.weapon_anim_system_file)
+    if not animations:
+        return
+    anim_file = _resolve_weapon_anim_path(context, animations[0].path)
+    if not anim_file:
+        return
+    if _anim_path_is_3p(anim_file):
+        _set_default_3p_settings(self, context, anim_file)
+    else:
+        _set_default_1p_settings(self, context)
+    _set_weapon_mesh(self, anim_file)
+
+def _set_cutoff_bone(rig, action, bone_id):
+    bones = list(rig.get('bf2_bones') or []) if rig else []
+    if bone_id < 0 or bone_id >= len(bones):
+        return False
+    action.bf2_ignore_mother_orientation = bones[bone_id]
+    return True
+
 def _set_default_1p_settings(self, context):
     _set_default_soldier_1p_skeleton(self, context)
 
 def _set_default_3p_settings(self, context, anim_filepath):
     _set_default_soldier_3p_skeleton(self, context)
-    if self.single_animation:
+    if self.import_method == 'SINGLE':
         soldier_anim_dir = _get_default_soldier_3p_anim_dir(self, context)
         if not anim_filepath or not soldier_anim_dir:
             return
@@ -219,13 +261,63 @@ def _set_default_soldier_mesh(self, context):
             return
     self.soldier_mesh_file = ''
 
+_animation_wizard = None
+
+_ANIM_FILE_SELECT_TARGETS = {
+    'WEAPON_ANIM': 'weapon_anim_file',
+    'SOLDIER_ANIM': 'soldier_anim_file',
+    'ANIM_SYSTEM': 'weapon_anim_system_file',
+}
+
+class VIEW3D_OT_bf2_anim_file_select(bpy.types.Operator, ImportHelper):
+    bl_idname = "bf2.anim_file_select"
+    bl_label = "Select BF2 Animation File"
+    bl_description = "Select a BF2 animation (.baf) or animation system (.inc) file"
+    filename_ext = ".baf"
+
+    target: EnumProperty(
+        name="Target",
+        items=[
+            ('WEAPON_ANIM', "Weapon animation", "Weapon animation file (.baf)"),
+            ('SOLDIER_ANIM', "Soldier animation", "Soldier animation file (.baf)"),
+            ('ANIM_SYSTEM', "Animation system", "Animation system definition (.inc)"),
+        ],
+        default='WEAPON_ANIM'
+    ) # type: ignore
+
+    filter_glob: StringProperty(default="*.baf", options={'HIDDEN'}) # type: ignore
+
+    def invoke(self, context, event):
+        if self.target == 'ANIM_SYSTEM':
+            self.filter_glob = "*.inc"
+            self.filename_ext = ".inc"
+        else:
+            self.filter_glob = "*.baf"
+            self.filename_ext = ".baf"
+        return super().invoke(context, event)
+
+    def execute(self, context):
+        if _animation_wizard is not None:
+            prop = _ANIM_FILE_SELECT_TARGETS.get(self.target)
+            if prop:
+                setattr(_animation_wizard, prop, self.filepath)
+        return {'FINISHED'}
+
+def _draw_anim_file_row(layout, self, prop, target):
+    row = layout.row(align=True)
+    row.prop(self, prop)
+    op = row.operator(VIEW3D_OT_bf2_anim_file_select.bl_idname, text='', icon='FILEBROWSER')
+    op.target = target
+
 class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
     bl_idname = "bf2.anim_wizard"
     bl_label = "Import wizard"
     bl_description = "Automated scene setup for animation editing - import skeleton, soldier/weapon meshes and animations all in one go!"
 
     def _on_weapon_anim_update(self, context):
-        if self.single_animation:
+        if self.import_method == 'SINGLE':
+            if not self.weapon_anim_file or not os.path.isfile(self.weapon_anim_file):
+                return
             anim_file = os.path.basename(self.weapon_anim_file)
             s = anim_file.split('_')
             if len(s) < 3:
@@ -237,7 +329,9 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
             else:
                 return
             _set_weapon_mesh(self, self.weapon_anim_file)
-        else:
+        elif self.import_method == 'DIRECTORY':
+            if not self.weapon_anim_dir or not os.path.isdir(self.weapon_anim_dir):
+                return
             anim_dir = os.path.basename(self.weapon_anim_dir.replace('\\', '/').rstrip('/')).lower()
             anim_file = _find_file(self.weapon_anim_dir, lambda f: f.endswith('.baf') and len(f.split('_')) >= 3)
             if anim_dir == '1p':
@@ -247,11 +341,19 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
             else:
                 return
             _set_weapon_mesh(self, anim_file)
+        else:
+            _on_weapon_anim_system_update(self, context)
 
-    single_animation: BoolProperty(
-        name="Single animation",
-        description="Import a single animation instead of the whole set",
-        default=False
+    import_method: EnumProperty(
+        name="Import method",
+        description="How the weapon animations are selected",
+        items=[
+            ('SINGLE', "Single animation", "Import a single animation file"),
+            ('DIRECTORY', "Animation directory", "Import every animation from a directory"),
+            ('SYSTEM', "Animation system", "Parse a BF2 AnimationSystem .inc file and import every animation it defines"),
+        ],
+        default='SINGLE',
+        update=_on_weapon_anim_update
     ) # type: ignore
 
     ske_file: StringProperty (
@@ -265,8 +367,7 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
         ) # type: ignore
 
     soldier_anim_file: StringProperty (
-            name="Soldier animation file (3P)",
-            subtype="FILE_PATH"
+            name="Soldier animation file (3P)"
         ) # type: ignore
 
     soldier_anim_dir: StringProperty (
@@ -289,13 +390,17 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
 
     weapon_anim_file: StringProperty (
             name="Weapon animation file",
-            subtype="FILE_PATH",
             update=_on_weapon_anim_update
         ) # type: ignore
 
     weapon_anim_dir: StringProperty (
             name="Weapon animation directory",
             subtype="DIR_PATH",
+            update=_on_weapon_anim_update
+        ) # type: ignore
+
+    weapon_anim_system_file: StringProperty (
+            name="Animation system file (.inc)",
             update=_on_weapon_anim_update
         ) # type: ignore
 
@@ -320,17 +425,21 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
                 self.report({"ERROR"}, "Weapon mesh file not provided or does not exist")
                 return {'CANCELLED'}
  
-            if self.single_animation:
+            if self.import_method == 'SINGLE':
                 if not self.weapon_anim_file or not os.path.isfile(self.weapon_anim_file):
-                    self.report({"ERROR"}, "Weapon animation directory not provided or does not exist")
+                    self.report({"ERROR"}, "Weapon animation file not provided or does not exist")
                     return {'CANCELLED'}
-            else:
+            elif self.import_method == 'DIRECTORY':
                 if not self.weapon_anim_dir or not os.path.isdir(self.weapon_anim_dir):
                     self.report({"ERROR"}, "Weapon animation directory not provided or does not exist")
                     return {'CANCELLED'}
+            else:
+                if not self.weapon_anim_system_file or not os.path.isfile(self.weapon_anim_system_file):
+                    self.report({"ERROR"}, "Animation system file (.inc) not provided or does not exist")
+                    return {'CANCELLED'}
 
             if is_3p:
-                if self.single_animation:
+                if self.import_method == 'SINGLE':
                     if not self.soldier_anim_file or not os.path.isfile(self.soldier_anim_file):
                         self.report({"WARNING"}, "Soldier animation file (3P) not provided or does not exist")
                 else:
@@ -343,16 +452,17 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
             # ------------
             weapon_to_soldier_binding = list()
             bpy.ops.bf2.ske_import(filepath=self.ske_file)
+            rig = bpy.context.object
             bpy.ops.bf2.mesh_import(filepath=self.soldier_mesh_file, only_selected_lod=True, geom=1 if is_3p else 0, lod=self.weapon_lod_index)
             bpy.ops.bf2.mesh_import(filepath=self.weapon_mesh_file, only_selected_lod=True, geom=1 if is_3p else 0, lod=self.weapon_lod_index)
-            if self.single_animation:
+            if self.import_method == 'SINGLE':
                 bpy.ops.bf2.baf_import(filepath=self.weapon_anim_file, to_new_action=True)
                 weapon_action = bpy.context.object.animation_data.action
                 if self.soldier_anim_file:
                     bpy.ops.bf2.baf_import(filepath=self.soldier_anim_file, to_new_action=True)
                     soldier_action = bpy.context.object.animation_data.action
                     weapon_to_soldier_binding.append((weapon_action, soldier_action))
-            else:
+            elif self.import_method == 'DIRECTORY':
                 for f in os.listdir(self.weapon_anim_dir):
                     path = os.path.join(self.weapon_anim_dir, f)
                     if f.endswith('.baf') and os.path.isfile(path):
@@ -366,29 +476,65 @@ class VIEW3D_OT_bf2_animation_wizard(bpy.types.Operator):
                         bpy.ops.bf2.baf_import(filepath=soldier_anim, to_new_action=True)
                         soldier_action = bpy.context.object.animation_data.action
                         weapon_to_soldier_binding.append((weapon_action, soldier_action))
+            else:
+                animations = _parse_animation_system(context, self.weapon_anim_system_file)
+                if not animations:
+                    self.report({"ERROR"}, "No animations found in the animation system file")
+                    return {'CANCELLED'}
+                for anim in animations:
+                    path = _resolve_weapon_anim_path(context, anim.path)
+                    if not path or not os.path.isfile(path):
+                        self.report({"WARNING"}, f"Animation file '{anim.path}' not found, skipping")
+                        continue
+                    bpy.ops.bf2.baf_import(filepath=path, to_new_action=True)
+                    weapon_action = bpy.context.object.animation_data.action
+                    if anim.ignore_mother_orientation is not None:
+                        if not _set_cutoff_bone(rig, weapon_action, anim.ignore_mother_orientation):
+                            self.report({"WARNING"}, f"Couldn't map ignoreMotherOrientation {anim.ignore_mother_orientation} to a bone for '{anim.path}'")
+                    if self.soldier_anim_dir:
+                        soldier_anim = _find_matching_soldier_animation(self.soldier_anim_dir, path)
+                        if not soldier_anim:
+                            self.report({"WARNING"}, f"Couldn't find a matching soldier animation for '{os.path.basename(path)}'. Try importing and linking them manually")
+                            continue
+                        bpy.ops.bf2.baf_import(filepath=soldier_anim, to_new_action=True)
+                        soldier_action = bpy.context.object.animation_data.action
+                        weapon_to_soldier_binding.append((weapon_action, soldier_action))
 
             for weapon_action, soldier_action in weapon_to_soldier_binding:
                 weapon_action.bf2_soldier_action = soldier_action
+
+            # the soldier action is a single shared NLA track that has to match
+            # whichever action is active, so leave the wizard on a weapon action
+            # and rebuild the track for it (otherwise it points at an arbitrary one)
+            if weapon_to_soldier_binding and rig.animation_data:
+                default_action = weapon_to_soldier_binding[0][0]
+                context.view_layer.objects.active = rig
+                rig.animation_data.action = default_action
+                update_nla_setup(context, default_action)
 
         except Exception as e:
             self.report({"ERROR"}, traceback.format_exc())
         return {'FINISHED'}
 
     def draw(self, context):
+        global _animation_wizard
+        _animation_wizard = self
         layout = self.layout
         layout.use_property_split = True
-        layout.prop(self, 'single_animation')
-        if self.single_animation:
-            layout.prop(self, 'weapon_anim_file')
-        else:
+        layout.prop(self, 'import_method')
+        if self.import_method == 'SINGLE':
+            _draw_anim_file_row(layout, self, 'weapon_anim_file', 'WEAPON_ANIM')
+        elif self.import_method == 'DIRECTORY':
             layout.prop(self, 'weapon_anim_dir')
+        else:
+            _draw_anim_file_row(layout, self, 'weapon_anim_system_file', 'ANIM_SYSTEM')
 
         layout.prop(self, 'weapon_mesh_file')
         layout.prop(self, 'weapon_lod_index')
         layout.prop(self, 'ske_file')
         col = layout.column()
-        if self.single_animation:
-            col.prop(self, 'soldier_anim_file')
+        if self.import_method == 'SINGLE':
+            _draw_anim_file_row(col, self, 'soldier_anim_file', 'SOLDIER_ANIM')
         else:
             col.prop(self, 'soldier_anim_dir')
         col.enabled = self.ske_file is None or os.path.basename(self.ske_file) != '1p_setup.ske'
@@ -475,6 +621,7 @@ def init(rc : RegisterFactory):
     rc.reg_class(VIEW3D_OT_bf2_anim_ctrl_setup_mask)
     rc.reg_class(VIEW3D_OT_bf2_anim_change_parent)
     rc.reg_class(VIEW3D_OT_bf2_anim_clear_parent)
+    rc.reg_class(VIEW3D_OT_bf2_anim_file_select)
     rc.reg_class(VIEW3D_OT_bf2_animation_wizard)
     rc.reg_class(VIEW3D_PT_bf2_animation_Panel)
 

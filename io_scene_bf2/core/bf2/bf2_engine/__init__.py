@@ -574,6 +574,35 @@ class LightManager():
         self.sun_dir = _str_to_vec(vec, 3)
 
 
+class Animation(Template):
+    def __init__(self, path, engine=None):
+        super(Animation, self).__init__(path)
+        self.path = path
+        self.looping = None
+        self.length = None
+        self.ignore_mother_orientation = None
+
+
+class AnimationManager(TemplateManager):
+    MANAGED_TYPE = Animation
+
+    @console_command
+    def createAnimation(self, path):
+        self.create(path)
+
+    @console_command
+    def looping(self, val):
+        self.active_obj.looping = bool(int(val))
+
+    @console_command
+    def length(self, val):
+        self.active_obj.length = float(val)
+
+    @console_command
+    def ignoreMotherOrientation(self, bone_id):
+        self.active_obj.ignore_mother_orientation = int(bone_id)
+
+
 class BF2EngineException(Exception):
     pass
 
@@ -591,6 +620,7 @@ class BF2Engine():
         self.glob_managers.append(CollisionManager(self))
         self.glob_managers.append(ObjectManager(self))
         self.glob_managers.append(HeightmapClusterManager(self))
+        self.glob_managers.append(AnimationManager(self))
         self.file_manager : FileManager = FileManager()
         self.light_manager : LightManager = LightManager()
 
@@ -601,6 +631,9 @@ class BF2Engine():
         self.main_console.register_object(self.get_manager(HeightmapCluster), 'HeightmapCluster')
         self.main_console.register_object(self.get_manager(HeightmapCluster), 'Heightmap')
         self.main_console.register_object(self.get_manager(CollisionMeshTemplate))
+        animation_manager = self.get_manager(Animation)
+        self.main_console.register_object(animation_manager, 'animationSystem')
+        self.main_console.register_object(animation_manager, 'animationManager')
         self.main_console.register_object(self.file_manager)
         self.main_console.register_object(self.light_manager)
 

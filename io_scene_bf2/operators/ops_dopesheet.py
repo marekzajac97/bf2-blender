@@ -2,7 +2,16 @@ import bpy # type: ignore
 
 from bpy.props import PointerProperty, StringProperty # type: ignore
 from .utils import RegisterFactory
-from ..core.tools.anim_utils import update_nla_setup
+from ..core.tools.anim_utils import update_nla_setup, uncovered_mute_bones
+from ..core.skeleton import is_bf2_skeleton
+
+def _find_rig_for_action(action):
+    if action is None:
+        return None
+    for obj in bpy.data.objects:
+        if is_bf2_skeleton(obj) and obj.animation_data and obj.animation_data.action is action:
+            return obj
+    return None
 
 def _get_bf2_bone_id(armature, bone_name):
     if not armature or not bone_name:
@@ -28,23 +37,38 @@ class DOPESHEET_PT_bf2_action(bpy.types.Panel):
         self.layout.prop(action, "bf2_soldier_action")
         col = self.layout.column()
         col.enabled = bool(action.bf2_soldier_action)
-        armature = context.object if context.object and context.object.type == 'ARMATURE' else None
+        armature = _find_rig_for_action(action)
+        if armature is None and context.object and context.object.type == 'ARMATURE':
+            armature = context.object
         if armature:
             col.prop_search(action, "bf2_ignore_mother_orientation", armature.data, "bones")
         else:
             col.prop(action, "bf2_ignore_mother_orientation")
-        # bone_id = _get_bf2_bone_id(armature, action.bf2_ignore_mother_orientation)
-        # col.label(text=f"Ignore mother orientation value: {bone_id}")
+
+        uncovered = uncovered_mute_bones(armature, action)
+        if uncovered:
+            # muted here but absent from the soldier action: nothing drives them,
+            # so they keep their old pose when switching actions
+            warn = self.layout.column()
+            warn.alert = True
+            warn.label(text="Not animated by the soldier action:", icon='ERROR')
+            warn.label(text=", ".join(sorted(uncovered)))
 
 def _on_soldier_action_update(action, context):
     if context.scene.is_nla_tweakmode:
         return
-    update_nla_setup(context, action)
+    # the action may belong to a rig that is not the currently active object
+    obj = _find_rig_for_action(action) or context.object
+    update_nla_setup(context, action, obj=obj)
 
 def _on_action_change():
     if bpy.context.scene.is_nla_tweakmode:
         return
-    update_nla_setup(bpy.context)
+    # the msgbus callback is not tied to a specific object and the active object
+    # may be a mesh, so update every BF2 rig instead of trusting context.object
+    for obj in bpy.data.objects:
+        if obj.animation_data and is_bf2_skeleton(obj):
+            update_nla_setup(bpy.context, obj.animation_data.action, obj=obj)
 
 _msgbus_owner = object()
 
